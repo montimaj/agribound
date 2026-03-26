@@ -1,0 +1,661 @@
+"""
+Google Earth Engine composite builder.
+
+Handles annual composite generation for Landsat, Sentinel-2, HLS, NAIP,
+and SPOT satellite sources using GEE. Supports multiple export methods
+(local download, Google Drive, Google Cloud Storage) and automatic chunking
+for large study areas.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import tempfile
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from agribound.composites.base import CompositeBuilder, SOURCE_REGISTRY
+from agribound.config import AgriboundConfig
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Cloud masking functions (per source)
+# ---------------------------------------------------------------------------
+
+
+def _mask_landsat_clouds(image):
+    """Apply QA_PIXEL cloud mask to a Landsat image."""
+    import ee
+
+    qa = image.select("QA_PIXEL")
+    # Bits 3 (cloud) and 4 (cloud shadow)
+    cloud_mask = qa.bitwiseAnd(1 << 3).eq(0).And(qa.bitwiseAnd(1 << 4).eq(0))
+    return image.updateMask(cloud_mask)
+
+
+def _mask_s2_clouds(image):
+    """Apply SCL cloud mask to a Sentinel-2 image."""
+    import ee
+
+    scl = image.select("SCL")
+    # SCL classes: 3=cloud shadow, 8=cloud medium, 9=cloud high, 10=cirrus
+    mask = scl.neq(3).And(scl.neq(8)).And(scl.neq(9)).And(scl.neq(10))
+    return image.updateMask(mask)
+
+
+def _mask_hls_clouds(image):
+    """Apply Fmask cloud mask to an HLS image."""
+    import ee
+
+    fmask = image.select("Fmask")
+    # Bits 1 (cloud) and 3 (cloud shadow)
+    cloud_mask = fmask.bitwiseAnd(1 << 1).eq(0).And(fmask.bitwiseAnd(1 << 3).eq(0))
+    return image.updateMask(cloud_mask)
+
+
+# ---------------------------------------------------------------------------
+# Source-specific collection builders
+# ---------------------------------------------------------------------------
+
+
+def _build_landsat_collection(config: AgriboundConfig, geometry):
+    """Build a Landsat 8+9 annual composite."""
+    import ee
+
+    start_date, end_date = _get_date_range(config)
+
+    lc08 = (
+        ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+        .filterDate(start_date, end_date)
+        .filterBounds(geometry)
+        .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
+        .map(_mask_landsat_clouds)
+        .select(["SR_B4", "SR_B3", "SR_B2", "SR_B5"], ["R", "G", "B", "NIR"])
+    )
+
+    lc09 = (
+        ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
+        .filterDate(start_date, end_date)
+        .filterBounds(geometry)
+        .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
+        .map(_mask_landsat_clouds)
+        .select(["SR_B4", "SR_B3", "SR_B2", "SR_B5"], ["R", "G", "B", "NIR"])
+    )
+
+    merged = lc08.merge(lc09)
+    return merged, 30
+
+
+def _build_sentinel2_collection(config: AgriboundConfig, geometry):
+    """Build a Sentinel-2 annual composite."""
+    import ee
+
+    start_date, end_date = _get_date_range(config)
+
+    collection = (
+        ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+        .filterDate(start_date, end_date)
+        .filterBounds(geometry)
+        .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", config.cloud_cover_max))
+        .map(_mask_s2_clouds)
+        .select(["B4", "B3", "B2", "B8"], ["R", "G", "B", "NIR"])
+    )
+
+    return collection, 10
+
+
+def _build_hls_collection(config: AgriboundConfig, geometry):
+    """Build a Harmonized Landsat-Sentinel annual composite."""
+    import ee
+
+    start_date, end_date = _get_date_range(config)
+
+    hlsl = (
+        ee.ImageCollection("NASA/HLS/HLSL30/v002")
+        .filterDate(start_date, end_date)
+        .filterBounds(geometry)
+        .filter(ee.Filter.lt("CLOUD_COVERAGE", config.cloud_cover_max))
+        .map(_mask_hls_clouds)
+        .select(["B4", "B3", "B2", "B5"], ["R", "G", "B", "NIR"])
+    )
+
+    hlss = (
+        ee.ImageCollection("NASA/HLS/HLSS30/v002")
+        .filterDate(start_date, end_date)
+        .filterBounds(geometry)
+        .filter(ee.Filter.lt("CLOUD_COVERAGE", config.cloud_cover_max))
+        .map(_mask_hls_clouds)
+        .select(["B4", "B3", "B2", "B8A"], ["R", "G", "B", "NIR"])
+    )
+
+    merged = hlsl.merge(hlss)
+    return merged, 30
+
+
+def _build_naip_collection(config: AgriboundConfig, geometry):
+    """Build a NAIP imagery collection.
+
+    NAIP is acquired periodically (every 2-3 years) so no median composite
+    is created. Instead, the most recent image for the target year is used.
+    """
+    import ee
+
+    # NAIP may not have imagery for every year — expand window
+    year = config.year
+    collection = (
+        ee.ImageCollection("USDA/NAIP/DOQQ")
+        .filterBounds(geometry)
+        .filter(ee.Filter.calendarRange(year - 1, year + 1, "year"))
+        .select(["R", "G", "B", "N"], ["R", "G", "B", "NIR"])
+    )
+
+    return collection, 1
+
+
+def _build_spot_collection(config: AgriboundConfig, geometry):
+    """Build a SPOT 6/7 annual composite.
+
+    SPOT data in GEE has TOA reflectance values in [0, 10000].
+    Band names in GEE are R, G, B (not B1, B2, B3).
+    """
+    import ee
+
+    start_date, end_date = _get_date_range(config)
+
+    collection = (
+        ee.ImageCollection("AIRBUS/SPOT6_7")
+        .filterDate(start_date, end_date)
+        .filterBounds(geometry)
+        .select(["R", "G", "B"], ["R", "G", "B"])
+    )
+
+    return collection, 6
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_date_range(config: AgriboundConfig) -> tuple[str, str]:
+    """Get the date range for filtering imagery."""
+    if config.date_range is not None:
+        return config.date_range
+    return f"{config.year}-01-01", f"{config.year}-12-31"
+
+
+def _apply_composite_method(collection, method: str):
+    """Apply the compositing method to a collection."""
+    import ee
+
+    if method == "median":
+        return collection.median()
+    elif method == "greenest":
+        # Maximum NDVI composite
+        def add_ndvi(image):
+            ndvi = image.normalizedDifference(["NIR", "R"]).rename("NDVI")
+            return image.addBands(ndvi)
+
+        with_ndvi = collection.map(add_ndvi)
+        return with_ndvi.qualityMosaic("NDVI").select(["R", "G", "B", "NIR"])
+    elif method == "max_ndvi":
+        # Same as greenest
+        def add_ndvi(image):
+            ndvi = image.normalizedDifference(["NIR", "R"]).rename("NDVI")
+            return image.addBands(ndvi)
+
+        with_ndvi = collection.map(add_ndvi)
+        return with_ndvi.qualityMosaic("NDVI").select(["R", "G", "B", "NIR"])
+    else:
+        return collection.median()
+
+
+# ---------------------------------------------------------------------------
+# Tiling and download
+# ---------------------------------------------------------------------------
+
+
+def _compute_tiles(
+    bounds: tuple[float, float, float, float],
+    resolution_m: float,
+    max_tile_pixels: int,
+) -> list[tuple[float, float, float, float]]:
+    """Split a bounding box into tiles if it exceeds the pixel limit.
+
+    Parameters
+    ----------
+    bounds : tuple
+        ``(min_lon, min_lat, max_lon, max_lat)``.
+    resolution_m : float
+        Pixel resolution in meters.
+    max_tile_pixels : int
+        Maximum pixels per tile dimension.
+
+    Returns
+    -------
+    list of tuples
+        List of tile bounding boxes.
+    """
+    from agribound.io.crs import estimate_pixel_count
+
+    total_pixels = estimate_pixel_count(bounds, resolution_m)
+    max_total = max_tile_pixels * max_tile_pixels
+
+    if total_pixels <= max_total:
+        return [bounds]
+
+    min_lon, min_lat, max_lon, max_lat = bounds
+
+    # Compute approximate pixel dimensions
+    center_lat = (min_lat + max_lat) / 2
+    m_per_deg_lon = 111_320.0 * np.cos(np.radians(center_lat))
+    m_per_deg_lat = 111_320.0
+
+    width_px = (max_lon - min_lon) * m_per_deg_lon / resolution_m
+    height_px = (max_lat - min_lat) * m_per_deg_lat / resolution_m
+
+    n_cols = max(1, int(np.ceil(width_px / max_tile_pixels)))
+    n_rows = max(1, int(np.ceil(height_px / max_tile_pixels)))
+
+    tile_width = (max_lon - min_lon) / n_cols
+    tile_height = (max_lat - min_lat) / n_rows
+
+    tiles = []
+    for row in range(n_rows):
+        for col in range(n_cols):
+            tile_bounds = (
+                min_lon + col * tile_width,
+                min_lat + row * tile_height,
+                min_lon + (col + 1) * tile_width,
+                min_lat + (row + 1) * tile_height,
+            )
+            tiles.append(tile_bounds)
+
+    logger.info(
+        "Split study area into %d tiles (%d x %d) for parallel download",
+        len(tiles),
+        n_cols,
+        n_rows,
+    )
+    return tiles
+
+
+def _download_tile_local(
+    composite,
+    geometry,
+    resolution_m: float,
+    output_path: str,
+    crs: str = "EPSG:4326",
+) -> str:
+    """Download a composite tile via direct local download.
+
+    Parameters
+    ----------
+    composite : ee.Image
+        Composited GEE image.
+    geometry : ee.Geometry
+        Region of interest.
+    resolution_m : float
+        Pixel resolution in meters.
+    output_path : str
+        Local file path for the GeoTIFF.
+    crs : str
+        Output CRS.
+
+    Returns
+    -------
+    str
+        Path to the downloaded GeoTIFF.
+    """
+    try:
+        import geemap
+    except ImportError:
+        raise ImportError(
+            "geemap is required for local GEE downloads. "
+            "Install with: pip install agribound[gee]"
+        )
+
+    logger.info("Downloading composite to %s (local method)", output_path)
+
+    geemap.download_ee_image(
+        composite,
+        filename=output_path,
+        region=geometry,
+        scale=resolution_m,
+        crs=crs,
+    )
+
+    return output_path
+
+
+def _export_to_drive(
+    composite,
+    geometry,
+    resolution_m: float,
+    description: str,
+    folder: str = "agribound_exports",
+    crs: str = "EPSG:4326",
+) -> str:
+    """Export a composite to Google Drive.
+
+    Parameters
+    ----------
+    composite : ee.Image
+        Composited GEE image.
+    geometry : ee.Geometry
+        Region of interest.
+    resolution_m : float
+        Pixel resolution in meters.
+    description : str
+        Task description and filename.
+    folder : str
+        Google Drive folder.
+    crs : str
+        Output CRS.
+
+    Returns
+    -------
+    str
+        Description of the export task (download manually from Drive).
+    """
+    import ee
+
+    task = ee.batch.Export.image.toDrive(
+        image=composite,
+        description=description,
+        folder=folder,
+        region=geometry,
+        scale=resolution_m,
+        crs=crs,
+        maxPixels=1e13,
+        fileFormat="GeoTIFF",
+    )
+    task.start()
+    logger.info(
+        "GEE export task started: %s (check Google Drive/%s/)", description, folder
+    )
+    return f"gdrive://{folder}/{description}"
+
+
+def _export_to_gcs(
+    composite,
+    geometry,
+    resolution_m: float,
+    bucket: str,
+    file_prefix: str,
+    crs: str = "EPSG:4326",
+) -> str:
+    """Export a composite to Google Cloud Storage.
+
+    Parameters
+    ----------
+    composite : ee.Image
+        Composited GEE image.
+    geometry : ee.Geometry
+        Region of interest.
+    resolution_m : float
+        Pixel resolution in meters.
+    bucket : str
+        GCS bucket name.
+    file_prefix : str
+        File prefix in the bucket.
+    crs : str
+        Output CRS.
+
+    Returns
+    -------
+    str
+        GCS URI for the exported file.
+    """
+    import ee
+
+    task = ee.batch.Export.image.toCloudStorage(
+        image=composite,
+        description=file_prefix,
+        bucket=bucket,
+        fileNamePrefix=f"agribound/{file_prefix}",
+        region=geometry,
+        scale=resolution_m,
+        crs=crs,
+        maxPixels=1e13,
+        fileFormat="GeoTIFF",
+    )
+    task.start()
+    logger.info("GEE export to GCS started: gs://%s/agribound/%s", bucket, file_prefix)
+    return f"gs://{bucket}/agribound/{file_prefix}"
+
+
+# ---------------------------------------------------------------------------
+# Main builder
+# ---------------------------------------------------------------------------
+
+# Map source names to collection builder functions
+_COLLECTION_BUILDERS = {
+    "landsat": _build_landsat_collection,
+    "sentinel2": _build_sentinel2_collection,
+    "hls": _build_hls_collection,
+    "naip": _build_naip_collection,
+    "spot": _build_spot_collection,
+}
+
+
+class GEECompositeBuilder(CompositeBuilder):
+    """Composite builder for Google Earth Engine satellite sources.
+
+    Handles Landsat, Sentinel-2, HLS, NAIP, and SPOT imagery. Creates
+    annual cloud-free composites and downloads them as local GeoTIFFs.
+
+    For large study areas, automatically tiles the download using dask
+    for parallel processing.
+    """
+
+    def build(self, config: AgriboundConfig) -> str:
+        """Build and download an annual satellite composite.
+
+        Parameters
+        ----------
+        config : AgriboundConfig
+            Pipeline configuration.
+
+        Returns
+        -------
+        str
+            Path to the downloaded composite GeoTIFF.
+        """
+        import ee
+
+        from agribound.auth import setup_gee
+        from agribound.io.vector import read_study_area, get_study_area_bounds
+
+        # Initialize GEE
+        setup_gee(project=config.gee_project)
+
+        # Load study area
+        study_gdf = read_study_area(config.study_area)
+        bounds = get_study_area_bounds(study_gdf)
+
+        # Convert study area to GEE geometry
+        geometry = self._gdf_to_ee_geometry(study_gdf)
+
+        # Build collection
+        builder_fn = _COLLECTION_BUILDERS.get(config.source)
+        if builder_fn is None:
+            raise ValueError(f"No GEE collection builder for source: {config.source}")
+
+        collection, resolution_m = builder_fn(config, geometry)
+
+        # Apply compositing method
+        if config.source == "naip":
+            # NAIP: use mosaic (most recent on top)
+            composite = collection.mosaic()
+        else:
+            composite = _apply_composite_method(collection, config.composite_method)
+
+        # Clip to study area
+        composite = composite.clip(geometry)
+
+        # Prepare output
+        cache_dir = config.get_working_dir()
+        base_name = f"{config.source}_{config.year}_composite"
+
+        # Check if tiling is needed
+        tiles = _compute_tiles(bounds, resolution_m, config.tile_size)
+
+        if len(tiles) == 1:
+            # Single tile — direct download
+            output_path = str(cache_dir / f"{base_name}.tif")
+            return self._download_single(
+                composite, geometry, resolution_m, output_path, config
+            )
+        else:
+            # Multiple tiles — parallel download and merge
+            return self._download_tiled(
+                composite, tiles, resolution_m, base_name, cache_dir, config
+            )
+
+    def _download_single(
+        self,
+        composite,
+        geometry,
+        resolution_m: float,
+        output_path: str,
+        config: AgriboundConfig,
+    ) -> str:
+        """Download a single (non-tiled) composite."""
+        if config.export_method == "local":
+            return _download_tile_local(
+                composite, geometry, resolution_m, output_path
+            )
+        elif config.export_method == "gdrive":
+            desc = Path(output_path).stem
+            return _export_to_drive(composite, geometry, resolution_m, desc)
+        elif config.export_method == "gcs":
+            prefix = Path(output_path).stem
+            return _export_to_gcs(
+                composite, geometry, resolution_m, config.gcs_bucket, prefix
+            )
+        else:
+            raise ValueError(f"Unknown export method: {config.export_method}")
+
+    def _download_tiled(
+        self,
+        composite,
+        tiles: list[tuple[float, float, float, float]],
+        resolution_m: float,
+        base_name: str,
+        cache_dir: Path,
+        config: AgriboundConfig,
+    ) -> str:
+        """Download a composite in tiles and merge into a VRT.
+
+        Uses dask for parallel tile downloads.
+        """
+        import ee
+
+        tile_dir = cache_dir / f"{base_name}_tiles"
+        tile_dir.mkdir(parents=True, exist_ok=True)
+
+        tile_paths = []
+        for i, tile_bounds in enumerate(tiles):
+            tile_path = str(tile_dir / f"tile_{i:04d}.tif")
+            tile_geom = ee.Geometry.Rectangle(list(tile_bounds))
+            tile_composite = composite.clip(tile_geom)
+
+            if config.export_method == "local":
+                _download_tile_local(
+                    tile_composite, tile_geom, resolution_m, tile_path
+                )
+                tile_paths.append(tile_path)
+            else:
+                # For GDrive/GCS, export individual tiles
+                desc = f"{base_name}_tile_{i:04d}"
+                if config.export_method == "gdrive":
+                    _export_to_drive(tile_composite, tile_geom, resolution_m, desc)
+                elif config.export_method == "gcs":
+                    _export_to_gcs(
+                        tile_composite,
+                        tile_geom,
+                        resolution_m,
+                        config.gcs_bucket,
+                        desc,
+                    )
+
+        if config.export_method != "local":
+            logger.warning(
+                "Tiles exported to %s. Download and merge manually, "
+                "or switch to export_method='local'.",
+                config.export_method,
+            )
+            return str(tile_dir)
+
+        # Build VRT from tiles
+        vrt_path = str(cache_dir / f"{base_name}.vrt")
+        self._build_vrt(tile_paths, vrt_path)
+        return vrt_path
+
+    @staticmethod
+    def _build_vrt(tile_paths: list[str], vrt_path: str) -> str:
+        """Build a GDAL VRT from a list of tile GeoTIFFs.
+
+        Parameters
+        ----------
+        tile_paths : list[str]
+            Paths to tile GeoTIFFs.
+        vrt_path : str
+            Output VRT file path.
+
+        Returns
+        -------
+        str
+            Path to the VRT file.
+        """
+        from osgeo import gdal
+
+        vrt = gdal.BuildVRT(vrt_path, tile_paths)
+        vrt.FlushCache()
+        del vrt
+        logger.info("Built VRT from %d tiles: %s", len(tile_paths), vrt_path)
+        return vrt_path
+
+    @staticmethod
+    def _gdf_to_ee_geometry(gdf):
+        """Convert a GeoDataFrame to a GEE Geometry.
+
+        Parameters
+        ----------
+        gdf : geopandas.GeoDataFrame
+            Input geodataframe.
+
+        Returns
+        -------
+        ee.Geometry
+            GEE geometry object.
+        """
+        import ee
+        from shapely.geometry import mapping
+
+        gdf_4326 = gdf.to_crs("EPSG:4326") if gdf.crs != "EPSG:4326" else gdf
+        union_geom = gdf_4326.union_all()
+        geojson = mapping(union_geom)
+        return ee.Geometry(geojson)
+
+    def get_band_mapping(self, source: str) -> dict[str, str]:
+        """Return canonical band mapping for a GEE source.
+
+        Parameters
+        ----------
+        source : str
+            Satellite source name.
+
+        Returns
+        -------
+        dict[str, str]
+            Mapping of canonical names to source band names.
+        """
+        info = SOURCE_REGISTRY.get(source, {})
+        return info.get("bands", {})

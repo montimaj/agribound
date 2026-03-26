@@ -1,0 +1,37 @@
+name: Test GEE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-gee:
+    name: GEE Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[gee,dev]
+      - name: Authenticate with GEE
+        env:
+          GEE_SERVICE_ACCOUNT_KEY: ${{ secrets.GEE_SERVICE_ACCOUNT_KEY }}
+        run: |
+          echo "$GEE_SERVICE_ACCOUNT_KEY" > /tmp/gee-key.json
+          python -c "
+          import ee
+          credentials = ee.ServiceAccountCredentials('', '/tmp/gee-key.json')
+          ee.Initialize(credentials)
+          print('GEE authentication successful')
+          "
+      - name: Run GEE tests
+        env:
+          GEE_SERVICE_ACCOUNT_KEY: ${{ secrets.GEE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gee-key.json
+        run: pytest tests/ -m gee --tb=short -q
+      - name: Cleanup credentials
+        if: always()
+        run: rm -f /tmp/gee-key.json

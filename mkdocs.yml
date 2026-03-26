@@ -1,0 +1,83 @@
+site_name: Agribound
+site_description: Unified agricultural field boundary delineation toolkit combining satellite foundation models, embeddings, and global training data.
+site_url: https://montimaj.github.io/agribound
+repo_url: https://github.com/montimaj/agribound
+repo_name: montimaj/agribound
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: green
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: green
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 2
+            members_order: source
+            docstring_style: numpy
+            show_signature_annotations: true
+            separate_signature: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - User Guide:
+      - Quickstart: user-guide/quickstart.md
+      - Satellite Sources: user-guide/satellite-sources.md
+      - Delineation Engines: user-guide/engines.md
+      - Configuration Reference: user-guide/configuration.md
+      - CLI Usage: user-guide/cli.md
+      - GEE Setup: user-guide/gee-setup.md
+      - Fine-Tuning: user-guide/fine-tuning.md
+  - API Reference:
+      - Pipeline: api/pipeline.md
+      - Configuration: api/config.md
+      - Composites: api/composites.md
+      - Engines: api/engines.md
+      - Post-Processing: api/postprocess.md
+      - I/O Utilities: api/io.md
+      - Evaluation: api/evaluate.md
+      - Visualization: api/visualize.md
+  - Contributing: contributing.md
+  - Citation & References: citation.md

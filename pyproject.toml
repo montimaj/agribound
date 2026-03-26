@@ -1,0 +1,135 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agribound"
+dynamic = ["version"]
+description = "Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Sayantan Majumdar", email = "sayantan.majumdar@dri.edu"},
+    {name = "Justin Huntington"},
+    {name = "Peter ReVelle"},
+    {name = "Soheil Nozari"},
+    {name = "Ryan Smith"},
+    {name = "Matt Bromley"},
+    {name = "Jayden Atkin"},
+    {name = "Samapriya Roy"},
+]
+keywords = [
+    "agriculture",
+    "field-boundaries",
+    "remote-sensing",
+    "satellite-imagery",
+    "deep-learning",
+    "earth-engine",
+    "geospatial",
+    "segmentation",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+    "rasterio>=1.3",
+    "geopandas>=0.14",
+    "shapely>=2.0",
+    "pyproj>=3.6",
+    "fiona>=1.9",
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "scikit-learn>=1.3",
+    "click>=8.1",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+    "huggingface-hub>=0.20",
+    "dask[distributed]>=2024.1",
+    "leafmap>=0.30",
+]
+
+[project.optional-dependencies]
+gee = [
+    "earthengine-api>=0.1.380",
+    "geemap>=0.30",
+]
+delineate-anything = [
+    "ultralytics>=8.3",
+    "opencv-python>=4.8",
+    "numba>=0.58",
+]
+ftw = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "torchgeo>=0.6",
+    "segmentation-models-pytorch>=0.3",
+    "lightning>=2.1",
+]
+geoai = [
+    "geoai-py>=0.30",
+]
+prithvi = [
+    "terratorch>=0.1",
+    "torch>=2.1",
+    "torchgeo>=0.6",
+    "kornia>=0.7",
+]
+tessera = [
+    "torch>=2.1",
+    "geoai-py>=0.30",
+]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+    "mkdocs-jupyter>=0.24",
+]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.3",
+]
+all = [
+    "agribound[gee,delineate-anything,ftw,geoai,prithvi,tessera]",
+]
+
+[project.scripts]
+agribound = "agribound.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/montimaj/agribound"
+Documentation = "https://montimaj.github.io/agribound"
+Repository = "https://github.com/montimaj/agribound"
+Issues = "https://github.com/montimaj/agribound/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "agribound._version.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["agribound*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: requires GPU (deselect with '-m not gpu')",
+    "gee: requires GEE authentication (deselect with '-m not gee')",
+    "slow: long-running tests (deselect with '-m not slow')",
+]
