@@ -210,9 +210,10 @@ class DelineateAnythingEngine(DelineationEngine):
                     "minimum_area_m2": config.min_field_area_m2,
                     "minimum_hole_area_m2": config.min_field_area_m2,
                 },
+                # Disable DA's internal simplification — agribound's
+                # postprocess pipeline handles simplification instead.
                 "simplification_args": {
-                    "simplify": config.simplify_tolerance > 0,
-                    "epsilon_scale": config.simplify_tolerance,
+                    "simplify": False,
                 },
             },
         )

@@ -63,12 +63,12 @@ class FTWEngine(DelineationEngine):
             Field boundary polygons.
         """
         try:
-            from ftw_tools.inference.inference import run as ftw_run
-            from ftw_tools.postprocess.polygonize import polygonize as ftw_polygonize
+            from ftw_cli.inference import run as ftw_run
+            from ftw_cli.polygonize import polygonize as ftw_polygonize
         except ImportError:
             raise ImportError(
                 "ftw-tools is required for the FTW engine. "
-                "Install with: pip install agribound[ftw] ftw-tools"
+                "Install with: pip install agribound[ftw]"
             ) from None
 
         self.validate_input(raster_path, config)

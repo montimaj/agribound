@@ -177,6 +177,11 @@ class PrithviEngine(DelineationEngine):
         from agribound.io.raster import read_raster
 
         data, meta = read_raster(raster_path)
+        if data is None or data.size == 0:
+            logger.warning("Empty raster data from %s", raster_path)
+            return gpd.GeoDataFrame(columns=["geometry"], crs=meta.get("crs"))
+
+        logger.info("Raster shape: %s", data.shape)
 
         # Tile the raster into patches and extract embeddings
         patch_size = config.engine_params.get("patch_size", 224)
@@ -300,21 +305,23 @@ class PrithviEngine(DelineationEngine):
         else:
             sample = valid_pixels
 
-        if n_clusters == "auto":
+        if not isinstance(n_clusters, int) or n_clusters < 2:
             best_k = 10
             best_score = -1
             for k in [5, 10, 15, 20, 30]:
                 km = KMeans(n_clusters=k, n_init=3, random_state=42)
                 labels = km.fit_predict(sample)
                 if len(np.unique(labels)) > 1:
-                    score = silhouette_score(sample, labels, sample_size=min(5000, len(sample)))
+                    score = silhouette_score(
+                        sample, labels, sample_size=min(5000, len(sample))
+                    )
                     if score > best_score:
                         best_score = score
                         best_k = k
             n_clusters = best_k
             logger.info("Auto-selected %d clusters (silhouette=%.3f)", n_clusters, best_score)
 
-        km = KMeans(n_clusters=n_clusters, n_init=5, random_state=42)
+        km = KMeans(n_clusters=int(n_clusters), n_init=5, random_state=42)
         km.fit(sample)
 
         labels = np.zeros(len(flat), dtype=np.int32)
