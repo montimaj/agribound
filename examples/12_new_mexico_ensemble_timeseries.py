@@ -38,8 +38,9 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("googleapiclient").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
 
 # --- Configuration ---
 NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"

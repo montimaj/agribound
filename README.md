@@ -160,6 +160,56 @@ Run with:
 agribound delineate --config config.yml
 ```
 
+## Project Structure
+
+```
+agribound/
+├── agribound/                  # Main package
+│   ├── __init__.py             # Public API (delineate, evaluate, show_boundaries)
+│   ├── _version.py             # Version string
+│   ├── auth.py                 # GEE authentication helpers
+│   ├── cli.py                  # Click-based CLI (agribound delineate, auth, ...)
+│   ├── config.py               # AgriboundConfig dataclass
+│   ├── evaluate.py             # IoU / F1 / precision / recall metrics
+│   ├── pipeline.py             # Main delineate() orchestrator
+│   ├── visualize.py            # Interactive map generation (leafmap)
+│   ├── composites/             # Satellite composite builders
+│   │   ├── base.py             # Source registry and abstract builder
+│   │   ├── gee.py              # GEE composites (Landsat, S2, HLS, NAIP, SPOT)
+│   │   └── local.py            # Local GeoTIFF and embedding loaders
+│   ├── engines/                # Delineation engines
+│   │   ├── base.py             # Engine registry and abstract base class
+│   │   ├── delineate_anything.py  # YOLO + SAM instance segmentation
+│   │   ├── ftw.py              # Fields of The World semantic segmentation
+│   │   ├── geoai_field.py      # GeoAI Mask R-CNN
+│   │   ├── prithvi.py          # Prithvi-EO-2.0 foundation model
+│   │   ├── embedding.py        # Unsupervised K-means on embeddings
+│   │   ├── ensemble.py         # Multi-engine vote / union / intersection
+│   │   └── finetune.py         # Reference-boundary fine-tuning
+│   ├── io/                     # I/O utilities
+│   │   ├── crs.py              # CRS helpers (UTM lookup, equal-area)
+│   │   ├── raster.py           # GeoTIFF reading, tiling, band selection
+│   │   └── vector.py           # Study area / reference boundary readers
+│   └── postprocess/            # Post-processing pipeline
+│       ├── filter.py           # Area filtering and LULC masking
+│       ├── merge.py            # Cross-tile polygon merging (IoU-based)
+│       ├── polygonize.py       # Raster mask → vector polygons
+│       ├── regularize.py       # Polygon regularization
+│       └── simplify.py         # Douglas-Peucker simplification
+├── examples/                   # Example scripts (12) and Jupyter notebooks
+│   ├── 01–12_*.py              # Runnable Python scripts
+│   ├── notebooks/              # Interactive notebook versions
+│   └── NMOSE Field Boundaries/ # Reference shapefile (NM)
+├── tests/                      # Pytest suite
+│   ├── unit/                   # Unit tests (config, evaluate, I/O, postprocess)
+│   └── integration/            # Integration tests (CLI, local pipeline)
+├── docs/                       # MkDocs documentation source
+│   ├── api/                    # API reference (auto-generated from docstrings)
+│   └── user-guide/             # Quickstart, engines, satellite sources, etc.
+├── pyproject.toml              # Build config, dependencies, optional extras
+└── README.md
+```
+
 ## Examples
 
 Example scripts and interactive Jupyter notebooks are provided in the [`examples/`](examples/) directory. See the [examples README](examples/README.md) for full details.
@@ -177,7 +227,7 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [09_ensemble_comparison.py](examples/09_ensemble_comparison.py) | [notebook](examples/notebooks/09_ensemble_comparison.ipynb) | Multi-engine comparison and ensemble fusion |
 | [10_local_tif_quickstart.py](examples/10_local_tif_quickstart.py) | [notebook](examples/notebooks/10_local_tif_quickstart.ipynb) | Five-line quickstart using a local GeoTIFF with no GEE dependency |
 | [11_mississippi_alluvial_plain_spot.py](examples/11_mississippi_alluvial_plain_spot.py) | [notebook](examples/notebooks/11_mississippi_alluvial_plain_spot.ipynb) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
-| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | 9-year ensemble time series (2017-2025) over New Mexico using vote-based multi-engine merge |
+| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-engine grand ensemble (2020--2022) over Lea County, NM using all available satellite products and engines with vote-based merge |
 
 ## Google Earth Engine Authentication
 
