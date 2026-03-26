@@ -18,17 +18,17 @@ Agribound supports multiple satellite imagery sources for building annual compos
 !!! note "SPOT Access"
     SPOT 6/7 imagery (`AIRBUS/SPOT6_7`) is restricted to select GEE users and is for internal DRI use only. External users who need SPOT-based field boundaries should contact the package author.
 
-## Band Mappings
+## Downloaded Bands
 
-Each GEE-based source maps canonical band names to source-specific band identifiers:
+All spectral bands are downloaded for each source. Engines automatically select the bands they need using the canonical band mapping.
 
-| Source | R | G | B | NIR |
-|---|---|---|---|---|
-| `landsat` | SR_B4 | SR_B3 | SR_B2 | SR_B5 |
-| `sentinel2` | B4 | B3 | B2 | B8 |
-| `hls` | B4 | B3 | B2 | B5 |
-| `naip` | R | G | B | N |
-| `spot` | R | G | B | NIR |
+| Source | All Bands | Canonical R | Canonical G | Canonical B | Canonical NIR |
+|---|---|---|---|---|---|
+| `landsat` | SR_B2, SR_B3, SR_B4, SR_B5, SR_B6, SR_B7 | SR_B4 | SR_B3 | SR_B2 | SR_B5 |
+| `sentinel2` | B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12 | B4 | B3 | B2 | B8 |
+| `hls` | B1, B2, B3, B4, B5, B6, B7 | B4 | B3 | B2 | B5 |
+| `naip` | R, G, B, N | R | G | B | N |
+| `spot` | R, G, B | R | G | B | -- |
 
 For `local` sources, band mapping can be overridden via the `bands` configuration parameter.
 

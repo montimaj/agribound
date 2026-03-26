@@ -168,6 +168,59 @@ class DelineationEngine(ABC):
             )
 
 
+def get_canonical_band_indices(
+    source: str,
+    canonical_names: list[str],
+) -> list[int]:
+    """Get 1-based raster band indices for canonical band names.
+
+    Looks up each canonical name (e.g. ``"R"``, ``"G"``, ``"B"``, ``"NIR"``)
+    in the source registry and returns the corresponding 1-based band indices
+    in the downloaded composite.
+
+    Parameters
+    ----------
+    source : str
+        Satellite source name.
+    canonical_names : list[str]
+        Canonical band names to look up (e.g. ``["R", "G", "B"]``).
+
+    Returns
+    -------
+    list[int]
+        1-based band indices in the composite raster.
+
+    Raises
+    ------
+    ValueError
+        If the source or a canonical band name is not found.
+    """
+    from agribound.composites.base import SOURCE_REGISTRY
+
+    info = SOURCE_REGISTRY.get(source)
+    if info is None:
+        raise ValueError(f"Unknown source {source!r}")
+
+    all_bands = info.get("all_bands")
+    canonical = info.get("canonical_bands") or {}
+
+    if all_bands is None:
+        # Local source — fall back to positional (1, 2, 3, ...)
+        return list(range(1, len(canonical_names) + 1))
+
+    indices = []
+    for name in canonical_names:
+        native = canonical.get(name)
+        if native is None:
+            raise ValueError(
+                f"Canonical band {name!r} not defined for source {source!r}. "
+                f"Available: {list(canonical.keys())}"
+            )
+        idx = all_bands.index(native) + 1  # 1-based
+        indices.append(idx)
+    return indices
+
+
 def get_engine(engine_name: str) -> DelineationEngine:
     """Factory function to get a delineation engine by name.
 

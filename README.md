@@ -18,7 +18,10 @@ Agribound is a Python package that provides a unified framework for agricultural
 ## Features
 
 - **Multi-satellite support** -- Landsat (30 m, 1984--present), Sentinel-2 (10 m), Harmonized Landsat Sentinel (HLS, 30 m), NAIP (1 m), and SPOT 6/7 (1.5 m)
-- **Six delineation engines** -- Delineate-Anything, Fields of The World (FTW), GeoAI Field Boundary, Prithvi-EO-2.0, embedding-based unsupervised delineation, and a weighted ensemble mode
+- **All spectral bands downloaded** -- Full multi-band composites are downloaded for each sensor (e.g., all 12 Sentinel-2 spectral bands, all 6 Landsat SR bands). Engines automatically select the bands they need via canonical band mappings
+- **Six delineation engines** -- Delineate-Anything, Fields of The World (FTW), GeoAI Field Boundary, Prithvi-EO-2.0, embedding-based unsupervised delineation, and a multi-model ensemble mode
+- **14+ pre-trained FTW models** -- All FTW model variants (EfficientNet-B3/B5/B7, CC-BY and standard licensing, v1--v3) are available via `agribound.list_ftw_models()` and selectable through `engine_params`
+- **Smart DA routing** -- For Sentinel-2, Delineate-Anything automatically delegates to FTW's built-in instance segmentation with proper S2 preprocessing and native MPS (Apple GPU) support. For other sensors, the standalone DA pipeline with sensor-agnostic normalization is used
 - **Google Earth Engine integration** -- Annual cloud-free composite generation with configurable date ranges, compositing methods (median, greenest pixel, max NDVI), and cloud masking
 - **Embedding-based unsupervised delineation** -- Google Open Buildings and TESSERA embeddings for CPU-only boundary extraction without any labeled training data
 - **Automatic fine-tuning** -- Supply reference boundaries and agribound will fine-tune a supported engine on your region before inference
@@ -30,27 +33,29 @@ Agribound is a Python package that provides a unified framework for agricultural
 
 ## Satellite Sources
 
-| Source | Key | Resolution | Coverage | GEE Collection ID | Notes |
+All spectral bands are downloaded for each sensor. Engines automatically select the bands they need via canonical R/G/B/NIR mappings.
+
+| Source | Key | Resolution | Bands Downloaded | GEE Collection ID | Notes |
 |---|---|---|---|---|---|
-| Sentinel-2 | `sentinel2` | 10 m | Global, 2017--present | `COPERNICUS/S2_SR_HARMONIZED` | Default source; L2A surface reflectance |
-| Landsat | `landsat` | 30 m | Global, 1984--present | `LANDSAT/LC08/C02/T1_L2`, `LANDSAT/LC09/C02/T1_L2` | Long time-series analysis; auto-selects collection by year |
-| HLS | `hls` | 30 m | Global, 2013--present | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
-| NAIP | `naip` | 1 m | Contiguous US | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields |
-| SPOT 6/7 | `spot` | 1.5 m | On-demand tasking | Restricted -- see [SPOT Access](#spot-access) | Restricted GEE collection; see note below |
-| Local GeoTIFF | `local` | Any | Any | N/A | Bring your own imagery via `--local-tif` |
-| Google Embeddings | `google-embedding` | 10 m | Global (2017--2025) | `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Pre-computed 64-D satellite embeddings |
-| TESSERA Embeddings | `tessera-embedding` | 10 m | Global | N/A | TESSERA foundation model embeddings |
+| Sentinel-2 | `sentinel2` | 10 m | B1--B12, B8A (12 bands) | `COPERNICUS/S2_SR_HARMONIZED` | Default source; L2A surface reflectance |
+| Landsat | `landsat` | 30 m | SR_B2--SR_B7 (6 bands) | `LANDSAT/LC08/C02/T1_L2`, `LANDSAT/LC09/C02/T1_L2` | Long time-series; L5/7 bands harmonized to L8/9 naming |
+| HLS | `hls` | 30 m | B1--B7 (7 bands) | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
+| NAIP | `naip` | 1 m | R, G, B, N (4 bands) | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields |
+| SPOT 6/7 | `spot` | 1.5 m | R, G, B (3 bands) | Restricted -- see [SPOT Access](#spot-access) | Restricted GEE collection; see note below |
+| Local GeoTIFF | `local` | Any | All bands | N/A | Bring your own imagery via `--local-tif` |
+| Google Embeddings | `google-embedding` | 10 m | 64-D embeddings | `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Pre-computed satellite embeddings |
+| TESSERA Embeddings | `tessera-embedding` | 10 m | 128-D embeddings | N/A | TESSERA foundation model embeddings |
 
 ## Delineation Engines
 
 | Engine | Key | Approach | Strengths | GPU Required | Reference |
 |---|---|---|---|---|---|
-| Delineate-Anything | `delineate-anything` | YOLOv8/v11 object detection + SAM post-refinement | Fast; works well across scales | Recommended | [Majumdar et al. (2025)](https://github.com/montimaj/agribound) |
-| Fields of The World | `ftw` | U-Net semantic segmentation trained on global FTW dataset | Strong generalization; 24-country training set | Yes | [Kerner et al. (2024)](https://fieldsofthe.world/) |
+| Delineate-Anything | `delineate-anything` | YOLO instance segmentation (2 model variants) | Fast; resolution-agnostic (1--10 m+); routes through FTW for S2 with native MPS support | Recommended | [Lavreniuk et al. (2025)](https://arxiv.org/abs/2504.02534) |
+| Fields of The World | `ftw` | Semantic segmentation (14+ models: EfficientNet-B3/B5/B7, UNet, UPerNet) | Strong generalization; 25-country training set; all models via `list_ftw_models()` | Yes | [Kerner et al. (2024)](https://fieldsofthe.world/) |
 | GeoAI Field Boundary | `geoai` | Esri GeoAI segmentation model | Easy to use; ArcGIS-compatible | No | [Esri GeoAI](https://github.com/Esri/geoai) |
 | Prithvi-EO-2.0 | `prithvi` | NASA/IBM geospatial foundation model with TerraTorch fine-tuning | State-of-the-art foundation model; multi-temporal | Yes | [Jakubik et al. (2024)](https://huggingface.co/ibm-nasa-geospatial) |
 | Embedding | `embedding` | Unsupervised clustering of pre-computed embeddings | No GPU needed; no labeled data required | No | [Aung et al. (2024)](https://sites.research.google/gr/google-research-open-buildings/) |
-| Ensemble | `ensemble` | Weighted combination of multiple engines | Best accuracy; majority-vote fusion | Depends on engines | -- |
+| Ensemble | `ensemble` | Multi-engine or multi-model consensus (vote / union / intersection) | Best accuracy; supports running same engine with different models | Depends on engines | -- |
 
 ## Installation
 
@@ -229,7 +234,7 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [09_ensemble_comparison.py](examples/09_ensemble_comparison.py) | [notebook](examples/notebooks/09_ensemble_comparison.ipynb) | Multi-engine comparison and ensemble fusion |
 | [10_local_tif_quickstart.py](examples/10_local_tif_quickstart.py) | [notebook](examples/notebooks/10_local_tif_quickstart.ipynb) | Five-line quickstart using a local GeoTIFF with no GEE dependency |
 | [11_mississippi_alluvial_plain_spot.py](examples/11_mississippi_alluvial_plain_spot.py) | [notebook](examples/notebooks/11_mississippi_alluvial_plain_spot.ipynb) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
-| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-engine grand ensemble (2020--2022) over Lea County, NM using all available satellite products and engines with vote-based merge |
+| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-engine, multi-model grand ensemble (2020--2022) over Lea County, NM. Runs all 12 FTW models and both DA variants per source for maximum ensemble diversity |
 
 ## Google Earth Engine Authentication
 

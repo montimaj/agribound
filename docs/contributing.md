@@ -121,7 +121,8 @@ To add a new satellite source:
         "name": "My Source",
         "collection": "GEE/COLLECTION/ID",
         "resolution_m": 10,
-        "bands": {"R": "B4", "G": "B3", "B": "B2", "NIR": "B8"},
+        "all_bands": ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"],
+        "canonical_bands": {"R": "B4", "G": "B3", "B": "B2", "NIR": "B8"},
         "coverage": "Description of spatial and temporal coverage",
         "requires_gee": True,
     }

@@ -173,10 +173,18 @@ class PrithviEngine(DelineationEngine):
             )
             model = model.to(device).eval()
 
-        # Read raster and extract embeddings
+        # Read only the R, G, B, NIR bands from the multi-band raster
+        from agribound.engines.base import get_canonical_band_indices
         from agribound.io.raster import read_raster
 
-        data, meta = read_raster(raster_path)
+        if config.source != "local":
+            rgbn_indices = get_canonical_band_indices(
+                config.source, ["R", "G", "B", "NIR"]
+            )
+        else:
+            rgbn_indices = [1, 2, 3, 4]
+
+        data, meta = read_raster(raster_path, bands=rgbn_indices)
         if data is None or data.size == 0:
             logger.warning("Empty raster data from %s", raster_path)
             return gpd.GeoDataFrame(columns=["geometry"], crs=meta.get("crs"))

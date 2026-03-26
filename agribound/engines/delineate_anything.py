@@ -1,8 +1,12 @@
 """
 Delineate-Anything engine wrapper.
 
-Wraps the Delineate-Anything repository's YOLO-based instance segmentation
-pipeline for resolution-agnostic field boundary detection.
+For Sentinel-2 imagery, delegates to FTW's built-in instance segmentation
+which wraps DelineateAnything with proper S2 preprocessing and native MPS
+support.
+
+For all other sensors (Landsat, NAIP, SPOT, HLS, local), uses the standalone
+Delineate-Anything repository with sensor-agnostic percentile normalization.
 """
 
 from __future__ import annotations
@@ -124,9 +128,12 @@ class DelineateAnythingEngine(DelineationEngine):
     """Field boundary delineation using Delineate-Anything.
 
     Uses YOLO-based instance segmentation trained on the FBIS-22M dataset.
-    Resolution-agnostic — works across 1m to 10m+ satellite imagery.
+    Resolution-agnostic -- works across 1m to 10m+ satellite imagery.
 
-    Models are automatically downloaded from HuggingFace Hub.
+    For Sentinel-2 input, delegates to FTW's built-in instance segmentation
+    which provides proper S2 preprocessing and native MPS support. For all
+    other sensors, uses the standalone Delineate-Anything pipeline with
+    sensor-agnostic normalization.
     """
 
     name = "delineate-anything"
@@ -148,6 +155,99 @@ class DelineateAnythingEngine(DelineationEngine):
         geopandas.GeoDataFrame
             Field boundary polygons.
         """
+        self.validate_input(raster_path, config)
+
+        if config.source == "sentinel2":
+            return self._delineate_via_ftw(raster_path, config)
+        return self._delineate_standalone(raster_path, config)
+
+    # ------------------------------------------------------------------
+    # Sentinel-2 path: delegate to FTW's instance segmentation
+    # ------------------------------------------------------------------
+
+    def _delineate_via_ftw(
+        self, raster_path: str, config: AgriboundConfig
+    ) -> gpd.GeoDataFrame:
+        """Run DA through FTW's instance segmentation for Sentinel-2.
+
+        FTW wraps DelineateAnything with proper S2 preprocessing (/ 3000
+        normalization) and native MPS support.
+        """
+        try:
+            from ftw_tools.inference.inference import run_instance_segmentation
+        except ImportError:
+            raise ImportError(
+                "ftw-tools is required for Sentinel-2 instance segmentation. "
+                "Install with: pip install agribound[ftw]"
+            ) from None
+
+        da_model = config.engine_params.get("da_model", "DelineateAnything")
+        model_size = config.engine_params.get("model_size")
+        if model_size is not None:
+            da_model = {
+                "large": "DelineateAnything",
+                "small": "DelineateAnything-S",
+            }.get(model_size, da_model)
+
+        device = config.resolve_device()
+        gpu = 0 if device == "cuda" else None
+        mps_mode = device == "mps"
+
+        cache_dir = config.get_working_dir()
+        output_ext = config.get_output_extension()
+        output_path = str(cache_dir / f"da_ftw_output{output_ext}")
+
+        logger.info(
+            "Running Delineate-Anything via FTW (model=%s, mps=%s)",
+            da_model,
+            mps_mode,
+        )
+
+        run_instance_segmentation(
+            input=raster_path,
+            model=da_model,
+            out=output_path,
+            gpu=gpu,
+            num_workers=config.n_workers,
+            batch_size=config.engine_params.get("batch_size", 4),
+            patch_size=config.engine_params.get("patch_size", 256),
+            resize_factor=config.engine_params.get("resize_factor", 2),
+            max_detections=config.engine_params.get("max_detections", 100),
+            conf_threshold=config.engine_params.get("conf_threshold", 0.05),
+            iou_threshold=config.engine_params.get("iou_threshold", 0.3),
+            padding=config.engine_params.get("padding"),
+            overwrite=True,
+            mps_mode=mps_mode,
+            simplify=config.engine_params.get("simplify", int(config.simplify_tolerance)),
+            min_size=int(config.min_field_area_m2),
+            max_size=config.engine_params.get("max_size"),
+            close_interiors=config.engine_params.get("close_interiors", True),
+            overlap_iou_threshold=config.engine_params.get("overlap_iou_threshold", 0.3),
+            overlap_contain_threshold=config.engine_params.get(
+                "overlap_contain_threshold", 0.8
+            ),
+        )
+
+        if Path(output_path).exists():
+            gdf = gpd.read_file(output_path)
+            logger.info("Delineated %d field boundaries (FTW DA)", len(gdf))
+            return gdf
+
+        logger.warning("No output produced by FTW instance segmentation")
+        return gpd.GeoDataFrame(columns=["geometry"], crs=None)
+
+    # ------------------------------------------------------------------
+    # Non-S2 path: standalone Delineate-Anything
+    # ------------------------------------------------------------------
+
+    def _delineate_standalone(
+        self, raster_path: str, config: AgriboundConfig
+    ) -> gpd.GeoDataFrame:
+        """Run standalone Delineate-Anything for non-Sentinel-2 sensors.
+
+        Uses the Delineate-Anything repository directly with sensor-agnostic
+        percentile-based normalization.
+        """
         try:
             import importlib
 
@@ -158,10 +258,22 @@ class DelineateAnythingEngine(DelineationEngine):
                 "Delineate-Anything. Install with: pip install agribound[delineate-anything]"
             ) from None
 
-        self.validate_input(raster_path, config)
+        # Determine correct BGR band indices for this source
+        from agribound.engines.base import get_canonical_band_indices
 
-        # Determine model variant
+        if config.source != "local":
+            rgb_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
+            # DA expects BGR order (for OpenCV compatibility)
+            bgr_indices = list(reversed(rgb_indices))
+        else:
+            # Local source: default [3, 2, 1] or user override
+            bgr_indices = [3, 2, 1]
+
+        # Determine model variant — accept both model_size and da_model params
         model_size = config.engine_params.get("model_size", "large")
+        da_model = config.engine_params.get("da_model")
+        if da_model is not None:
+            model_size = "small" if da_model == "DelineateAnything-S" else "large"
         model_filename = {
             "large": "DelineateAnything.pt",
             "small": "DelineateAnything-S.pt",
@@ -206,11 +318,14 @@ class DelineateAnythingEngine(DelineationEngine):
                     "temp_folder": str(temp_dir),
                     "output_path": str(output_path),
                 },
+                "data_loader": {
+                    "bands": bgr_indices,
+                },
                 "filtering_args": {
                     "minimum_area_m2": config.min_field_area_m2,
                     "minimum_hole_area_m2": config.min_field_area_m2,
                 },
-                # Disable DA's internal simplification — agribound's
+                # Disable DA's internal simplification -- agribound's
                 # postprocess pipeline handles simplification instead.
                 "simplification_args": {
                     "simplify": False,
@@ -268,7 +383,8 @@ class DelineateAnythingEngine(DelineationEngine):
     ) -> gpd.GeoDataFrame:
         """Direct YOLO inference when the full Delineate-Anything repo is unavailable.
 
-        Uses ultralytics YOLO directly with tiled processing.
+        Uses ultralytics YOLO directly with tiled processing and
+        sensor-agnostic percentile normalization.
 
         Parameters
         ----------
@@ -304,11 +420,17 @@ class DelineateAnythingEngine(DelineationEngine):
             transform = src.transform
             height, width = src.height, src.width
 
-            # Read RGB bands (first 3)
-            n_bands = min(3, src.count)
-            full_image = src.read(list(range(1, n_bands + 1)))
+            # Read RGB bands using canonical band indices
+            from agribound.engines.base import get_canonical_band_indices
 
-            # Normalize to 0-255 uint8
+            if config.source != "local":
+                rgb_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
+            else:
+                rgb_indices = list(range(1, min(4, src.count + 1)))
+            n_bands = len(rgb_indices)
+            full_image = src.read(rgb_indices)
+
+            # Normalize to 0-255 uint8 (sensor-agnostic percentile scaling)
             for b in range(n_bands):
                 band = full_image[b].astype(float)
                 p1, p99 = np.percentile(band[band > 0], [1, 99]) if np.any(band > 0) else (0, 1)

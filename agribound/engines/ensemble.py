@@ -1,12 +1,14 @@
 """
-Ensemble engine for multi-engine consensus.
+Ensemble engine for multi-engine or multi-model consensus.
 
-Runs multiple delineation engines on the same input and merges results
-using configurable strategies (intersection, union, majority vote).
+Runs multiple delineation engines (or the same engine with different models)
+on the same input and merges results using configurable strategies
+(intersection, union, majority vote).
 """
 
 from __future__ import annotations
 
+import copy
 import logging
 
 import geopandas as gpd
@@ -19,15 +21,22 @@ logger = logging.getLogger(__name__)
 
 
 class EnsembleEngine(DelineationEngine):
-    """Multi-engine ensemble for field boundary delineation.
+    """Multi-engine or multi-model ensemble for field boundary delineation.
 
     Runs multiple engines on the same input and combines results using
     a configurable merge strategy.
 
     Engine Parameters
     -----------------
-    engines : list[str]
-        Engine names to include (default: ``["delineate-anything", "ftw"]``).
+    engines : list[str | dict]
+        Engine specs to include. Each entry can be:
+
+        - A string engine name (e.g. ``"delineate-anything"``).
+        - A dict with ``"engine"`` and optional ``"engine_params"`` to
+          override per-run parameters (e.g. ``{"engine": "ftw",
+          "engine_params": {"model": "FTW_PRUE_EFNET_B7"}}``).
+
+        Default: ``["delineate-anything", "ftw"]``.
     merge_strategy : str
         ``"intersection"`` (default), ``"union"``, or ``"vote"``.
     vote_threshold : float
@@ -40,7 +49,7 @@ class EnsembleEngine(DelineationEngine):
     requires_bands = []
 
     def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
-        """Run multiple engines and merge results.
+        """Run multiple engines/models and merge results.
 
         Parameters
         ----------
@@ -54,24 +63,44 @@ class EnsembleEngine(DelineationEngine):
         geopandas.GeoDataFrame
             Merged field boundary polygons.
         """
-        engine_names = config.engine_params.get("engines", ["delineate-anything", "ftw"])
+        engine_specs = config.engine_params.get(
+            "engines", ["delineate-anything", "ftw"]
+        )
         merge_strategy = config.engine_params.get("merge_strategy", "intersection")
         vote_threshold = config.engine_params.get("vote_threshold", 0.5)
 
-        # Run each engine
+        # Normalize specs: strings → dicts
+        specs = []
+        for spec in engine_specs:
+            if isinstance(spec, str):
+                specs.append({"engine": spec})
+            else:
+                specs.append(spec)
+
+        # Run each engine/model
         results: dict[str, gpd.GeoDataFrame] = {}
-        for eng_name in engine_names:
-            logger.info("Ensemble: running engine %s", eng_name)
+        for i, spec in enumerate(specs):
+            eng_name = spec["engine"]
+            per_run_params = spec.get("engine_params", {})
+            label = per_run_params.get("model", eng_name)
+            # Unique key in case the same engine appears multiple times
+            key = f"{label}_{i}" if label in results else label
+
+            logger.info("Ensemble [%d/%d]: running %s", i + 1, len(specs), label)
             try:
                 engine = get_engine(eng_name)
-                gdf = engine.delineate(raster_path, config)
+
+                # Build a per-run config with overridden engine_params
+                run_config = _override_config(config, per_run_params)
+
+                gdf = engine.delineate(raster_path, run_config)
                 if len(gdf) > 0:
-                    results[eng_name] = gdf
-                    logger.info("Engine %s produced %d polygons", eng_name, len(gdf))
+                    results[key] = gdf
+                    logger.info("%s produced %d polygons", label, len(gdf))
                 else:
-                    logger.warning("Engine %s produced no results", eng_name)
+                    logger.warning("%s produced no results", label)
             except Exception as exc:
-                logger.error("Engine %s failed: %s", eng_name, exc)
+                logger.error("%s failed: %s", label, exc)
 
         if not results:
             logger.warning("No engines produced results")
@@ -226,3 +255,30 @@ class EnsembleEngine(DelineationEngine):
             n_engines,
         )
         return gdf
+
+
+def _override_config(
+    config: AgriboundConfig, overrides: dict
+) -> AgriboundConfig:
+    """Create a copy of *config* with overridden engine_params.
+
+    Parameters
+    ----------
+    config : AgriboundConfig
+        Base config.
+    overrides : dict
+        Keys/values to merge into ``engine_params``.
+
+    Returns
+    -------
+    AgriboundConfig
+        New config with merged engine_params.
+    """
+    new = copy.copy(config)
+    merged = dict(config.engine_params)
+    merged.update(overrides)
+    # Remove ensemble-specific keys so sub-engines don't see them
+    for k in ("engines", "merge_strategy", "vote_threshold"):
+        merged.pop(k, None)
+    new.engine_params = merged
+    return new

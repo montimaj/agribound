@@ -1,19 +1,27 @@
 """
-12 — Lea County, NM: Multi-Source Ensemble Time Series (2020–2022)
+12 — Lea County, NM: Multi-Source, Multi-Model Ensemble Time Series (2020–2022)
 
 Comprehensive field boundary delineation using ALL available satellite
-products and delineation engines with vote-based ensemble merging.
+products, delineation engines, and model variants with vote-based ensemble
+merging.
 
 Sources: Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings
-Engines: delineate-anything, FTW, GeoAI, Prithvi, embedding
+Engines: delineate-anything (2 variants), FTW (12 models), GeoAI, Prithvi,
+         embedding
+
+For each source, FTW is expanded into all 12 semantic segmentation models
+(EfficientNet-B3/B5/B7 × standard/CC-BY + legacy v1/v2) and
+Delineate-Anything into both model variants (full + small). For Sentinel-2,
+DA automatically routes through FTW's instance segmentation with proper S2
+preprocessing and native MPS support.
 
 Study area: Lea County (County 25) from NMOSE WUCB agricultural polygon
-boundaries.  The ensemble runs every compatible source–engine combination
-per year and merges via majority-vote overlap, producing higher-confidence
-boundaries than any single engine alone.
+boundaries.  The ensemble runs every compatible source–engine–model
+combination per year and merges via majority-vote overlap, producing
+higher-confidence boundaries than any single run alone.
 
-Estimated runtime: ~2–4 hours (3 years × up to 15 source–engine combos,
-GPU recommended).  Best run on HPC/cloud with GPU.
+Estimated runtime: ~4–8 hours (3 years × up to 50+ source–engine–model
+combos, GPU recommended).  Best run on HPC/cloud with GPU.
 
 Prerequisites:
     pip install agribound[gee,delineate-anything,ftw,geoai,prithvi]
@@ -57,6 +65,7 @@ YEARS = range(2020, 2023)
 VOTE_THRESHOLD = 0.3  # Fraction of source–engine combos that must agree
 
 # Source → compatible engines
+# For "ftw" entries, each FTW model is run separately via FTW_MODELS below.
 SOURCE_ENGINE_MAP = {
     "sentinel2": ["delineate-anything", "ftw", "geoai", "prithvi"],
     "landsat": ["delineate-anything", "ftw", "prithvi"],
@@ -66,6 +75,34 @@ SOURCE_ENGINE_MAP = {
     "google-embedding": ["embedding"],
     "tessera-embedding": ["embedding"],
 }
+
+# All FTW semantic segmentation models to run individually.
+# When "ftw" appears in SOURCE_ENGINE_MAP, each of these models is run.
+FTW_MODELS = [
+    # v3 (current, standard licensing)
+    "FTW_PRUE_EFNET_B3",
+    "FTW_PRUE_EFNET_B5",
+    "FTW_PRUE_EFNET_B7",
+    # v3.1 (CC-BY licensed)
+    "FTW_PRUE_EFNET_B3_CCBY",
+    "FTW_PRUE_EFNET_B5_CCBY",
+    "FTW_PRUE_EFNET_B7_CCBY",
+    # v2 (legacy but still useful for ensemble diversity)
+    "FTW_v2_3_Class_FULL_singleWindow",
+    "FTW_v2_3_Class_FULL_multiWindow",
+    # v1 (legacy)
+    "FTW_v1_3_Class_FULL",
+    "FTW_v1_3_Class_CCBY",
+    "FTW_v1_2_Class_FULL",
+    "FTW_v1_2_Class_CCBY",
+]
+
+# Delineate-Anything model variants (instance segmentation).
+# When "delineate-anything" appears in SOURCE_ENGINE_MAP, both are run.
+DA_MODELS = [
+    "DelineateAnything",    # Full model (more accurate, slower)
+    "DelineateAnything-S",  # Small model (faster, less accurate)
+]
 
 # Year availability constraints (failures outside range are expected)
 SOURCE_YEAR_RANGE = {
@@ -123,11 +160,19 @@ def create_county_study_area(shapefile_path, county_code):
     return str(out_path), county_gdf
 
 
-def run_delineation(source, engine, year, study_area, gee_project):
-    """Run a single source–engine delineation, returning (GeoDataFrame, path)."""
+def run_delineation(source, engine, year, study_area, gee_project, model=None):
+    """Run a single source–engine delineation, returning (GeoDataFrame, path).
+
+    Parameters
+    ----------
+    model : str or None
+        Model name override for FTW (e.g. ``"FTW_PRUE_EFNET_B7"``) or
+        Delineate-Anything (e.g. ``"DelineateAnything-S"``).
+    """
     import geopandas as gpd
 
-    output_path = OUTPUT_DIR / f"fields_{source}_{engine}_{year}.gpkg"
+    suffix = f"_{model}" if model else ""
+    output_path = OUTPUT_DIR / f"fields_{source}_{engine}{suffix}_{year}.gpkg"
 
     if output_path.exists():
         return gpd.read_file(output_path), output_path
@@ -161,6 +206,14 @@ def run_delineation(source, engine, year, study_area, gee_project):
             "pca_components": 16,
             "n_clusters": "auto",
         }
+
+    # Model override for FTW or Delineate-Anything
+    if model and engine == "ftw":
+        kwargs.setdefault("engine_params", {})
+        kwargs["engine_params"]["model"] = model
+    elif model and engine == "delineate-anything":
+        kwargs.setdefault("engine_params", {})
+        kwargs["engine_params"]["da_model"] = model
 
     gdf = agribound.delineate(**kwargs)
     return gdf, output_path
@@ -213,15 +266,45 @@ def main():
                 continue
 
             for engine in engines:
-                tag = f"{source}/{engine}"
-                print(f"  {tag}: starting...", flush=True)
-
-                try:
-                    gdf, _ = run_delineation(source, engine, year, study_area, gee_project)
-                    all_results[year][tag] = gdf
-                    print(f"  {tag}: {len(gdf)} fields")
-                except Exception as exc:
-                    print(f"  {tag}: FAILED — {exc}")
+                if engine == "ftw":
+                    # Run every FTW model separately for ensemble diversity
+                    for ftw_model in FTW_MODELS:
+                        tag = f"{source}/ftw/{ftw_model}"
+                        print(f"  {tag}: starting...", flush=True)
+                        try:
+                            gdf, _ = run_delineation(
+                                source, engine, year, study_area, gee_project,
+                                model=ftw_model,
+                            )
+                            all_results[year][tag] = gdf
+                            print(f"  {tag}: {len(gdf)} fields")
+                        except Exception as exc:
+                            print(f"  {tag}: FAILED — {exc}")
+                elif engine == "delineate-anything":
+                    # Run both DA model variants
+                    for da_model in DA_MODELS:
+                        tag = f"{source}/da/{da_model}"
+                        print(f"  {tag}: starting...", flush=True)
+                        try:
+                            gdf, _ = run_delineation(
+                                source, engine, year, study_area, gee_project,
+                                model=da_model,
+                            )
+                            all_results[year][tag] = gdf
+                            print(f"  {tag}: {len(gdf)} fields")
+                        except Exception as exc:
+                            print(f"  {tag}: FAILED — {exc}")
+                else:
+                    tag = f"{source}/{engine}"
+                    print(f"  {tag}: starting...", flush=True)
+                    try:
+                        gdf, _ = run_delineation(
+                            source, engine, year, study_area, gee_project,
+                        )
+                        all_results[year][tag] = gdf
+                        print(f"  {tag}: {len(gdf)} fields")
+                    except Exception as exc:
+                        print(f"  {tag}: FAILED — {exc}")
 
     # ================================================================
     # Phase 2: Grand ensemble per year (vote merge)

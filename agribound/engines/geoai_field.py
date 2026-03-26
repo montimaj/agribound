@@ -59,6 +59,12 @@ class GeoAIEngine(DelineationEngine):
         use_ndvi = config.engine_params.get("use_ndvi", False)
         band_selection = config.engine_params.get("band_selection")
 
+        # Auto-compute band_selection from source registry if not provided
+        if band_selection is None and config.source != "local":
+            from agribound.engines.base import get_canonical_band_indices
+
+            band_selection = get_canonical_band_indices(config.source, ["R", "G", "B"])
+
         device = config.resolve_device()
 
         logger.info("Initializing GeoAI AgricultureFieldDelineator")

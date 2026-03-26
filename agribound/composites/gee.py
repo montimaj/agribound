@@ -58,7 +58,7 @@ def _mask_hls_clouds(image):
 
 
 def _build_landsat_collection(config: AgriboundConfig, geometry):
-    """Build a Landsat annual composite.
+    """Build a Landsat annual composite with all spectral bands.
 
     Automatically selects the appropriate Landsat missions based on the
     target year:
@@ -69,16 +69,24 @@ def _build_landsat_collection(config: AgriboundConfig, geometry):
     - Landsat 9 OLI-2 (2021--present): Collection 2, Level 2
 
     Multiple overlapping missions are merged for better temporal coverage.
-    Band names are harmonized to R, G, B, NIR across all missions.
+    All spectral SR bands are downloaded. L5/7 band names are harmonized
+    to match L8/9 naming for cross-mission merging.
+
+    Output bands (L8/9 naming): SR_B2, SR_B3, SR_B4, SR_B5, SR_B6, SR_B7
     """
     import ee
 
     start_date, end_date = _get_date_range(config)
     year = config.year
 
+    # L8/9 spectral bands (output naming convention)
+    l89_bands = ["SR_B2", "SR_B3", "SR_B4", "SR_B5", "SR_B6", "SR_B7"]
+    # L5/7 equivalent bands (different numbering, same wavelengths)
+    l57_bands = ["SR_B1", "SR_B2", "SR_B3", "SR_B4", "SR_B5", "SR_B7"]
+
     collections = []
 
-    # Landsat 5 TM (1984–2012): different band names (SR_B3=R, SR_B2=G, SR_B1=B, SR_B4=NIR)
+    # Landsat 5 TM (1984–2012): rename to L8/9 convention for merging
     if year <= 2012:
         lt05 = (
             ee.ImageCollection("LANDSAT/LT05/C02/T1_L2")
@@ -86,7 +94,7 @@ def _build_landsat_collection(config: AgriboundConfig, geometry):
             .filterBounds(geometry)
             .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
             .map(_mask_landsat_clouds)
-            .select(["SR_B3", "SR_B2", "SR_B1", "SR_B4"], ["R", "G", "B", "NIR"])
+            .select(l57_bands, l89_bands)
         )
         collections.append(lt05)
 
@@ -99,11 +107,11 @@ def _build_landsat_collection(config: AgriboundConfig, geometry):
             .filterBounds(geometry)
             .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
             .map(_mask_landsat_clouds)
-            .select(["SR_B3", "SR_B2", "SR_B1", "SR_B4"], ["R", "G", "B", "NIR"])
+            .select(l57_bands, l89_bands)
         )
         collections.append(le07)
 
-    # Landsat 8 OLI (2013–present): different band numbering
+    # Landsat 8 OLI (2013–present): keep native band names
     if year >= 2013:
         lc08 = (
             ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
@@ -111,7 +119,7 @@ def _build_landsat_collection(config: AgriboundConfig, geometry):
             .filterBounds(geometry)
             .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
             .map(_mask_landsat_clouds)
-            .select(["SR_B4", "SR_B3", "SR_B2", "SR_B5"], ["R", "G", "B", "NIR"])
+            .select(l89_bands)
         )
         collections.append(lc08)
 
@@ -123,7 +131,7 @@ def _build_landsat_collection(config: AgriboundConfig, geometry):
             .filterBounds(geometry)
             .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
             .map(_mask_landsat_clouds)
-            .select(["SR_B4", "SR_B3", "SR_B2", "SR_B5"], ["R", "G", "B", "NIR"])
+            .select(l89_bands)
         )
         collections.append(lc09)
 
@@ -139,10 +147,15 @@ def _build_landsat_collection(config: AgriboundConfig, geometry):
 
 
 def _build_sentinel2_collection(config: AgriboundConfig, geometry):
-    """Build a Sentinel-2 annual composite."""
+    """Build a Sentinel-2 annual composite with all spectral bands.
+
+    Output bands: B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12
+    """
     import ee
 
     start_date, end_date = _get_date_range(config)
+
+    s2_bands = SOURCE_REGISTRY["sentinel2"]["all_bands"]
 
     collection = (
         ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
@@ -150,17 +163,25 @@ def _build_sentinel2_collection(config: AgriboundConfig, geometry):
         .filterBounds(geometry)
         .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", config.cloud_cover_max))
         .map(_mask_s2_clouds)
-        .select(["B4", "B3", "B2", "B8"], ["R", "G", "B", "NIR"])
+        .select(s2_bands)
     )
 
     return collection, 10
 
 
 def _build_hls_collection(config: AgriboundConfig, geometry):
-    """Build a Harmonized Landsat-Sentinel annual composite."""
+    """Build a Harmonized Landsat-Sentinel annual composite with all spectral bands.
+
+    Downloads all 7 harmonized spectral bands common to HLSL30 and HLSS30.
+    HLSS B8A is renamed to B5 for compatibility with HLSL naming.
+
+    Output bands: B1, B2, B3, B4, B5, B6, B7
+    """
     import ee
 
     start_date, end_date = _get_date_range(config)
+
+    hls_bands = SOURCE_REGISTRY["hls"]["all_bands"]
 
     hlsl = (
         ee.ImageCollection("NASA/HLS/HLSL30/v002")
@@ -168,16 +189,18 @@ def _build_hls_collection(config: AgriboundConfig, geometry):
         .filterBounds(geometry)
         .filter(ee.Filter.lt("CLOUD_COVERAGE", config.cloud_cover_max))
         .map(_mask_hls_clouds)
-        .select(["B4", "B3", "B2", "B5"], ["R", "G", "B", "NIR"])
+        .select(hls_bands)
     )
 
+    # HLSS30 uses B8A for NIR narrow; rename to B5 to match HLSL30
+    hlss_src = ["B1", "B2", "B3", "B4", "B8A", "B6", "B7"]
     hlss = (
         ee.ImageCollection("NASA/HLS/HLSS30/v002")
         .filterDate(start_date, end_date)
         .filterBounds(geometry)
         .filter(ee.Filter.lt("CLOUD_COVERAGE", config.cloud_cover_max))
         .map(_mask_hls_clouds)
-        .select(["B4", "B3", "B2", "B8A"], ["R", "G", "B", "NIR"])
+        .select(hlss_src, hls_bands)
     )
 
     merged = hlsl.merge(hlss)
@@ -185,40 +208,45 @@ def _build_hls_collection(config: AgriboundConfig, geometry):
 
 
 def _build_naip_collection(config: AgriboundConfig, geometry):
-    """Build a NAIP imagery collection.
+    """Build a NAIP imagery collection with all bands.
 
     NAIP is acquired periodically (every 2-3 years) so no median composite
     is created. Instead, the most recent image for the target year is used.
+
+    Output bands: R, G, B, N
     """
     import ee
 
     # NAIP may not have imagery for every year — expand window
     year = config.year
+    naip_bands = SOURCE_REGISTRY["naip"]["all_bands"]
     collection = (
         ee.ImageCollection("USDA/NAIP/DOQQ")
         .filterBounds(geometry)
         .filter(ee.Filter.calendarRange(year - 1, year + 1, "year"))
-        .select(["R", "G", "B", "N"], ["R", "G", "B", "NIR"])
+        .select(naip_bands)
     )
 
     return collection, 1
 
 
 def _build_spot_collection(config: AgriboundConfig, geometry):
-    """Build a SPOT 6/7 annual composite.
+    """Build a SPOT 6/7 annual composite with all available bands.
 
     SPOT data in GEE has TOA reflectance values in [0, 10000].
-    Band names in GEE are R, G, B (not B1, B2, B3).
+
+    Output bands: R, G, B
     """
     import ee
 
     start_date, end_date = _get_date_range(config)
 
+    spot_bands = SOURCE_REGISTRY["spot"]["all_bands"]
     collection = (
         ee.ImageCollection("AIRBUS/SPOT6_7")
         .filterDate(start_date, end_date)
         .filterBounds(geometry)
-        .select(["R", "G", "B"], ["R", "G", "B"])
+        .select(spot_bands)
     )
 
     return collection, 6
@@ -236,27 +264,40 @@ def _get_date_range(config: AgriboundConfig) -> tuple[str, str]:
     return f"{config.year}-01-01", f"{config.year}-12-31"
 
 
-def _apply_composite_method(collection, method: str):
-    """Apply the compositing method to a collection."""
+def _apply_composite_method(collection, method: str, source: str):
+    """Apply the compositing method to a collection.
 
+    Parameters
+    ----------
+    collection : ee.ImageCollection
+        Filtered and cloud-masked image collection.
+    method : str
+        Compositing method: ``"median"``, ``"greenest"``, or ``"max_ndvi"``.
+    source : str
+        Satellite source name (used to look up NIR/R band names).
+    """
     if method == "median":
         return collection.median()
-    elif method == "greenest":
-        # Maximum NDVI composite
+    elif method in ("greenest", "max_ndvi"):
+        canonical = SOURCE_REGISTRY.get(source, {}).get("canonical_bands") or {}
+        nir_band = canonical.get("NIR")
+        red_band = canonical.get("R")
+        if not nir_band or not red_band:
+            logger.warning(
+                "Source %r has no NIR/R bands for NDVI composite; falling back to median",
+                source,
+            )
+            return collection.median()
+
+        # Get the original spectral band names (exclude NDVI after qualityMosaic)
+        all_bands = SOURCE_REGISTRY[source]["all_bands"]
+
         def add_ndvi(image):
-            ndvi = image.normalizedDifference(["NIR", "R"]).rename("NDVI")
+            ndvi = image.normalizedDifference([nir_band, red_band]).rename("NDVI")
             return image.addBands(ndvi)
 
         with_ndvi = collection.map(add_ndvi)
-        return with_ndvi.qualityMosaic("NDVI").select(["R", "G", "B", "NIR"])
-    elif method == "max_ndvi":
-        # Same as greenest
-        def add_ndvi(image):
-            ndvi = image.normalizedDifference(["NIR", "R"]).rename("NDVI")
-            return image.addBands(ndvi)
-
-        with_ndvi = collection.map(add_ndvi)
-        return with_ndvi.qualityMosaic("NDVI").select(["R", "G", "B", "NIR"])
+        return with_ndvi.qualityMosaic("NDVI").select(all_bands)
     else:
         return collection.median()
 
@@ -564,7 +605,9 @@ class GEECompositeBuilder(CompositeBuilder):
             # NAIP: use mosaic (most recent on top)
             composite = collection.mosaic()
         else:
-            composite = _apply_composite_method(collection, config.composite_method)
+            composite = _apply_composite_method(
+                collection, config.composite_method, config.source
+            )
 
         # Clip to study area
         composite = composite.clip(geometry)
@@ -755,4 +798,4 @@ class GEECompositeBuilder(CompositeBuilder):
             Mapping of canonical names to source band names.
         """
         info = SOURCE_REGISTRY.get(source, {})
-        return info.get("bands", {})
+        return info.get("canonical_bands") or {}

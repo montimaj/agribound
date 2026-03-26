@@ -22,6 +22,7 @@ from agribound._version import __version__
 from agribound.composites import list_sources
 from agribound.config import AgriboundConfig
 from agribound.engines import list_engines
+from agribound.engines.ftw import list_ftw_models
 from agribound.evaluate import evaluate
 from agribound.pipeline import delineate
 from agribound.visualize import show_boundaries
@@ -32,6 +33,7 @@ __all__ = [
     "delineate",
     "evaluate",
     "list_engines",
+    "list_ftw_models",
     "list_sources",
     "show_boundaries",
 ]

@@ -222,4 +222,4 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
             Band mapping (all embedding dimensions).
         """
         info = SOURCE_REGISTRY.get(source, {})
-        return info.get("bands", {})
+        return info.get("canonical_bands") or {}
