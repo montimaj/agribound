@@ -10,3 +10,6 @@ https://console.cloud.google.com/
 
 # Earth Engine Code Editor (requires authentication)
 https://code.earthengine.google.com/
+
+# Own GitHub Pages (may not be deployed yet during CI)
+https://montimaj.github.io/agribound/
