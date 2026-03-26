@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -64,9 +69,6 @@ jobs:
   docs:
     name: Build & Deploy Docs
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
