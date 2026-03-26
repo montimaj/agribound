@@ -18,13 +18,13 @@ Note:
     field boundary processing for their study area.
 """
 
+import argparse
 from pathlib import Path
 
 import agribound
 from agribound.evaluate import evaluate
 
 # --- Configuration ---
-GEE_PROJECT = "your-gee-project"  # Replace with your GEE project ID
 OUTPUT_DIR = Path("outputs/mississippi_alluvial_plain")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -65,8 +65,22 @@ def create_study_area():
     return str(path)
 
 
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Mississippi Alluvial Plain SPOT 6/7 field boundary delineation."
+    )
+    parser.add_argument(
+        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+    )
+    return parser.parse_args()
+
+
 def main():
     """Run SPOT-based field delineation for the Mississippi Alluvial Plain."""
+    args = parse_args()
+    gee_project = args.gee_project
+
     study_area = create_study_area()
     all_results = {}
 
@@ -84,7 +98,7 @@ def main():
                 year=year,
                 engine=ENGINE,
                 output_path=str(output_path),
-                gee_project=GEE_PROJECT,
+                gee_project=gee_project,
                 cloud_cover_max=15,
                 # Large row-crop fields in the MAP
                 min_area=10000,

@@ -14,6 +14,24 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _get_gcloud_project() -> str | None:
+    """Read the active project from gcloud config, if available."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["gcloud", "config", "get-value", "project"],
+            capture_output=True, text=True, timeout=10,
+        )
+        project = result.stdout.strip()
+        if project and project != "(unset)":
+            logger.info("Using GEE project from gcloud config: %s", project)
+            return project
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
 def setup_gee(
     project: str | None = None,
     service_account_key: str | None = None,
@@ -62,9 +80,13 @@ def setup_gee(
     if project is None:
         project = os.environ.get("GEE_PROJECT")
     if project is None:
+        project = _get_gcloud_project()
+    if project is None:
         raise ValueError(
-            "A GEE project ID is required. Pass it via the 'project' argument "
-            "or set the GEE_PROJECT environment variable. "
+            "A GEE project ID is required. Provide it via one of:\n"
+            "  1. The 'project' argument or --gee-project CLI flag\n"
+            "  2. The GEE_PROJECT environment variable\n"
+            "  3. gcloud config: gcloud config set project YOUR_PROJECT\n"
             "You can find your project ID at https://console.cloud.google.com/"
         )
 

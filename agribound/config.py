@@ -208,13 +208,24 @@ class AgriboundConfig:
                 f"Choose from {VALID_COMPOSITE_METHODS}"
             )
 
-        # GEE-based sources need a project ID
+        # GEE-based sources need a project ID — auto-detect if not set
         gee_sources = {"landsat", "sentinel2", "hls", "naip", "spot"}
         if self.source in gee_sources and self.gee_project is None:
-            raise ValueError(
-                f"gee_project is required for source={self.source!r}. "
-                "Set it to your GEE cloud project ID."
-            )
+            import os
+
+            self.gee_project = os.environ.get("GEE_PROJECT")
+            if self.gee_project is None:
+                from agribound.auth import _get_gcloud_project
+
+                self.gee_project = _get_gcloud_project()
+            if self.gee_project is None:
+                raise ValueError(
+                    f"gee_project is required for source={self.source!r}. "
+                    "Provide it via one of:\n"
+                    "  1. gee_project parameter or --gee-project CLI flag\n"
+                    "  2. GEE_PROJECT environment variable\n"
+                    "  3. gcloud config: gcloud config set project YOUR_PROJECT"
+                )
 
         # GCS export needs a bucket
         if self.export_method == "gcs" and self.gcs_bucket is None:

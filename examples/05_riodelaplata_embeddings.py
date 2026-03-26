@@ -16,12 +16,12 @@ Prerequisites:
     agribound auth --project YOUR_GEE_PROJECT
 """
 
+import argparse
 from pathlib import Path
 
 import agribound
 
 # --- Configuration ---
-GEE_PROJECT = "your-gee-project"  # Replace with your GEE project ID
 OUTPUT_DIR = Path("outputs/riodelaplata")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -31,8 +31,22 @@ STUDY_AREA = "projects/ssebop-471916/assets/riodelaplata_guarani"
 YEARS = range(2020, 2025)
 
 
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Rio de la Plata embedding-based field boundary delineation."
+    )
+    parser.add_argument(
+        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+    )
+    return parser.parse_args()
+
+
 def main():
     """Run embedding-based field delineation for the Rio de la Plata region."""
+    args = parse_args()
+    gee_project = args.gee_project
+
     all_results = {}
 
     # --- Google Satellite Embeddings ---
@@ -50,7 +64,7 @@ def main():
             year=year,
             engine="embedding",
             output_path=str(output_path),
-            gee_project=GEE_PROJECT,
+            gee_project=gee_project,
             device="cpu",
             min_area=5000,
         )
@@ -72,7 +86,7 @@ def main():
             year=year,
             engine="embedding",
             output_path=str(output_path),
-            gee_project=GEE_PROJECT,
+            gee_project=gee_project,
             device="cpu",
             min_area=5000,
         )

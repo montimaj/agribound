@@ -18,12 +18,12 @@ Note:
     for your study area.
 """
 
+import argparse
 from pathlib import Path
 
 import agribound
 
 # --- Configuration ---
-GEE_PROJECT = "your-gee-project"
 OUTPUT_DIR = Path("outputs/china_north_plain")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -64,8 +64,22 @@ def create_study_area():
     return str(path)
 
 
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="China North Plain SPOT 6/7 field boundary delineation."
+    )
+    parser.add_argument(
+        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+    )
+    return parser.parse_args()
+
+
 def main():
     """Run SPOT-based field delineation for the North China Plain."""
+    args = parse_args()
+    gee_project = args.gee_project
+
     study_area = create_study_area()
 
     print(f"Delineating fields from SPOT 6/7 ({YEAR})...")
@@ -79,7 +93,7 @@ def main():
             year=YEAR,
             engine=ENGINE,
             output_path=str(output_path),
-            gee_project=GEE_PROJECT,
+            gee_project=gee_project,
             cloud_cover_max=15,
             min_area=3000,
             simplify=2.0,

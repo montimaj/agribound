@@ -12,12 +12,12 @@ Prerequisites:
     agribound auth --project YOUR_GEE_PROJECT
 """
 
+import argparse
 from pathlib import Path
 
 import agribound
 
 # --- Configuration ---
-GEE_PROJECT = "your-gee-project"
 OUTPUT_DIR = Path("outputs/ensemble_comparison")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -58,8 +58,22 @@ def create_study_area():
     return str(path)
 
 
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Ensemble comparison of multiple delineation engines."
+    )
+    parser.add_argument(
+        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+    )
+    return parser.parse_args()
+
+
 def main():
     """Compare multiple engines and run ensemble."""
+    args = parse_args()
+    gee_project = args.gee_project
+
     study_area = create_study_area()
     results = {}
 
@@ -78,7 +92,7 @@ def main():
                 year=YEAR,
                 engine=engine_name,
                 output_path=str(output_path),
-                gee_project=GEE_PROJECT,
+                gee_project=gee_project,
                 min_area=2500,
                 simplify=2.0,
             )
@@ -99,7 +113,7 @@ def main():
             year=YEAR,
             engine="ensemble",
             output_path=str(OUTPUT_DIR / "fields_ensemble.gpkg"),
-            gee_project=GEE_PROJECT,
+            gee_project=gee_project,
             engine_params={
                 "engines": ENGINES,
                 "merge_strategy": "vote",

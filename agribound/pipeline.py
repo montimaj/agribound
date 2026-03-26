@@ -87,6 +87,17 @@ def delineate(
 
     # Build or use config
     if config is None:
+        # Map shorthand kwargs to AgriboundConfig field names
+        _aliases = {
+            "min_area": "min_field_area_m2",
+            "simplify": "simplify_tolerance",
+        }
+        for short, full in _aliases.items():
+            if short in kwargs and full not in kwargs:
+                kwargs[full] = kwargs.pop(short)
+            elif short in kwargs:
+                kwargs.pop(short)
+
         if output_path is None:
             output_path = f"fields_{source}_{year}.gpkg"
         config = AgriboundConfig(

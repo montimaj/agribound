@@ -162,21 +162,22 @@ agribound delineate --config config.yml
 
 ## Examples
 
-Example notebooks are provided in the [`examples/`](examples/) directory:
+Example scripts and interactive Jupyter notebooks are provided in the [`examples/`](examples/) directory. See the [examples README](examples/README.md) for full details.
 
-| Notebook | Description |
-|---|---|
-| [01_new_mexico_landsat_timeseries](examples/01_new_mexico_landsat_timeseries.ipynb) | 40-year annual field boundaries using Landsat 5-9 time-series over New Mexico |
-| [02_india_ganges_sentinel2](examples/02_india_ganges_sentinel2.ipynb) | Smallholder field delineation in the Ganges River basin, India |
-| [03_australia_murray_darling_hls](examples/03_australia_murray_darling_hls.ipynb) | Irrigated agriculture mapping in Murray-Darling Basin using HLS |
-| [04_france_beauce_sentinel2](examples/04_france_beauce_sentinel2.ipynb) | Large-field European agriculture in the Beauce region, France |
-| [05_riodelaplata_embeddings](examples/05_riodelaplata_embeddings.py) | CPU-only unsupervised delineation in the Rio de la Plata / Guarani region using GEE asset + embeddings |
-| [06_kenya_smallholder_ftw](examples/06_kenya_smallholder_ftw.ipynb) | East Africa smallholder fields with the Fields of The World engine |
-| [07_usa_naip_high_res](examples/07_usa_naip_high_res.ipynb) | High-resolution (1 m) boundary extraction from NAIP imagery |
-| [08_china_north_plain_spot](examples/08_china_north_plain_spot.ipynb) | Field mapping from SPOT 6/7 imagery over the North China Plain |
-| [09_ensemble_comparison](examples/09_ensemble_comparison.ipynb) | Multi-engine comparison and ensemble fusion |
-| [10_local_tif_quickstart](examples/10_local_tif_quickstart.ipynb) | Five-line quickstart using a local GeoTIFF with no GEE dependency |
-| [11_mississippi_alluvial_plain_spot](examples/11_mississippi_alluvial_plain_spot.py) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
+| Script | Notebook | Description |
+|---|---|---|
+| [01_new_mexico_landsat_timeseries.py](examples/01_new_mexico_landsat_timeseries.py) | [notebook](examples/notebooks/01_new_mexico_landsat_timeseries.ipynb) | 40-year annual field boundaries using Landsat 5-9 time-series over New Mexico |
+| [02_india_ganges_sentinel2.py](examples/02_india_ganges_sentinel2.py) | [notebook](examples/notebooks/02_india_ganges_sentinel2.ipynb) | Smallholder field delineation in the Ganges River basin, India |
+| [03_australia_murray_darling_hls.py](examples/03_australia_murray_darling_hls.py) | [notebook](examples/notebooks/03_australia_murray_darling_hls.ipynb) | Irrigated agriculture mapping in Murray-Darling Basin using HLS |
+| [04_france_beauce_sentinel2.py](examples/04_france_beauce_sentinel2.py) | [notebook](examples/notebooks/04_france_beauce_sentinel2.ipynb) | Large-field European agriculture in the Beauce region, France |
+| [05_riodelaplata_embeddings.py](examples/05_riodelaplata_embeddings.py) | [notebook](examples/notebooks/05_riodelaplata_embeddings.ipynb) | CPU-only unsupervised delineation in the Rio de la Plata / Guarani region using GEE asset + embeddings |
+| [06_kenya_smallholder_ftw.py](examples/06_kenya_smallholder_ftw.py) | [notebook](examples/notebooks/06_kenya_smallholder_ftw.ipynb) | East Africa smallholder fields with the Fields of The World engine |
+| [07_usa_naip_high_res.py](examples/07_usa_naip_high_res.py) | [notebook](examples/notebooks/07_usa_naip_high_res.ipynb) | High-resolution (1 m) boundary extraction from NAIP imagery |
+| [08_china_north_plain_spot.py](examples/08_china_north_plain_spot.py) | [notebook](examples/notebooks/08_china_north_plain_spot.ipynb) | Field mapping from SPOT 6/7 imagery over the North China Plain |
+| [09_ensemble_comparison.py](examples/09_ensemble_comparison.py) | [notebook](examples/notebooks/09_ensemble_comparison.ipynb) | Multi-engine comparison and ensemble fusion |
+| [10_local_tif_quickstart.py](examples/10_local_tif_quickstart.py) | [notebook](examples/notebooks/10_local_tif_quickstart.ipynb) | Five-line quickstart using a local GeoTIFF with no GEE dependency |
+| [11_mississippi_alluvial_plain_spot.py](examples/11_mississippi_alluvial_plain_spot.py) | [notebook](examples/notebooks/11_mississippi_alluvial_plain_spot.ipynb) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
+| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | 9-year ensemble time series (2017-2025) over New Mexico using vote-based multi-engine merge |
 
 ## Google Earth Engine Authentication
 
@@ -197,16 +198,16 @@ earthengine authenticate
 4. Use the agribound auth helper to verify:
 
 ```bash
-agribound auth --project my-gee-project
+agribound auth --project YOUR_GEE_PROJECT
 ```
 
-This wraps `ee.Authenticate()` and `ee.Initialize()` with clear error messages.
+This wraps `ee.Authenticate()` and `ee.Initialize()` with clear error messages. The `--project` flag is optional if you already ran `gcloud config set project` in step 3 — agribound will auto-detect it.
 
 **For non-interactive environments (CI, HPC):** use a service account key:
 
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
-agribound auth --project my-gee-project --service-account-key /path/to/service-account-key.json
+agribound auth --project YOUR_GEE_PROJECT --service-account-key /path/to/service-account-key.json
 ```
 
 See the [Earth Engine Python installation guide](https://developers.google.com/earth-engine/guides/python_install) for more details.

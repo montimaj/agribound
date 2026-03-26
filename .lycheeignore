@@ -1,0 +1,12 @@
+# Localhost URLs (only valid during local development)
+http://127.0.0.1
+http://localhost
+
+# DOI links that may require authentication or have rate limits
+https://doi.org/
+
+# Google Cloud Console (requires authentication)
+https://console.cloud.google.com/
+
+# Earth Engine Code Editor (requires authentication)
+https://code.earthengine.google.com/

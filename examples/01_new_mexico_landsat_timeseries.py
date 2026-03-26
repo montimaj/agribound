@@ -19,15 +19,18 @@ Prerequisites:
     agribound auth --project YOUR_GEE_PROJECT
 """
 
+import argparse
+import json
+import warnings
 from pathlib import Path
+
+warnings.filterwarnings("ignore", message=".*organizePolygons.*")
 
 import agribound
 from agribound.evaluate import evaluate
 
 # --- Configuration ---
-STUDY_AREA = "examples/NMOSE Field Boundaries/nm_study_area.geojson"
 NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
-GEE_PROJECT = "your-gee-project"  # Replace with your GEE project ID
 OUTPUT_DIR = Path("outputs/new_mexico_timeseries")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -39,9 +42,60 @@ ENGINE = "delineate-anything"
 FINE_TUNE = True
 
 
+def create_study_area_from_shapefile(shapefile_path):
+    """Derive study area GeoJSON from the bounding box of a shapefile."""
+    import geopandas as gpd
+
+    gdf = gpd.read_file(shapefile_path)
+    bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
+    bbox_geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [bounds[0], bounds[1]],
+                            [bounds[2], bounds[1]],
+                            [bounds[2], bounds[3]],
+                            [bounds[0], bounds[3]],
+                            [bounds[0], bounds[1]],
+                        ]
+                    ],
+                },
+                "properties": {"name": "NMOSE WUCB Study Area"},
+            }
+        ],
+    }
+    out_path = OUTPUT_DIR / "nm_study_area.geojson"
+    with open(out_path, "w") as f:
+        json.dump(bbox_geojson, f)
+    return str(out_path)
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="New Mexico Landsat time series field boundary delineation."
+    )
+    parser.add_argument(
+        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+    )
+    return parser.parse_args()
+
+
 def main():
     """Run annual field boundary delineation for New Mexico (1985–2025)."""
+    args = parse_args()
+    gee_project = args.gee_project
+
     import geopandas as gpd
+
+    # --- Derive study area from NMOSE shapefile bounds ---
+    study_area = create_study_area_from_shapefile(NMOSE_SHAPEFILE)
+    print(f"Study area derived from NMOSE shapefile bounds: {study_area}")
 
     # --- Load NMOSE reference boundaries ---
     print("Loading NMOSE reference boundaries...")
@@ -49,45 +103,71 @@ def main():
     print(f"  {len(ref_gdf)} reference field polygons loaded")
 
     # --- Phase 1: Fine-tune on NMOSE boundaries (optional) ---
+    # The fine-tuned checkpoint is saved to disk and reused for all
+    # subsequent years, so fine-tuning only runs once.
+    checkpoint_path = None
+
     if FINE_TUNE:
         print(f"\n{'='*60}")
         print("Phase 1: Fine-tuning engine on NMOSE reference boundaries")
         print(f"{'='*60}")
 
-        # Use a recent year for fine-tuning composite
+        # Use a recent year for fine-tuning composite — recent imagery
+        # is higher quality and best matches current reference boundaries
         finetune_year = 2024
         finetune_output = OUTPUT_DIR / f"fields_finetuned_{finetune_year}.gpkg"
+        checkpoint_dir = OUTPUT_DIR / "checkpoints"
 
-        gdf_ft = agribound.delineate(
-            study_area=STUDY_AREA,
-            source=SOURCE,
-            year=finetune_year,
-            engine=ENGINE,
-            output_path=str(finetune_output),
-            gee_project=GEE_PROJECT,
-            composite_method="median",
-            cloud_cover_max=20,
-            min_area=2500,
-            simplify=2.0,
-            device="auto",
-            reference_boundaries=NMOSE_SHAPEFILE,
-            fine_tune=True,
-        )
+        # Check if a checkpoint already exists from a previous run
+        existing_ckpts = list(checkpoint_dir.glob("*.pt")) if checkpoint_dir.exists() else []
+        if existing_ckpts:
+            checkpoint_path = str(existing_ckpts[0])
+            print(f"  Reusing existing checkpoint: {checkpoint_path}")
+        else:
+            gdf_ft = agribound.delineate(
+                study_area=study_area,
+                source=SOURCE,
+                year=finetune_year,
+                engine=ENGINE,
+                output_path=str(finetune_output),
+                gee_project=gee_project,
+                composite_method="median",
+                cloud_cover_max=20,
+                min_area=2500,
+                simplify=2.0,
+                device="auto",
+                reference_boundaries=NMOSE_SHAPEFILE,
+                fine_tune=True,
+            )
 
-        print(f"\n  Fine-tuned model produced {len(gdf_ft)} fields for {finetune_year}")
+            print(f"\n  Fine-tuned model produced {len(gdf_ft)} fields for {finetune_year}")
 
-        # Evaluate fine-tuned results against NMOSE
-        metrics = evaluate(gdf_ft, ref_gdf)
-        print(f"  Fine-tuned evaluation:")
-        print(f"    IoU:       {metrics['iou_mean']:.3f}")
-        print(f"    Precision: {metrics['precision']:.3f}")
-        print(f"    Recall:    {metrics['recall']:.3f}")
-        print(f"    F1:        {metrics['f1']:.3f}")
+            # Evaluate fine-tuned results against NMOSE
+            metrics = evaluate(gdf_ft, ref_gdf)
+            print(f"  Fine-tuned evaluation:")
+            print(f"    IoU:       {metrics['iou_mean']:.3f}")
+            print(f"    Precision: {metrics['precision']:.3f}")
+            print(f"    Recall:    {metrics['recall']:.3f}")
+            print(f"    F1:        {metrics['f1']:.3f}")
+
+            # Locate the saved checkpoint for reuse in Phase 2
+            new_ckpts = list(checkpoint_dir.glob("*.pt")) if checkpoint_dir.exists() else []
+            if new_ckpts:
+                checkpoint_path = str(new_ckpts[0])
+                print(f"  Checkpoint saved: {checkpoint_path}")
 
     # --- Phase 2: Run inference for all years ---
+    # If fine-tuning was done, pass the checkpoint via engine_params
+    # so every year uses the improved model weights.
     print(f"\n{'='*60}")
     print("Phase 2: Annual field boundary delineation (1985–2025)")
+    if checkpoint_path:
+        print(f"  Using fine-tuned checkpoint: {checkpoint_path}")
     print(f"{'='*60}")
+
+    engine_params = {}
+    if checkpoint_path:
+        engine_params["checkpoint_path"] = checkpoint_path
 
     all_results = {}
 
@@ -103,12 +183,12 @@ def main():
 
         try:
             gdf = agribound.delineate(
-                study_area=STUDY_AREA,
+                study_area=study_area,
                 source=SOURCE,
                 year=year,
                 engine=ENGINE,
                 output_path=str(output_path),
-                gee_project=GEE_PROJECT,
+                gee_project=gee_project,
                 composite_method="median",
                 cloud_cover_max=20,
                 min_area=2500,
@@ -117,6 +197,7 @@ def main():
                 # Evaluate each year against NMOSE (no fine-tuning)
                 reference_boundaries=NMOSE_SHAPEFILE,
                 fine_tune=False,
+                engine_params=engine_params,
             )
             all_results[year] = gdf
             print(f"  Delineated {len(gdf)} fields for {year}")

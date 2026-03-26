@@ -12,12 +12,12 @@ Prerequisites:
     agribound auth --project YOUR_GEE_PROJECT
 """
 
+import argparse
 from pathlib import Path
 
 import agribound
 
 # --- Configuration ---
-GEE_PROJECT = "your-gee-project"
 OUTPUT_DIR = Path("outputs/india_ganges")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -59,8 +59,22 @@ def create_study_area():
     return str(STUDY_AREA_GEOJSON)
 
 
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="India Ganges Plain Sentinel-2 field boundary delineation."
+    )
+    parser.add_argument(
+        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+    )
+    return parser.parse_args()
+
+
 def main():
     """Run field boundary delineation for the Ganges Plain."""
+    args = parse_args()
+    gee_project = args.gee_project
+
     study_area = create_study_area()
     all_results = {}
 
@@ -74,7 +88,7 @@ def main():
             year=year,
             engine=ENGINE,
             output_path=str(output_path),
-            gee_project=GEE_PROJECT,
+            gee_project=gee_project,
             composite_method="median",
             cloud_cover_max=30,
             # Smallholder fields — lower minimum area

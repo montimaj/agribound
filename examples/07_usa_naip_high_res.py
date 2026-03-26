@@ -11,12 +11,12 @@ Prerequisites:
     agribound auth --project YOUR_GEE_PROJECT
 """
 
+import argparse
 from pathlib import Path
 
 import agribound
 
 # --- Configuration ---
-GEE_PROJECT = "your-gee-project"
 OUTPUT_DIR = Path("outputs/usa_central_valley")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -57,8 +57,22 @@ def create_study_area():
     return str(path)
 
 
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="USA Central Valley NAIP high-resolution field boundary delineation."
+    )
+    parser.add_argument(
+        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+    )
+    return parser.parse_args()
+
+
 def main():
     """Run high-resolution NAIP field delineation."""
+    args = parse_args()
+    gee_project = args.gee_project
+
     study_area = create_study_area()
 
     print(f"Delineating fields from NAIP {YEAR} at 1m resolution...")
@@ -70,7 +84,7 @@ def main():
         year=YEAR,
         engine=ENGINE,
         output_path=str(output_path),
-        gee_project=GEE_PROJECT,
+        gee_project=gee_project,
         # Large commercial fields
         min_area=10000,
         simplify=3.0,

@@ -12,12 +12,12 @@ Prerequisites:
     agribound auth --project YOUR_GEE_PROJECT
 """
 
+import argparse
 from pathlib import Path
 
 import agribound
 
 # --- Configuration ---
-GEE_PROJECT = "your-gee-project"
 OUTPUT_DIR = Path("outputs/australia_murray_darling")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -57,8 +57,22 @@ def create_study_area():
     return str(path)
 
 
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Australia Murray-Darling Basin HLS field boundary delineation."
+    )
+    parser.add_argument(
+        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+    )
+    return parser.parse_args()
+
+
 def main():
     """Run field delineation for the Murray-Darling Basin."""
+    args = parse_args()
+    gee_project = args.gee_project
+
     study_area = create_study_area()
     all_results = {}
 
@@ -72,7 +86,7 @@ def main():
             year=year,
             engine=ENGINE,
             output_path=str(output_path),
-            gee_project=GEE_PROJECT,
+            gee_project=gee_project,
             composite_method="median",
             # Large irrigated fields
             min_area=5000,
