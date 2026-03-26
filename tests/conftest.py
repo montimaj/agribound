@@ -9,8 +9,7 @@ import numpy as np
 import pytest
 import rasterio
 from rasterio.transform import from_bounds
-from shapely.geometry import Polygon, box
-
+from shapely.geometry import box
 
 # ---------------------------------------------------------------------------
 # Raster fixtures

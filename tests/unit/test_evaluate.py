@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import geopandas as gpd
+import pytest
 from shapely.geometry import box
 
 from agribound.evaluate import evaluate
@@ -95,7 +96,3 @@ class TestEvaluateNoReference:
         assert metrics["recall"] == 0.0
         assert metrics["f1"] == 0.0
         assert metrics["count_fp"] == 1
-
-
-# Needed for pytest.approx usage above
-import pytest

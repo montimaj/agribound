@@ -25,9 +25,9 @@ class TestImportSmoke:
         from agribound.evaluate import evaluate  # noqa: F401
 
     def test_import_io(self):
+        from agribound.io.crs import get_utm_crs  # noqa: F401
         from agribound.io.raster import get_raster_info  # noqa: F401
         from agribound.io.vector import read_vector  # noqa: F401
-        from agribound.io.crs import get_utm_crs  # noqa: F401
 
 
 @pytest.mark.slow

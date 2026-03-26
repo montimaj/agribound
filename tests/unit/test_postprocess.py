@@ -5,9 +5,9 @@ from __future__ import annotations
 import geopandas as gpd
 from shapely.geometry import Polygon, box
 
-from agribound.postprocess.simplify import simplify_polygons
 from agribound.postprocess.filter import filter_polygons
 from agribound.postprocess.merge import merge_polygons
+from agribound.postprocess.simplify import simplify_polygons
 
 
 class TestSimplifyPolygons:

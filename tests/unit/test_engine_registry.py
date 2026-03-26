@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agribound.engines.base import ENGINE_REGISTRY, list_engines, get_engine
+from agribound.engines.base import ENGINE_REGISTRY, get_engine, list_engines
 
 
 class TestListEngines:

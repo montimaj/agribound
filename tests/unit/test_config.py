@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agribound.config import AgriboundConfig, VALID_ENGINES, VALID_SOURCES
+from agribound.config import AgriboundConfig
 
 
 class TestAgriboundConfigDefaults:
