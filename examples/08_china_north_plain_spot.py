@@ -69,9 +69,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="China North Plain SPOT 6/7 field boundary delineation."
     )
-    parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID."
-    )
+    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 

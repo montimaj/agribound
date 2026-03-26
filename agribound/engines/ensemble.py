@@ -39,9 +39,7 @@ class EnsembleEngine(DelineationEngine):
     supported_sources = ["landsat", "sentinel2", "hls", "naip", "spot", "local"]
     requires_bands = []
 
-    def delineate(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Run multiple engines and merge results.
 
         Parameters
@@ -56,9 +54,7 @@ class EnsembleEngine(DelineationEngine):
         geopandas.GeoDataFrame
             Merged field boundary polygons.
         """
-        engine_names = config.engine_params.get(
-            "engines", ["delineate-anything", "ftw"]
-        )
+        engine_names = config.engine_params.get("engines", ["delineate-anything", "ftw"])
         merge_strategy = config.engine_params.get("merge_strategy", "intersection")
         vote_threshold = config.engine_params.get("vote_threshold", 0.5)
 

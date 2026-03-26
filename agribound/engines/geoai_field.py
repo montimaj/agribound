@@ -28,9 +28,7 @@ class GeoAIEngine(DelineationEngine):
     supported_sources = ["sentinel2", "naip", "local"]
     requires_bands = ["R", "G", "B"]
 
-    def delineate(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Run geoai field delineation on a raster file.
 
         Parameters
@@ -73,12 +71,8 @@ class GeoAIEngine(DelineationEngine):
         )
 
         # Override thresholds
-        delineator.confidence_threshold = config.engine_params.get(
-            "confidence_threshold", 0.5
-        )
-        delineator.min_object_area = config.engine_params.get(
-            "min_object_area", 1000
-        )
+        delineator.confidence_threshold = config.engine_params.get("confidence_threshold", 0.5)
+        delineator.min_object_area = config.engine_params.get("min_object_area", 1000)
         delineator.simplify_tolerance = config.simplify_tolerance
 
         # Run delineation

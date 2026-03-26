@@ -21,7 +21,9 @@ def _get_gcloud_project() -> str | None:
     try:
         result = subprocess.run(
             ["gcloud", "config", "get-value", "project"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         project = result.stdout.strip()
         if project and project != "(unset)":
@@ -94,9 +96,7 @@ def setup_gee(
     if service_account_key is not None:
         key_path = Path(service_account_key)
         if not key_path.exists():
-            raise FileNotFoundError(
-                f"Service account key file not found: {key_path}"
-            )
+            raise FileNotFoundError(f"Service account key file not found: {key_path}")
         logger.info("Authenticating GEE with service account key: %s", key_path)
         credentials = ee.ServiceAccountCredentials(None, str(key_path))
         ee.Initialize(credentials=credentials, project=project)

@@ -82,9 +82,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="New Mexico Landsat time series field boundary delineation."
     )
-    parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID."
-    )
+    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 
@@ -110,9 +108,9 @@ def main():
     checkpoint_path = None
 
     if FINE_TUNE:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("Phase 1: Fine-tuning engine on NMOSE reference boundaries")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # Use a recent year for fine-tuning composite — recent imagery
         # is higher quality and best matches current reference boundaries
@@ -161,11 +159,11 @@ def main():
     # --- Phase 2: Run inference for all years ---
     # If fine-tuning was done, pass the checkpoint via engine_params
     # so every year uses the improved model weights.
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Phase 2: Annual field boundary delineation (1985–2025)")
     if checkpoint_path:
         print(f"  Using fine-tuned checkpoint: {checkpoint_path}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     engine_params = {}
     if checkpoint_path:
@@ -207,17 +205,19 @@ def main():
             # Print evaluation metrics if available
             if hasattr(gdf, "attrs") and "evaluation_metrics" in gdf.attrs:
                 m = gdf.attrs["evaluation_metrics"]
-                print(f"  Evaluation: F1={m['f1']:.3f} IoU={m['iou_mean']:.3f} "
-                      f"P={m['precision']:.3f} R={m['recall']:.3f}")
+                print(
+                    f"  Evaluation: F1={m['f1']:.3f} IoU={m['iou_mean']:.3f} "
+                    f"P={m['precision']:.3f} R={m['recall']:.3f}"
+                )
         except Exception as exc:
             print(f"  Failed for {year}: {exc}")
 
     # --- Phase 3: Summary statistics ---
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Time Series Summary")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  {'Year':<6} {'Fields':>6} {'Area (ha)':>12} {'F1':>6} {'IoU':>6}")
-    print(f"  {'-'*6} {'-'*6} {'-'*12} {'-'*6} {'-'*6}")
+    print(f"  {'-' * 6} {'-' * 6} {'-' * 12} {'-' * 6} {'-' * 6}")
 
     for year, gdf in sorted(all_results.items()):
         area_ha = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
@@ -230,9 +230,9 @@ def main():
         print(f"  {year:<6} {len(gdf):>6} {area_ha:>12,.1f} {f1:>6} {iou:>6}")
 
     # --- Phase 4: Visualization ---
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Generating maps...")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Map of latest year with NMOSE reference overlay
     if all_results:

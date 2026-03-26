@@ -45,21 +45,15 @@ class TestAgriboundConfigValidation:
 
     def test_invalid_engine_raises(self):
         with pytest.raises(ValueError, match="Invalid engine"):
-            AgriboundConfig(
-                source="local", local_tif_path="/tmp/x.tif", engine="nonexistent"
-            )
+            AgriboundConfig(source="local", local_tif_path="/tmp/x.tif", engine="nonexistent")
 
     def test_invalid_output_format_raises(self):
         with pytest.raises(ValueError, match="Invalid output_format"):
-            AgriboundConfig(
-                source="local", local_tif_path="/tmp/x.tif", output_format="csv"
-            )
+            AgriboundConfig(source="local", local_tif_path="/tmp/x.tif", output_format="csv")
 
     def test_invalid_device_raises(self):
         with pytest.raises(ValueError, match="Invalid device"):
-            AgriboundConfig(
-                source="local", local_tif_path="/tmp/x.tif", device="tpu"
-            )
+            AgriboundConfig(source="local", local_tif_path="/tmp/x.tif", device="tpu")
 
     def test_gee_source_requires_project(self):
         with pytest.raises(ValueError, match="gee_project is required"):
@@ -75,9 +69,7 @@ class TestAgriboundConfigValidation:
 
     def test_fine_tune_without_reference_raises(self):
         with pytest.raises(ValueError, match="reference_boundaries is required"):
-            AgriboundConfig(
-                source="local", local_tif_path="/tmp/x.tif", fine_tune=True
-            )
+            AgriboundConfig(source="local", local_tif_path="/tmp/x.tif", fine_tune=True)
 
     def test_gcs_export_without_bucket_raises(self):
         with pytest.raises(ValueError, match="gcs_bucket is required"):

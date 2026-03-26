@@ -82,8 +82,7 @@ def show_boundaries(
         import leafmap
     except ImportError:
         raise ImportError(
-            "leafmap is required for visualization. "
-            "Install with: pip install leafmap"
+            "leafmap is required for visualization. Install with: pip install leafmap"
         ) from None
 
     if style is None:
@@ -176,7 +175,7 @@ def show_comparison(
     colors = ["#ff6600", "#0066ff", "#00cc44", "#cc00ff", "#ffcc00"]
 
     if labels is None:
-        labels = [f"Layer {i+1}" for i in range(len(boundaries_list))]
+        labels = [f"Layer {i + 1}" for i in range(len(boundaries_list))]
 
     m = leafmap.Map()
 
@@ -210,10 +209,12 @@ def show_comparison(
         import numpy as np
 
         bounds = np.array(all_bounds)
-        m.fit_bounds([
-            [bounds[:, 1].min(), bounds[:, 0].min()],
-            [bounds[:, 3].max(), bounds[:, 2].max()],
-        ])
+        m.fit_bounds(
+            [
+                [bounds[:, 1].min(), bounds[:, 0].min()],
+                [bounds[:, 3].max(), bounds[:, 2].max()],
+            ]
+        )
 
     if output_html:
         m.to_html(output_html)

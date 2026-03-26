@@ -174,9 +174,7 @@ def get_composite_builder(source: str) -> CompositeBuilder:
         If the source is not recognized.
     """
     if source not in SOURCE_REGISTRY:
-        raise ValueError(
-            f"Unknown source {source!r}. Available: {list(SOURCE_REGISTRY.keys())}"
-        )
+        raise ValueError(f"Unknown source {source!r}. Available: {list(SOURCE_REGISTRY.keys())}")
 
     if source == "local":
         from agribound.composites.local import LocalCompositeBuilder

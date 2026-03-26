@@ -70,9 +70,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Mississippi Alluvial Plain SPOT 6/7 field boundary delineation."
     )
-    parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID."
-    )
+    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 
@@ -85,9 +83,9 @@ def main():
     all_results = {}
 
     for year in YEARS:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Processing {year} — SPOT 6/7 at 6m resolution")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         output_path = OUTPUT_DIR / f"fields_spot_{year}.gpkg"
 
@@ -124,11 +122,11 @@ def main():
 
     # --- Cross-year comparison ---
     if len(all_results) >= 2:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("Cross-Year Comparison")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"  {'Year':<6} {'Fields':>6} {'Total (ha)':>12} {'Avg (ha)':>10}")
-        print(f"  {'-'*6} {'-'*6} {'-'*12} {'-'*10}")
+        print(f"  {'-' * 6} {'-' * 6} {'-' * 12} {'-' * 10}")
         for year, gdf in sorted(all_results.items()):
             area_ha = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
             avg_ha = gdf["metrics:area"].mean() / 10000 if "metrics:area" in gdf.columns else 0
@@ -139,11 +137,13 @@ def main():
         for i in range(len(years_sorted) - 1):
             y1, y2 = years_sorted[i], years_sorted[i + 1]
             metrics = evaluate(all_results[y2], all_results[y1])
-            print(f"\n  Stability {y1}→{y2}: "
-                  f"IoU={metrics['iou_mean']:.3f} "
-                  f"F1={metrics['f1']:.3f} "
-                  f"P={metrics['precision']:.3f} "
-                  f"R={metrics['recall']:.3f}")
+            print(
+                f"\n  Stability {y1}→{y2}: "
+                f"IoU={metrics['iou_mean']:.3f} "
+                f"F1={metrics['f1']:.3f} "
+                f"P={metrics['precision']:.3f} "
+                f"R={metrics['recall']:.3f}"
+            )
 
     # --- Visualization ---
     if all_results:

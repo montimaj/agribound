@@ -36,9 +36,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Rio de la Plata embedding-based field boundary delineation."
     )
-    parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID."
-    )
+    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 
@@ -72,7 +70,7 @@ def main():
         print(f"  {year}: {len(gdf)} fields delineated")
 
     # --- TESSERA Embeddings ---
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Part 2: TESSERA Embeddings (128-D)")
     print("=" * 60)
 
@@ -94,11 +92,11 @@ def main():
         print(f"  {year}: {len(gdf)} fields delineated")
 
     # --- Summary ---
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Summary")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  {'Source':<20} {'Year':<6} {'Fields':>6} {'Area (ha)':>12}")
-    print(f"  {'-'*20} {'-'*6} {'-'*6} {'-'*12}")
+    print(f"  {'-' * 20} {'-' * 6} {'-' * 6} {'-' * 12}")
     for key, gdf in sorted(all_results.items()):
         area_ha = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
         source, year = key.rsplit("_", 1)

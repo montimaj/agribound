@@ -45,9 +45,7 @@ def regularize_polygons(
 
             result = gdf.copy()
             result["geometry"] = result.geometry.apply(
-                lambda g: orthogonalize(g, angle_threshold=angle_threshold)
-                if g.is_valid
-                else g
+                lambda g: orthogonalize(g, angle_threshold=angle_threshold) if g.is_valid else g
             )
         elif method == "adaptive":
             from geoai.utils.geometry import adaptive_regularization

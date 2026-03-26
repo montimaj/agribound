@@ -63,9 +63,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Ensemble comparison of multiple delineation engines."
     )
-    parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID."
-    )
+    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 
@@ -79,9 +77,9 @@ def main():
 
     # --- Run each engine individually ---
     for engine_name in ENGINES:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Running engine: {engine_name}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         output_path = OUTPUT_DIR / f"fields_{engine_name}.gpkg"
 
@@ -102,9 +100,9 @@ def main():
             print(f"  {engine_name} failed: {exc}")
 
     # --- Run ensemble engine ---
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Running ensemble (vote strategy)")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     try:
         ensemble_gdf = agribound.delineate(
@@ -126,9 +124,9 @@ def main():
         print(f"  Ensemble failed: {exc}")
 
     # --- Comparison summary ---
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Engine Comparison Summary")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for name, gdf in results.items():
         n = len(gdf)
         avg_area = gdf["metrics:area"].mean() / 10000 if "metrics:area" in gdf.columns else 0

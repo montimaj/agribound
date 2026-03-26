@@ -21,9 +21,7 @@ def sample_rgb_tif(tmp_path):
     """Create a tiny 64x64 3-band GeoTIFF with CRS EPSG:32611 (UTM 11N)."""
     path = tmp_path / "rgb.tif"
     height, width, bands = 64, 64, 3
-    transform = from_bounds(
-        500000, 4000000, 500640, 4000640, width, height
-    )
+    transform = from_bounds(500000, 4000000, 500640, 4000640, width, height)
     data = np.random.randint(0, 10000, (bands, height, width), dtype=np.uint16)
 
     with rasterio.open(
@@ -47,9 +45,7 @@ def sample_rgbn_tif(tmp_path):
     """Create a tiny 64x64 4-band GeoTIFF with CRS EPSG:32611."""
     path = tmp_path / "rgbn.tif"
     height, width, bands = 64, 64, 4
-    transform = from_bounds(
-        500000, 4000000, 500640, 4000640, width, height
-    )
+    transform = from_bounds(500000, 4000000, 500640, 4000640, width, height)
     data = np.random.randint(0, 10000, (bands, height, width), dtype=np.uint16)
 
     with rasterio.open(

@@ -179,27 +179,19 @@ class AgriboundConfig:
     def _validate(self) -> None:
         """Run validation checks on the configuration."""
         if self.source not in VALID_SOURCES:
-            raise ValueError(
-                f"Invalid source {self.source!r}. Choose from {VALID_SOURCES}"
-            )
+            raise ValueError(f"Invalid source {self.source!r}. Choose from {VALID_SOURCES}")
         if self.engine not in VALID_ENGINES:
-            raise ValueError(
-                f"Invalid engine {self.engine!r}. Choose from {VALID_ENGINES}"
-            )
+            raise ValueError(f"Invalid engine {self.engine!r}. Choose from {VALID_ENGINES}")
         if self.output_format not in VALID_OUTPUT_FORMATS:
             raise ValueError(
-                f"Invalid output_format {self.output_format!r}. "
-                f"Choose from {VALID_OUTPUT_FORMATS}"
+                f"Invalid output_format {self.output_format!r}. Choose from {VALID_OUTPUT_FORMATS}"
             )
         if self.export_method not in VALID_EXPORT_METHODS:
             raise ValueError(
-                f"Invalid export_method {self.export_method!r}. "
-                f"Choose from {VALID_EXPORT_METHODS}"
+                f"Invalid export_method {self.export_method!r}. Choose from {VALID_EXPORT_METHODS}"
             )
         if self.device not in VALID_DEVICES:
-            raise ValueError(
-                f"Invalid device {self.device!r}. Choose from {VALID_DEVICES}"
-            )
+            raise ValueError(f"Invalid device {self.device!r}. Choose from {VALID_DEVICES}")
         if self.composite_method not in VALID_COMPOSITE_METHODS:
             raise ValueError(
                 f"Invalid composite_method {self.composite_method!r}. "
@@ -231,15 +223,11 @@ class AgriboundConfig:
 
         # Local source needs a TIF path
         if self.source == "local" and self.local_tif_path is None:
-            raise ValueError(
-                "local_tif_path is required when source='local'."
-            )
+            raise ValueError("local_tif_path is required when source='local'.")
 
         # Fine-tuning needs reference data
         if self.fine_tune and self.reference_boundaries is None:
-            raise ValueError(
-                "reference_boundaries is required when fine_tune=True."
-            )
+            raise ValueError("reference_boundaries is required when fine_tune=True.")
 
         # SPOT access warning
         if self.source == "spot":

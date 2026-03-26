@@ -21,9 +21,7 @@ class TestVectorRoundTripGpkg:
 
     def test_gpkg_geometry_preserved(self, tmp_path):
         poly = box(0, 0, 1, 1)
-        gdf = gpd.GeoDataFrame(
-            {"val": [42]}, geometry=[poly], crs="EPSG:4326"
-        )
+        gdf = gpd.GeoDataFrame({"val": [42]}, geometry=[poly], crs="EPSG:4326")
         path = tmp_path / "test.gpkg"
         write_vector(gdf, path)
         loaded = read_vector(path)
@@ -35,9 +33,7 @@ class TestVectorRoundTripGeojson:
 
     def test_geojson_round_trip(self, tmp_path):
         poly = box(-1, -1, 1, 1)
-        gdf = gpd.GeoDataFrame(
-            {"name": ["square"]}, geometry=[poly], crs="EPSG:4326"
-        )
+        gdf = gpd.GeoDataFrame({"name": ["square"]}, geometry=[poly], crs="EPSG:4326")
         path = tmp_path / "test.geojson"
         write_vector(gdf, path)
         loaded = read_vector(path)

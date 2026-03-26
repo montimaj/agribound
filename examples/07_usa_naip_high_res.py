@@ -62,9 +62,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="USA Central Valley NAIP high-resolution field boundary delineation."
     )
-    parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID."
-    )
+    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 

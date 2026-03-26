@@ -86,9 +86,7 @@ class TestEvaluateNoReference:
     """Test evaluation with predictions but no reference."""
 
     def test_all_false_positives(self):
-        pred = gpd.GeoDataFrame(
-            geometry=[box(0, 0, 10, 10)], crs="EPSG:32611"
-        )
+        pred = gpd.GeoDataFrame(geometry=[box(0, 0, 10, 10)], crs="EPSG:32611")
         ref = gpd.GeoDataFrame(geometry=[], crs="EPSG:32611")
         metrics = evaluate(pred, ref)
 

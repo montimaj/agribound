@@ -65,14 +65,10 @@ class LocalCompositeBuilder(CompositeBuilder):
 
                 if not clipped_path.exists():
                     logger.info("Clipping local TIF to study area")
-                    clip_raster_to_geometry(
-                        str(src_path), str(clipped_path), geometry
-                    )
+                    clip_raster_to_geometry(str(src_path), str(clipped_path), geometry)
                 return str(clipped_path)
             except Exception as exc:
-                logger.warning(
-                    "Could not clip to study area, using full raster: %s", exc
-                )
+                logger.warning("Could not clip to study area, using full raster: %s", exc)
 
         return str(src_path)
 
@@ -158,9 +154,7 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
                 "Install with: pip install agribound[geoai]"
             ) from None
 
-        logger.info(
-            "Downloading Google Satellite Embeddings (year=%d, bbox=%s)", year, bbox
-        )
+        logger.info("Downloading Google Satellite Embeddings (year=%d, bbox=%s)", year, bbox)
         paths = download_google_satellite_embedding(
             bbox=bbox,
             output_dir=str(output_dir),
@@ -211,9 +205,7 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
             output_format="tiff",
         )
         if not paths:
-            raise RuntimeError(
-                f"No TESSERA data found for year={year}, bbox={bbox}"
-            )
+            raise RuntimeError(f"No TESSERA data found for year={year}, bbox={bbox}")
         return paths[0]
 
     def get_band_mapping(self, source: str) -> dict[str, str]:

@@ -125,12 +125,12 @@ def evaluate(
 
             # Area error
             ref_area = (
-                ref.iloc[ref_idx].geometry.area
-                if hasattr(ref.iloc[ref_idx], 'geometry') else 0
+                ref.iloc[ref_idx].geometry.area if hasattr(ref.iloc[ref_idx], "geometry") else 0
             )
             pred_area = (
                 pred.iloc[best_pred_idx].geometry.area
-                if hasattr(pred.iloc[best_pred_idx], 'geometry') else 0
+                if hasattr(pred.iloc[best_pred_idx], "geometry")
+                else 0
             )
             area_errors.append(abs(ref_area - pred_area))
 

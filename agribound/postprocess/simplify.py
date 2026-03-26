@@ -40,9 +40,7 @@ def simplify_polygons(
         return gdf
 
     result = gdf.copy()
-    result["geometry"] = result.geometry.simplify(
-        tolerance, preserve_topology=preserve_topology
-    )
+    result["geometry"] = result.geometry.simplify(tolerance, preserve_topology=preserve_topology)
 
     # Remove any geometries that became empty after simplification
     result = result[~result.geometry.is_empty]
@@ -50,8 +48,6 @@ def simplify_polygons(
 
     n_removed = len(gdf) - len(result)
     if n_removed > 0:
-        logger.info(
-            "Simplified polygons: %d removed due to collapse", n_removed
-        )
+        logger.info("Simplified polygons: %d removed due to collapse", n_removed)
 
     return result.reset_index(drop=True)

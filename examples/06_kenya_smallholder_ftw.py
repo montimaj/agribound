@@ -63,9 +63,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Kenya smallholder Sentinel-2 field boundary delineation."
     )
-    parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID."
-    )
+    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 
@@ -99,9 +97,9 @@ def main():
         print(f"  min_area={min_area}: {len(gdf)} fields detected")
 
     # --- Summary ---
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Effect of min_field_area on detection count")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for threshold, gdf in results.items():
         avg_area = gdf["metrics:area"].mean() if "metrics:area" in gdf.columns else 0
         print(f"  {threshold:>6} m2: {len(gdf):>5} fields, avg area {avg_area:>8,.0f} m2")

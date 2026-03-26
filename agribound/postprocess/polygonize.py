@@ -65,13 +65,9 @@ def polygonize_mask(
 
     if not polygons:
         logger.warning("No polygons extracted from mask %s", mask_path)
-        return gpd.GeoDataFrame(
-            columns=["geometry", "class_value"], crs=crs
-        )
+        return gpd.GeoDataFrame(columns=["geometry", "class_value"], crs=crs)
 
-    gdf = gpd.GeoDataFrame(
-        {"class_value": values, "geometry": polygons}, crs=crs
-    )
+    gdf = gpd.GeoDataFrame({"class_value": values, "geometry": polygons}, crs=crs)
 
     # Area filtering
     if min_area_m2 > 0:

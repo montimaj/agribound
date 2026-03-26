@@ -47,9 +47,7 @@ class FTWEngine(DelineationEngine):
     supported_sources = ["landsat", "sentinel2", "hls", "local"]
     requires_bands = ["R", "G", "B"]
 
-    def delineate(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Run FTW semantic segmentation + polygonization.
 
         Parameters
@@ -77,6 +75,7 @@ class FTWEngine(DelineationEngine):
 
         # Determine model
         from agribound.io.raster import get_raster_info
+
         raster_info = get_raster_info(raster_path)
 
         model_name = config.engine_params.get("model")

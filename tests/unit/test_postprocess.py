@@ -62,9 +62,7 @@ class TestFilterPolygons:
         assert len(result) == len(sample_geodataframe)
 
     def test_max_area_filter(self, sample_geodataframe):
-        result = filter_polygons(
-            sample_geodataframe, min_area_m2=0.0, max_area_m2=500.0
-        )
+        result = filter_polygons(sample_geodataframe, min_area_m2=0.0, max_area_m2=500.0)
         # Only the very small polygon (100 m2) should remain
         assert len(result) >= 1
         assert len(result) < len(sample_geodataframe)

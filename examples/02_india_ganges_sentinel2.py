@@ -64,9 +64,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="India Ganges Plain Sentinel-2 field boundary delineation."
     )
-    parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID."
-    )
+    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 

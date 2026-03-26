@@ -26,7 +26,12 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
         "gpu_required": True,
         "requires_bands": ["R", "G", "B"],
         "supported_sources": [
-            "landsat", "sentinel2", "hls", "naip", "spot", "local",
+            "landsat",
+            "sentinel2",
+            "hls",
+            "naip",
+            "spot",
+            "local",
         ],
         "reference": "arXiv:2504.02534",
         "install_extra": "delineate-anything",
@@ -78,7 +83,12 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
         "gpu_required": True,
         "requires_bands": [],
         "supported_sources": [
-            "landsat", "sentinel2", "hls", "naip", "spot", "local",
+            "landsat",
+            "sentinel2",
+            "hls",
+            "naip",
+            "spot",
+            "local",
         ],
         "reference": "N/A",
         "install_extra": "all",
@@ -116,9 +126,7 @@ class DelineationEngine(ABC):
     requires_bands: list[str] = []
 
     @abstractmethod
-    def delineate(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Run field boundary delineation on a raster file.
 
         Parameters
@@ -187,21 +195,27 @@ def get_engine(engine_name: str) -> DelineationEngine:
 
     if engine_name == "delineate-anything":
         from agribound.engines.delineate_anything import DelineateAnythingEngine
+
         return DelineateAnythingEngine()
     elif engine_name == "ftw":
         from agribound.engines.ftw import FTWEngine
+
         return FTWEngine()
     elif engine_name == "geoai":
         from agribound.engines.geoai_field import GeoAIEngine
+
         return GeoAIEngine()
     elif engine_name == "prithvi":
         from agribound.engines.prithvi import PrithviEngine
+
         return PrithviEngine()
     elif engine_name == "embedding":
         from agribound.engines.embedding import EmbeddingEngine
+
         return EmbeddingEngine()
     elif engine_name == "ensemble":
         from agribound.engines.ensemble import EnsembleEngine
+
         return EnsembleEngine()
     else:
         raise ValueError(f"Engine {engine_name!r} is not implemented.")

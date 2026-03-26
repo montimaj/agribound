@@ -369,8 +369,7 @@ def _download_tile_local(
         import geedim  # noqa: F401 — registers the ee.Image.gd accessor
     except ImportError:
         raise ImportError(
-            "geedim is required for local GEE downloads. "
-            "Install with: pip install agribound[gee]"
+            "geedim is required for local GEE downloads. Install with: pip install agribound[gee]"
         ) from None
 
     logger.info("Downloading composite to %s", output_path)
@@ -450,9 +449,7 @@ def _export_to_drive(
         fileFormat="GeoTIFF",
     )
     task.start()
-    logger.info(
-        "GEE export task started: %s (check Google Drive/%s/)", description, folder
-    )
+    logger.info("GEE export task started: %s (check Google Drive/%s/)", description, folder)
     return f"gdrive://{folder}/{description}"
 
 
@@ -593,9 +590,7 @@ class GEECompositeBuilder(CompositeBuilder):
         if len(tiles) == 1:
             # Single tile — direct download
             output_path = str(cache_dir / f"{base_name}.tif")
-            return self._download_single(
-                composite, geometry, resolution_m, output_path, config
-            )
+            return self._download_single(composite, geometry, resolution_m, output_path, config)
         else:
             # Multiple tiles — parallel download and merge
             return self._download_tiled(
@@ -612,17 +607,13 @@ class GEECompositeBuilder(CompositeBuilder):
     ) -> str:
         """Download a single (non-tiled) composite."""
         if config.export_method == "local":
-            return _download_tile_local(
-                composite, geometry, resolution_m, output_path
-            )
+            return _download_tile_local(composite, geometry, resolution_m, output_path)
         elif config.export_method == "gdrive":
             desc = Path(output_path).stem
             return _export_to_drive(composite, geometry, resolution_m, desc)
         elif config.export_method == "gcs":
             prefix = Path(output_path).stem
-            return _export_to_gcs(
-                composite, geometry, resolution_m, config.gcs_bucket, prefix
-            )
+            return _export_to_gcs(composite, geometry, resolution_m, config.gcs_bucket, prefix)
         else:
             raise ValueError(f"Unknown export method: {config.export_method}")
 
@@ -651,9 +642,7 @@ class GEECompositeBuilder(CompositeBuilder):
             tile_composite = composite.clip(tile_geom)
 
             if config.export_method == "local":
-                _download_tile_local(
-                    tile_composite, tile_geom, resolution_m, tile_path
-                )
+                _download_tile_local(tile_composite, tile_geom, resolution_m, tile_path)
                 tile_paths.append(tile_path)
             else:
                 # For GDrive/GCS, export individual tiles

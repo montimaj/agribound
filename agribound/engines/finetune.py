@@ -90,14 +90,10 @@ def fine_tune(
     elif engine == "prithvi":
         return _finetune_prithvi(train_dir, config)
     else:
-        raise NotImplementedError(
-            f"Fine-tuning is not yet implemented for engine {engine!r}"
-        )
+        raise NotImplementedError(f"Fine-tuning is not yet implemented for engine {engine!r}")
 
 
-def _prepare_training_data(
-    raster_path: str, config: AgriboundConfig
-) -> Path:
+def _prepare_training_data(raster_path: str, config: AgriboundConfig) -> Path:
     """Prepare training chips from raster + reference boundaries.
 
     Rasterizes polygons to segmentation masks, chips into patches,
@@ -311,9 +307,7 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig) -> str:
         "small": "DelineateAnything-S.pt",
     }.get(model_size, "DelineateAnything-S.pt")
 
-    model_path = hf_hub_download(
-        repo_id="MykolaL/DelineateAnything", filename=filename
-    )
+    model_path = hf_hub_download(repo_id="MykolaL/DelineateAnything", filename=filename)
 
     model = YOLO(model_path)
 
@@ -357,8 +351,7 @@ def _finetune_geoai(train_dir: Path, config: AgriboundConfig) -> str:
         from geoai import train_instance_segmentation_model
     except ImportError:
         raise ImportError(
-            "geoai-py is required for GeoAI fine-tuning. "
-            "Install with: pip install agribound[geoai]"
+            "geoai-py is required for GeoAI fine-tuning. Install with: pip install agribound[geoai]"
         ) from None
 
     checkpoint_dir = config.get_working_dir() / "checkpoints" / "geoai"
@@ -444,9 +437,7 @@ def _finetune_prithvi(train_dir: Path, config: AgriboundConfig) -> str:
         yaml.dump(tt_config, f)
 
     logger.info("Terratorch config saved to %s", config_path)
-    logger.info(
-        "Run fine-tuning with: terratorch fit --config %s", config_path
-    )
+    logger.info("Run fine-tuning with: terratorch fit --config %s", config_path)
 
     # Attempt programmatic fine-tuning
     try:

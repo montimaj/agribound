@@ -32,9 +32,7 @@ class EmbeddingEngine(DelineationEngine):
     supported_sources = ["google-embedding", "tessera-embedding"]
     requires_bands = []
 
-    def delineate(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Run embedding-based field delineation.
 
         The ``raster_path`` points to a pre-downloaded embedding GeoTIFF
@@ -69,9 +67,7 @@ class EmbeddingEngine(DelineationEngine):
         embeddings = data.reshape(bands, -1).T.astype(np.float32)
 
         # Handle nodata
-        valid_mask = np.all(np.isfinite(embeddings), axis=1) & np.any(
-            embeddings != 0, axis=1
-        )
+        valid_mask = np.all(np.isfinite(embeddings), axis=1) & np.any(embeddings != 0, axis=1)
 
         # Optional: PCA dimensionality reduction for speed
         use_pca = config.engine_params.get("use_pca", True)
@@ -173,7 +169,9 @@ class EmbeddingEngine(DelineationEngine):
 
         logger.info(
             "Clustering %d valid pixels into %d clusters (%s)",
-            len(valid_data), n_clusters, method,
+            len(valid_data),
+            n_clusters,
+            method,
         )
 
         if method == "kmeans":
@@ -236,7 +234,7 @@ class EmbeddingEngine(DelineationEngine):
         best_k = 15
         best_score = -1
 
-        eval_sample = sample[:min(5000, len(sample))]
+        eval_sample = sample[: min(5000, len(sample))]
 
         for k in k_range:
             if k >= len(eval_sample):

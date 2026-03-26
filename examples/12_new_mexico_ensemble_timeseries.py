@@ -46,7 +46,7 @@ NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
 OUTPUT_DIR = Path("outputs/lea_county_ensemble")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-COUNTY_CODE = '25'  # Lea County
+COUNTY_CODE = "25"  # Lea County
 YEARS = range(2020, 2023)
 VOTE_THRESHOLD = 0.3  # Fraction of source–engine combos that must agree
 
@@ -169,12 +169,8 @@ def grand_ensemble_vote(results, threshold):
 
 def parse_args():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Lea County multi-source ensemble time series."
-    )
-    parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID."
-    )
+    parser = argparse.ArgumentParser(description="Lea County multi-source ensemble time series.")
+    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 
@@ -193,11 +189,11 @@ def main():
     # ================================================================
     # Phase 1: Individual source–engine delineation (2020–2022)
     # ================================================================
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("Phase 1: Per-source, per-engine delineation")
     print(f"  Sources: {', '.join(SOURCE_ENGINE_MAP)}")
     print(f"  Years:   {min(YEARS)}–{max(YEARS)}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     all_results = {}  # {year: {"source/engine": gdf}}
 
@@ -215,9 +211,7 @@ def main():
                 print(f"  {tag}: starting...", flush=True)
 
                 try:
-                    gdf, _ = run_delineation(
-                        source, engine, year, study_area, gee_project
-                    )
+                    gdf, _ = run_delineation(source, engine, year, study_area, gee_project)
                     all_results[year][tag] = gdf
                     print(f"  {tag}: {len(gdf)} fields")
                 except Exception as exc:
@@ -226,9 +220,9 @@ def main():
     # ================================================================
     # Phase 2: Grand ensemble per year (vote merge)
     # ================================================================
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"Phase 2: Grand ensemble (vote threshold={VOTE_THRESHOLD})")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     ensemble_results = {}
 
@@ -245,8 +239,7 @@ def main():
             ensemble_results[year] = gpd.read_file(output_path)
             continue
 
-        print(f"\n  {year}: merging {len(year_results)} source–engine results...",
-              end=" ")
+        print(f"\n  {year}: merging {len(year_results)} source–engine results...", end=" ")
         try:
             gdf = grand_ensemble_vote(year_results, VOTE_THRESHOLD)
 
@@ -264,16 +257,15 @@ def main():
     # ================================================================
     # Phase 3: Evaluation against NMOSE reference (Lea County)
     # ================================================================
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("Phase 3: Evaluation against NMOSE reference (Lea County)")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     header = (
-        f"  {'Year':<6} {'Source/Engine':<40} {'Fields':>6} "
-        f"{'F1':>6} {'IoU':>6} {'P':>6} {'R':>6}"
+        f"  {'Year':<6} {'Source/Engine':<40} {'Fields':>6} {'F1':>6} {'IoU':>6} {'P':>6} {'R':>6}"
     )
     print(f"\n{header}")
-    print(f"  {'-'*6} {'-'*40} {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*6}")
+    print(f"  {'-' * 6} {'-' * 40} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6}")
 
     for year in YEARS:
         # Evaluate individual runs
@@ -304,24 +296,17 @@ def main():
     # ================================================================
     # Phase 4: Ensemble time series summary
     # ================================================================
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("Grand Ensemble Time Series Summary")
-    print(f"{'='*70}")
-    print(
-        f"  {'Year':<6} {'Fields':>6} {'Area (ha)':>12} "
-        f"{'Sources':>8} {'F1':>6} {'IoU':>6}"
-    )
-    print(f"  {'-'*6} {'-'*6} {'-'*12} {'-'*8} {'-'*6} {'-'*6}")
+    print(f"{'=' * 70}")
+    print(f"  {'Year':<6} {'Fields':>6} {'Area (ha)':>12} {'Sources':>8} {'F1':>6} {'IoU':>6}")
+    print(f"  {'-' * 6} {'-' * 6} {'-' * 12} {'-' * 8} {'-' * 6} {'-' * 6}")
 
     for year in YEARS:
         gdf = ensemble_results.get(year)
         if gdf is None:
             continue
-        area_ha = (
-            gdf["metrics:area"].sum() / 10000
-            if "metrics:area" in gdf.columns
-            else 0
-        )
+        area_ha = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
         n_sources = len(all_results.get(year, {}))
         try:
             m = evaluate(gdf, ref_gdf)
@@ -330,16 +315,14 @@ def main():
                 f"{n_sources:>8} {m['f1']:.3f} {m['iou_mean']:.3f}"
             )
         except Exception:
-            print(
-                f"  {year:<6} {len(gdf):>6} {area_ha:>12,.1f} {n_sources:>8}"
-            )
+            print(f"  {year:<6} {len(gdf):>6} {area_ha:>12,.1f} {n_sources:>8}")
 
     # ================================================================
     # Phase 5: Visualization
     # ================================================================
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("Generating maps...")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     from agribound.visualize import show_comparison
 
@@ -352,10 +335,7 @@ def main():
             basemap="Esri.WorldImagery",
             output_html=str(OUTPUT_DIR / "map_ensemble_vs_reference.html"),
         )
-        print(
-            f"  Ensemble vs Reference: "
-            f"{OUTPUT_DIR / 'map_ensemble_vs_reference.html'}"
-        )
+        print(f"  Ensemble vs Reference: {OUTPUT_DIR / 'map_ensemble_vs_reference.html'}")
 
     # Per-source–engine comparison for latest year
     if ensemble_results:
@@ -370,14 +350,9 @@ def main():
                 comp_gdfs,
                 labels=comp_labels,
                 basemap="Esri.WorldImagery",
-                output_html=str(
-                    OUTPUT_DIR / "map_source_engine_comparison.html"
-                ),
+                output_html=str(OUTPUT_DIR / "map_source_engine_comparison.html"),
             )
-            print(
-                f"  Source–engine comparison: "
-                f"{OUTPUT_DIR / 'map_source_engine_comparison.html'}"
-            )
+            print(f"  Source–engine comparison: {OUTPUT_DIR / 'map_source_engine_comparison.html'}")
 
     # Ensemble time series (all 3 years)
     ts_gdfs = [ensemble_results[y] for y in YEARS if y in ensemble_results]
@@ -390,9 +365,7 @@ def main():
             basemap="Esri.WorldImagery",
             output_html=str(OUTPUT_DIR / "map_ensemble_timeseries.html"),
         )
-        print(
-            f"  Time series: {OUTPUT_DIR / 'map_ensemble_timeseries.html'}"
-        )
+        print(f"  Time series: {OUTPUT_DIR / 'map_ensemble_timeseries.html'}")
 
     # Latest year standalone map
     if ensemble_results:

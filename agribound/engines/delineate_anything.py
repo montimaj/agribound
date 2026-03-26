@@ -126,9 +126,7 @@ class DelineateAnythingEngine(DelineationEngine):
     supported_sources = ["landsat", "sentinel2", "hls", "naip", "spot", "local"]
     requires_bands = ["R", "G", "B"]
 
-    def delineate(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Run Delineate-Anything on a raster file.
 
         Parameters
@@ -195,22 +193,25 @@ class DelineateAnythingEngine(DelineationEngine):
         temp_dir.mkdir(parents=True, exist_ok=True)
         output_path = work_dir / "output.gpkg"
 
-        da_config = _deep_update(_DEFAULT_CONFIG, {
-            "model": [model_size],
-            "execution_args": {
-                "src_folder": str(input_dir),
-                "temp_folder": str(temp_dir),
-                "output_path": str(output_path),
+        da_config = _deep_update(
+            _DEFAULT_CONFIG,
+            {
+                "model": [model_size],
+                "execution_args": {
+                    "src_folder": str(input_dir),
+                    "temp_folder": str(temp_dir),
+                    "output_path": str(output_path),
+                },
+                "filtering_args": {
+                    "minimum_area_m2": config.min_field_area_m2,
+                    "minimum_hole_area_m2": config.min_field_area_m2,
+                },
+                "simplification_args": {
+                    "simplify": config.simplify_tolerance > 0,
+                    "epsilon_scale": config.simplify_tolerance,
+                },
             },
-            "filtering_args": {
-                "minimum_area_m2": config.min_field_area_m2,
-                "minimum_hole_area_m2": config.min_field_area_m2,
-            },
-            "simplification_args": {
-                "simplify": config.simplify_tolerance > 0,
-                "epsilon_scale": config.simplify_tolerance,
-            },
-        })
+        )
 
         # Apply any user engine_params overrides
         if config.engine_params:
@@ -229,6 +230,7 @@ class DelineateAnythingEngine(DelineationEngine):
         logger.info("Running Delineate-Anything inference on %s", raster_path)
         try:
             import sys
+
             # Add Delineate-Anything to path if available locally
             da_paths = [
                 Path.home() / "VSCode" / "Delineate-Anything",
@@ -317,7 +319,7 @@ class DelineateAnythingEngine(DelineationEngine):
                     # Pad if needed
                     if tile.shape[1] < tile_size or tile.shape[2] < tile_size:
                         padded = np.zeros((n_bands, tile_size, tile_size), dtype=np.uint8)
-                        padded[:, :tile.shape[1], :tile.shape[2]] = tile
+                        padded[:, : tile.shape[1], : tile.shape[2]] = tile
                         tile = padded
 
                     # CHW -> HWC for YOLO
@@ -336,8 +338,10 @@ class DelineateAnythingEngine(DelineationEngine):
                             for mask_data in result.masks.data.cpu().numpy():
                                 # Resize mask to tile dimensions
                                 import cv2
+
                                 mask_resized = cv2.resize(
-                                    mask_data, (tile_size, tile_size),
+                                    mask_data,
+                                    (tile_size, tile_size),
                                     interpolation=cv2.INTER_NEAREST,
                                 )
                                 # Crop to actual tile extent
@@ -355,9 +359,7 @@ class DelineateAnythingEngine(DelineationEngine):
 
                                 # Polygonize
                                 mask_int = (mask_cropped > 0.5).astype(np.uint8)
-                                for geom, val in rio_shapes(
-                                    mask_int, transform=tile_transform
-                                ):
+                                for geom, val in rio_shapes(mask_int, transform=tile_transform):
                                     if val == 1:
                                         poly = shapely_shape(geom)
                                         if poly.is_valid and poly.area > 0:
@@ -370,6 +372,7 @@ class DelineateAnythingEngine(DelineationEngine):
 
         # Basic area filtering
         from agribound.postprocess.filter import filter_polygons
+
         gdf = filter_polygons(gdf, min_area_m2=config.min_field_area_m2)
 
         logger.info("Delineated %d field boundaries (YOLO fallback)", len(gdf))

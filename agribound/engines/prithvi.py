@@ -37,9 +37,7 @@ class PrithviEngine(DelineationEngine):
     supported_sources = ["landsat", "sentinel2", "hls", "local"]
     requires_bands = ["R", "G", "B", "NIR"]
 
-    def delineate(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Run Prithvi-based field delineation.
 
         Parameters
@@ -128,9 +126,7 @@ class PrithviEngine(DelineationEngine):
         logger.info("Prithvi segmentation delineated %d fields", len(gdf))
         return gdf
 
-    def _embed_mode(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def _embed_mode(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Embedding mode using Prithvi features + clustering.
 
         Extracts feature embeddings from Prithvi's encoder and clusters
@@ -268,9 +264,7 @@ class PrithviEngine(DelineationEngine):
         embeddings = embeddings_flat.reshape(height, width, n_components)
         return embeddings
 
-    def _cluster_embeddings(
-        self, embeddings: np.ndarray, n_clusters: int | str
-    ) -> np.ndarray:
+    def _cluster_embeddings(self, embeddings: np.ndarray, n_clusters: int | str) -> np.ndarray:
         """Cluster pixel embeddings to delineate fields.
 
         Parameters
