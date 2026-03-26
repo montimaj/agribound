@@ -26,6 +26,7 @@ import warnings
 from pathlib import Path
 
 warnings.filterwarnings("ignore", message=".*organizePolygons.*")
+warnings.filterwarnings("ignore", message=".*STAC entry.*", category=RuntimeWarning)
 
 import logging
 

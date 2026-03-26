@@ -642,7 +642,10 @@ class GEECompositeBuilder(CompositeBuilder):
             tile_composite = composite.clip(tile_geom)
 
             if config.export_method == "local":
-                _download_tile_local(tile_composite, tile_geom, resolution_m, tile_path)
+                if Path(tile_path).exists():
+                    logger.info("Using cached tile: %s", tile_path)
+                else:
+                    _download_tile_local(tile_composite, tile_geom, resolution_m, tile_path)
                 tile_paths.append(tile_path)
             else:
                 # For GDrive/GCS, export individual tiles
