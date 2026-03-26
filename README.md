@@ -54,7 +54,15 @@ Agribound is a Python package that provides a unified framework for agricultural
 
 ## Installation
 
-Install the core package from PyPI:
+We recommend creating a conda environment first to handle geospatial binary dependencies (GDAL, PROJ, rasterio), then installing agribound via pip:
+
+```bash
+conda create -n agribound python=3.12 rasterio geopandas fiona shapely pyproj -c conda-forge
+conda activate agribound
+pip install agribound
+```
+
+Alternatively, install directly via pip (requires system GDAL):
 
 ```bash
 pip install agribound
@@ -158,7 +166,7 @@ Example notebooks are provided in the [`examples/`](examples/) directory:
 
 | Notebook | Description |
 |---|---|
-| [01_new_mexico_landsat_timeseries](examples/01_new_mexico_landsat_timeseries.ipynb) | 40-year annual field boundaries using Landsat time-series over New Mexico |
+| [01_new_mexico_landsat_timeseries](examples/01_new_mexico_landsat_timeseries.ipynb) | 40-year annual field boundaries using Landsat 5-9 time-series over New Mexico |
 | [02_india_ganges_sentinel2](examples/02_india_ganges_sentinel2.ipynb) | Smallholder field delineation in the Ganges River basin, India |
 | [03_australia_murray_darling_hls](examples/03_australia_murray_darling_hls.ipynb) | Irrigated agriculture mapping in Murray-Darling Basin using HLS |
 | [04_france_beauce_sentinel2](examples/04_france_beauce_sentinel2.ipynb) | Large-field European agriculture in the Beauce region, France |
@@ -170,26 +178,38 @@ Example notebooks are provided in the [`examples/`](examples/) directory:
 | [10_local_tif_quickstart](examples/10_local_tif_quickstart.ipynb) | Five-line quickstart using a local GeoTIFF with no GEE dependency |
 | [11_mississippi_alluvial_plain_spot](examples/11_mississippi_alluvial_plain_spot.py) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
 
-## GEE Setup
+## Google Earth Engine Authentication
 
-Several satellite sources require Google Earth Engine access. To authenticate:
+This section is only required when using GEE-based satellite sources (Landsat, Sentinel-2, HLS, NAIP, SPOT) or embedding datasets. **If you are working with local GeoTIFFs (`source="local"`), GEE authentication is not needed** and you can skip this section entirely.
+
+**Setup steps:**
+
+1. Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install)
+2. Create a Google Cloud project (e.g., `my-gee-project`) with the Earth Engine API enabled at [https://console.cloud.google.com/](https://console.cloud.google.com/)
+3. Configure and authenticate:
+
+```bash
+gcloud config set project my-gee-project
+gcloud auth application-default set-quota-project my-gee-project  # if prompted
+earthengine authenticate
+```
+
+4. Use the agribound auth helper to verify:
 
 ```bash
 agribound auth --project my-gee-project
 ```
 
-This wraps `ee.Authenticate()` and `ee.Initialize()` with clear error messages. For non-interactive environments (CI, HPC), set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to point to a service account key JSON file:
+This wraps `ee.Authenticate()` and `ee.Initialize()` with clear error messages.
+
+**For non-interactive environments (CI, HPC):** use a service account key:
 
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
-agribound auth --project my-gee-project
+agribound auth --project my-gee-project --service-account-key /path/to/service-account-key.json
 ```
 
-You can verify that authentication succeeded with:
-
-```bash
-agribound auth --check
-```
+See the [Earth Engine Python installation guide](https://developers.google.com/earth-engine/guides/python_install) for more details.
 
 ## SPOT Access
 

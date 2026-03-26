@@ -64,30 +64,83 @@ def _mask_hls_clouds(image):
 
 
 def _build_landsat_collection(config: AgriboundConfig, geometry):
-    """Build a Landsat 8+9 annual composite."""
+    """Build a Landsat annual composite.
+
+    Automatically selects the appropriate Landsat missions based on the
+    target year:
+
+    - Landsat 5 TM (1984--2012): Collection 2, Level 2
+    - Landsat 7 ETM+ (1999--2024): Collection 2, Level 2
+    - Landsat 8 OLI (2013--present): Collection 2, Level 2
+    - Landsat 9 OLI-2 (2021--present): Collection 2, Level 2
+
+    Multiple overlapping missions are merged for better temporal coverage.
+    Band names are harmonized to R, G, B, NIR across all missions.
+    """
     import ee
 
     start_date, end_date = _get_date_range(config)
+    year = config.year
 
-    lc08 = (
-        ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
-        .filterDate(start_date, end_date)
-        .filterBounds(geometry)
-        .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
-        .map(_mask_landsat_clouds)
-        .select(["SR_B4", "SR_B3", "SR_B2", "SR_B5"], ["R", "G", "B", "NIR"])
-    )
+    collections = []
 
-    lc09 = (
-        ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
-        .filterDate(start_date, end_date)
-        .filterBounds(geometry)
-        .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
-        .map(_mask_landsat_clouds)
-        .select(["SR_B4", "SR_B3", "SR_B2", "SR_B5"], ["R", "G", "B", "NIR"])
-    )
+    # Landsat 5 TM (1984–2012): different band names (SR_B3=R, SR_B2=G, SR_B1=B, SR_B4=NIR)
+    if year <= 2012:
+        lt05 = (
+            ee.ImageCollection("LANDSAT/LT05/C02/T1_L2")
+            .filterDate(start_date, end_date)
+            .filterBounds(geometry)
+            .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
+            .map(_mask_landsat_clouds)
+            .select(["SR_B3", "SR_B2", "SR_B1", "SR_B4"], ["R", "G", "B", "NIR"])
+        )
+        collections.append(lt05)
 
-    merged = lc08.merge(lc09)
+    # Landsat 7 ETM+ (1999–2024): same band names as Landsat 5
+    # Note: SLC-off after May 2003 causes striping; median compositing mitigates this
+    if 1999 <= year <= 2024:
+        le07 = (
+            ee.ImageCollection("LANDSAT/LE07/C02/T1_L2")
+            .filterDate(start_date, end_date)
+            .filterBounds(geometry)
+            .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
+            .map(_mask_landsat_clouds)
+            .select(["SR_B3", "SR_B2", "SR_B1", "SR_B4"], ["R", "G", "B", "NIR"])
+        )
+        collections.append(le07)
+
+    # Landsat 8 OLI (2013–present): different band numbering
+    if year >= 2013:
+        lc08 = (
+            ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+            .filterDate(start_date, end_date)
+            .filterBounds(geometry)
+            .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
+            .map(_mask_landsat_clouds)
+            .select(["SR_B4", "SR_B3", "SR_B2", "SR_B5"], ["R", "G", "B", "NIR"])
+        )
+        collections.append(lc08)
+
+    # Landsat 9 OLI-2 (2021–present): same band numbering as Landsat 8
+    if year >= 2021:
+        lc09 = (
+            ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
+            .filterDate(start_date, end_date)
+            .filterBounds(geometry)
+            .filter(ee.Filter.lt("CLOUD_COVER", config.cloud_cover_max))
+            .map(_mask_landsat_clouds)
+            .select(["SR_B4", "SR_B3", "SR_B2", "SR_B5"], ["R", "G", "B", "NIR"])
+        )
+        collections.append(lc09)
+
+    if not collections:
+        raise ValueError(f"No Landsat missions available for year {year}")
+
+    # Merge all available missions
+    merged = collections[0]
+    for col in collections[1:]:
+        merged = merged.merge(col)
+
     return merged, 30
 
 

@@ -1,21 +1,28 @@
 # GEE Setup
 
-Google Earth Engine (GEE) is required for all satellite sources except `local`, `google-embedding`, and `tessera-embedding`. This guide covers project creation and authentication.
+Google Earth Engine (GEE) is required for satellite sources that download imagery from GEE (Landsat, Sentinel-2, HLS, NAIP, SPOT) and for embedding datasets (Google Satellite Embedding, TESSERA). **If you are working with local GeoTIFFs (`source="local"`), GEE authentication is not needed** and you can skip this page entirely. This guide covers project creation and authentication for GEE-based workflows.
 
 ## Prerequisites
 
 1. A Google account.
-2. The GEE extra installed: `pip install agribound[gee]`.
+2. The [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) installed.
+3. The GEE extra installed: `pip install agribound[gee]`.
 
 ## Creating a GEE Project
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
-2. Create a new project or select an existing one.
+2. Create a new project or select an existing one (e.g., `my-gee-project`).
 3. Enable the Earth Engine API for your project:
     - Navigate to **APIs & Services > Library**.
     - Search for "Earth Engine API".
     - Click **Enable**.
 4. Register your project for Earth Engine at [code.earthengine.google.com](https://code.earthengine.google.com/) if you have not already.
+5. Configure the Google Cloud CLI to use your project:
+
+```bash
+gcloud config set project my-gee-project
+gcloud auth application-default set-quota-project my-gee-project  # if prompted
+```
 
 Note your **project ID** (e.g., `my-gee-project`). You will need it for agribound.
 
@@ -23,19 +30,21 @@ Note your **project ID** (e.g., `my-gee-project`). You will need it for agriboun
 
 ### Interactive Browser Authentication
 
-The simplest approach for local development. Run:
+The simplest approach for local development. First authenticate with the Earth Engine CLI:
+
+```bash
+earthengine authenticate
+```
+
+Then use the agribound auth helper to verify and initialize:
 
 ```bash
 agribound auth --project my-gee-project
 ```
 
-This opens a browser window for Google OAuth. After authorizing, credentials are cached locally for future sessions.
+This wraps `ee.Authenticate()` and `ee.Initialize()` with clear error messages. After authorizing, credentials are cached locally for future sessions.
 
-Alternatively, authenticate directly with the Earth Engine CLI:
-
-```bash
-earthengine authenticate
-```
+See the [Earth Engine Python installation guide](https://developers.google.com/earth-engine/guides/python_install) for more details.
 
 ### Service Account Authentication
 

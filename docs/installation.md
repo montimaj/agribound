@@ -3,11 +3,23 @@
 ## Requirements
 
 - Python >= 3.10
-- pip (recommended) or conda
+- GDAL, PROJ, and GEOS (for rasterio, fiona, and geopandas)
 
-## Core Install
+## Recommended: Conda + pip
 
-The core package includes rasterio, geopandas, shapely, dask, and other base dependencies:
+Geospatial packages like rasterio, fiona, and geopandas depend on system-level C libraries (GDAL, PROJ, GEOS) that can be difficult to install via pip alone. We recommend creating a conda environment first, then installing agribound with pip:
+
+```bash
+conda create -n agribound python=3.12 rasterio geopandas fiona shapely pyproj -c conda-forge
+conda activate agribound
+pip install agribound
+```
+
+This ensures all binary dependencies are properly resolved. You can then add optional extras via pip as described below.
+
+## Alternative: pip Only
+
+If you have a working GDAL installation or prefer a pure pip workflow:
 
 ```bash
 pip install agribound
@@ -94,6 +106,8 @@ pip install agribound[dev]
 Clone the repository and install in editable mode with development dependencies:
 
 ```bash
+conda create -n agribound-dev python=3.12 rasterio geopandas fiona shapely pyproj -c conda-forge
+conda activate agribound-dev
 git clone https://github.com/montimaj/agribound.git
 cd agribound
 pip install -e ".[all,dev,docs]"
