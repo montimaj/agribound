@@ -576,13 +576,9 @@ class GEECompositeBuilder(CompositeBuilder):
         # Return cached composite if it already exists (avoids re-downloading
         # when multiple engines use the same source/year).
         cached_tif = cache_dir / f"{base_name}.tif"
-        cached_vrt = cache_dir / f"{base_name}.vrt"
         if cached_tif.exists():
             logger.info("Using cached composite: %s", cached_tif)
             return str(cached_tif)
-        if cached_vrt.exists():
-            logger.info("Using cached composite: %s", cached_vrt)
-            return str(cached_vrt)
 
         # Check if tiling is needed
         tiles = _compute_tiles(bounds, resolution_m, config.tile_size)
@@ -669,34 +665,59 @@ class GEECompositeBuilder(CompositeBuilder):
             )
             return str(tile_dir)
 
-        # Build VRT from tiles
-        vrt_path = str(cache_dir / f"{base_name}.vrt")
-        self._build_vrt(tile_paths, vrt_path)
-        return vrt_path
+        # Merge tiles into a single GeoTIFF (all engines expect a plain TIF)
+        merged_path = str(cache_dir / f"{base_name}.tif")
+        self._merge_tiles(tile_paths, merged_path)
+        return merged_path
 
     @staticmethod
-    def _build_vrt(tile_paths: list[str], vrt_path: str) -> str:
-        """Build a GDAL VRT from a list of tile GeoTIFFs.
+    def _merge_tiles(tile_paths: list[str], output_path: str) -> str:
+        """Merge tile GeoTIFFs into a single GeoTIFF.
+
+        Uses GDAL Translate via VRT for efficiency, falling back to
+        rasterio merge if GDAL Python bindings are unavailable.
 
         Parameters
         ----------
         tile_paths : list[str]
             Paths to tile GeoTIFFs.
-        vrt_path : str
-            Output VRT file path.
+        output_path : str
+            Output GeoTIFF path.
 
         Returns
         -------
         str
-            Path to the VRT file.
+            Path to the merged GeoTIFF.
         """
-        from osgeo import gdal
+        try:
+            from osgeo import gdal
 
-        vrt = gdal.BuildVRT(vrt_path, tile_paths)
-        vrt.FlushCache()
-        del vrt
-        logger.info("Built VRT from %d tiles: %s", len(tile_paths), vrt_path)
-        return vrt_path
+            gdal.UseExceptions()
+            vrt = gdal.BuildVRT("", tile_paths)
+            gdal.Translate(output_path, vrt, creationOptions=["COMPRESS=DEFLATE"])
+            del vrt
+        except ImportError:
+            import rasterio
+            from rasterio.merge import merge
+
+            datasets = [rasterio.open(p) for p in tile_paths]
+            merged, transform = merge(datasets)
+            for ds in datasets:
+                ds.close()
+
+            profile = rasterio.open(tile_paths[0]).profile.copy()
+            profile.update(
+                width=merged.shape[2],
+                height=merged.shape[1],
+                transform=transform,
+                count=merged.shape[0],
+                compress="deflate",
+            )
+            with rasterio.open(output_path, "w", **profile) as dst:
+                dst.write(merged)
+
+        logger.info("Merged %d tiles into %s", len(tile_paths), output_path)
+        return output_path
 
     @staticmethod
     def _gdf_to_ee_geometry(gdf):

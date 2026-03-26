@@ -54,15 +54,17 @@ Agribound is a Python package that provides a unified framework for agricultural
 
 ## Installation
 
-We recommend creating a conda environment first to handle geospatial binary dependencies (GDAL, PROJ, rasterio), then installing agribound via pip:
+We recommend creating a conda environment first to handle geospatial binary dependencies (GDAL, PROJ, rasterio) that are difficult to install via pip alone:
 
 ```bash
-conda create -n agribound python=3.12 rasterio geopandas fiona shapely pyproj -c conda-forge
+conda create -n agribound python=3.12 gdal rasterio geopandas fiona shapely pyproj -c conda-forge
 conda activate agribound
 pip install agribound
 ```
 
-Alternatively, install directly via pip (requires system GDAL):
+> **Note:** The `gdal` conda package provides the GDAL Python bindings (`osgeo`) required by `geedim` for downloading satellite composites from Google Earth Engine. Installing `libgdal` alone is not sufficient -- you need the full `gdal` package.
+
+Alternatively, install directly via pip if you have system GDAL with Python bindings already available:
 
 ```bash
 pip install agribound
@@ -71,7 +73,7 @@ pip install agribound
 Install with optional extras depending on which engines and features you need:
 
 ```bash
-# Google Earth Engine support
+# Google Earth Engine support (requires gdal Python bindings)
 pip install "agribound[gee]"
 
 # Individual engines

@@ -27,6 +27,7 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore", message=".*organizePolygons.*")
 warnings.filterwarnings("ignore", message=".*STAC entry.*", category=RuntimeWarning)
+warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
 
 import logging
 
@@ -42,6 +43,9 @@ logging.basicConfig(
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
 logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("methods").setLevel(logging.WARNING)
 
 # --- Configuration ---
 NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"

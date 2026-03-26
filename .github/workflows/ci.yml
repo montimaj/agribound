@@ -83,7 +83,7 @@ jobs:
       - name: Check for broken links
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --no-progress --base site/ --exclude-path site/404.html site/
+          args: --no-progress --root-dir site/ --exclude-path site/404.html site/
           lycheeVersion: latest
           fail: true
       - name: Upload Pages artifact

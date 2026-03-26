@@ -103,8 +103,10 @@ _DEFAULT_CONFIG = {
 
 
 def _deep_update(base: dict, overrides: dict) -> dict:
-    """Recursively merge overrides into base dictionary."""
-    result = base.copy()
+    """Recursively merge overrides into a deep copy of base dictionary."""
+    import copy
+
+    result = copy.deepcopy(base)
     for key, value in overrides.items():
         if isinstance(value, dict) and isinstance(result.get(key), dict):
             result[key] = _deep_update(result[key], value)
@@ -172,21 +174,18 @@ class DelineateAnythingEngine(DelineationEngine):
         work_dir = cache_dir / "delineate_anything_work"
         work_dir.mkdir(parents=True, exist_ok=True)
 
+        raster_path_obj = Path(raster_path)
+
         # Create input directory with symlink or copy of the raster
         input_dir = work_dir / "input"
         input_dir.mkdir(parents=True, exist_ok=True)
-        raster_path_obj = Path(raster_path)
 
-        # Handle VRT or regular TIF
         input_link = input_dir / raster_path_obj.name
         if not input_link.exists():
-            if raster_path_obj.suffix.lower() == ".vrt":
+            try:
+                input_link.symlink_to(raster_path_obj.resolve())
+            except OSError:
                 shutil.copy2(str(raster_path_obj), str(input_link))
-            else:
-                try:
-                    input_link.symlink_to(raster_path_obj.resolve())
-                except OSError:
-                    shutil.copy2(str(raster_path_obj), str(input_link))
 
         # Build configuration
         temp_dir = work_dir / "temp"
@@ -224,7 +223,9 @@ class DelineateAnythingEngine(DelineationEngine):
         # Set device
         device = config.resolve_device()
         if device == "cpu":
-            da_config["passes"][0]["model_args"][0]["use_half"] = False
+            passes = da_config.get("passes", [])
+            if passes and passes[0].get("model_args"):
+                passes[0]["model_args"][0]["use_half"] = False
 
         # Run inference
         logger.info("Running Delineate-Anything inference on %s", raster_path)
@@ -241,7 +242,7 @@ class DelineateAnythingEngine(DelineationEngine):
                     sys.path.insert(0, str(da_path))
 
             method = importlib.import_module("methods.main.inference")
-            method.execute(model_path, da_config, verbose=False)
+            method.execute([model_path], da_config, verbose=False)
         except ImportError:
             # Fall back to YOLO direct inference
             logger.info("Delineate-Anything repo not found, using direct YOLO inference")
