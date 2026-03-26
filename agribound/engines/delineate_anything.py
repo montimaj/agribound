@@ -67,6 +67,11 @@ _DEFAULT_CONFIG = {
                 "compose_merge_iou": 0.8,
                 "merge_iou": 0.8,
                 "merge_relative_area_threshold": 0.5,
+                "merge_asymetric_pixel_area_threshold": 32,
+                "merge_asymetric_relative_area_threshold": 0.7,
+                "merging_edge_width": 4,
+                "merge_edge_iou": 0.6,
+                "merge_edge_pixels": 192,
             },
         }
     ],
