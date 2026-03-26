@@ -47,7 +47,9 @@ def create_study_area_from_shapefile(shapefile_path):
     import geopandas as gpd
 
     gdf = gpd.read_file(shapefile_path)
-    bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
+    # Reproject to WGS84 for GeoJSON (shapefile may be in a projected CRS)
+    gdf_4326 = gdf.to_crs(epsg=4326)
+    bounds = gdf_4326.total_bounds  # [minx, miny, maxx, maxy]
     bbox_geojson = {
         "type": "FeatureCollection",
         "features": [

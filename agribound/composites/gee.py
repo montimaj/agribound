@@ -337,8 +337,9 @@ def _download_tile_local(
     resolution_m: float,
     output_path: str,
     crs: str = "EPSG:4326",
+    max_retries: int = 3,
 ) -> str:
-    """Download a composite tile via direct local download.
+    """Download a composite tile via ``ee.Image.getDownloadURL``.
 
     Parameters
     ----------
@@ -352,31 +353,58 @@ def _download_tile_local(
         Local file path for the GeoTIFF.
     crs : str
         Output CRS.
+    max_retries : int
+        Number of retry attempts on failure or corrupted download.
 
     Returns
     -------
     str
         Path to the downloaded GeoTIFF.
     """
+    import time
+
+    import rasterio
+
     try:
-        import geemap
+        import geedim  # noqa: F401 — registers the ee.Image.gd accessor
     except ImportError:
         raise ImportError(
-            "geemap is required for local GEE downloads. "
+            "geedim is required for local GEE downloads. "
             "Install with: pip install agribound[gee]"
         ) from None
 
-    logger.info("Downloading composite to %s (local method)", output_path)
+    logger.info("Downloading composite to %s", output_path)
 
-    geemap.download_ee_image(
-        composite,
-        filename=output_path,
-        region=geometry,
-        scale=resolution_m,
-        crs=crs,
-    )
+    for attempt in range(1, max_retries + 1):
+        try:
+            prepared = composite.gd.prepareForExport(
+                region=geometry,
+                scale=resolution_m,
+                crs=crs,
+            )
+            prepared.gd.toGeoTIFF(output_path, overwrite=True)
 
-    return output_path
+            # Validate the downloaded file
+            with rasterio.open(output_path) as ds:
+                if ds.width == 0 or ds.height == 0:
+                    raise RuntimeError("Downloaded raster has zero dimensions")
+            logger.info("  Download OK: %d×%d, %d bands", ds.width, ds.height, ds.count)
+            return output_path
+
+        except Exception as exc:
+            logger.warning("  Attempt %d/%d failed: %s", attempt, max_retries, exc)
+            if Path(output_path).exists():
+                Path(output_path).unlink()
+            if attempt < max_retries:
+                wait = 2**attempt
+                logger.info("  Retrying in %ds...", wait)
+                time.sleep(wait)
+            else:
+                raise RuntimeError(
+                    f"Failed to download composite after {max_retries} attempts: {exc}"
+                ) from exc
+
+    return output_path  # unreachable, but satisfies type checkers
 
 
 def _export_to_drive(
@@ -547,6 +575,17 @@ class GEECompositeBuilder(CompositeBuilder):
         # Prepare output
         cache_dir = config.get_working_dir()
         base_name = f"{config.source}_{config.year}_composite"
+
+        # Return cached composite if it already exists (avoids re-downloading
+        # when multiple engines use the same source/year).
+        cached_tif = cache_dir / f"{base_name}.tif"
+        cached_vrt = cache_dir / f"{base_name}.vrt"
+        if cached_tif.exists():
+            logger.info("Using cached composite: %s", cached_tif)
+            return str(cached_tif)
+        if cached_vrt.exists():
+            logger.info("Using cached composite: %s", cached_vrt)
+            return str(cached_vrt)
 
         # Check if tiling is needed
         tiles = _compute_tiles(bounds, resolution_m, config.tile_size)

@@ -27,15 +27,26 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore", message=".*organizePolygons.*")
 
+import logging
+
 import agribound
 from agribound.evaluate import evaluate
+
+# Enable agribound logging so download/processing progress is visible
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("googleapiclient").setLevel(logging.WARNING)
 
 # --- Configuration ---
 NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
 OUTPUT_DIR = Path("outputs/lea_county_ensemble")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-COUNTY_CODE = 25  # Lea County
+COUNTY_CODE = '25'  # Lea County
 YEARS = range(2020, 2023)
 VOTE_THRESHOLD = 0.3  # Fraction of source–engine combos that must agree
 
@@ -76,7 +87,9 @@ def create_county_study_area(shapefile_path, county_code):
             f"Available counties: {sorted(gdf['County'].unique())}"
         )
 
-    bounds = county_gdf.total_bounds  # [minx, miny, maxx, maxy]
+    # Reproject to WGS84 for GeoJSON (bounds must be in lon/lat)
+    county_4326 = county_gdf.to_crs(epsg=4326)
+    bounds = county_4326.total_bounds  # [minx, miny, maxx, maxy]
     bbox_geojson = {
         "type": "FeatureCollection",
         "features": [
@@ -199,6 +212,7 @@ def main():
 
             for engine in engines:
                 tag = f"{source}/{engine}"
+                print(f"  {tag}: starting...", flush=True)
 
                 try:
                     gdf, _ = run_delineation(

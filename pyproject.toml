@@ -63,6 +63,7 @@ dependencies = [
 gee = [
     "earthengine-api>=0.1.380",
     "geemap>=0.30",
+    "geedim>=2.0",
 ]
 delineate-anything = [
     "ultralytics>=8.3",
