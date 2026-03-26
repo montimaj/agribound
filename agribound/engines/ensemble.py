@@ -8,12 +8,9 @@ using configurable strategies (intersection, union, majority vote).
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import geopandas as gpd
 import numpy as np
-from shapely.geometry import shape
-from shapely.ops import unary_union
 
 from agribound.config import AgriboundConfig
 from agribound.engines.base import DelineationEngine, get_engine

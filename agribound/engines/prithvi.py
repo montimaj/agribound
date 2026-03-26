@@ -14,7 +14,6 @@ Supports two modes:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -86,13 +85,13 @@ class PrithviEngine(DelineationEngine):
             Field boundary polygons.
         """
         try:
-            import torch
+            import torch  # noqa: F401
             from terratorch.cli_tools import LightningInferenceModel
         except ImportError:
             raise ImportError(
                 "terratorch and torch are required for Prithvi segmentation mode. "
                 "Install with: pip install agribound[prithvi]"
-            )
+            ) from None
 
         self.validate_input(raster_path, config)
 
@@ -150,12 +149,12 @@ class PrithviEngine(DelineationEngine):
             Field boundary polygons from clustered embeddings.
         """
         try:
-            import torch
+            import torch  # noqa: F401
         except ImportError:
             raise ImportError(
                 "torch is required for Prithvi embedding mode. "
                 "Install with: pip install agribound[prithvi]"
-            )
+            ) from None
 
         self.validate_input(raster_path, config)
 
@@ -168,7 +167,7 @@ class PrithviEngine(DelineationEngine):
         try:
             from geoai import load_prithvi_model
 
-            processor = load_prithvi_model(model_name=model_name, device=device)
+            _processor = load_prithvi_model(model_name=model_name, device=device)
         except ImportError:
             logger.info("Loading Prithvi via transformers")
             from transformers import AutoModel
@@ -177,12 +176,10 @@ class PrithviEngine(DelineationEngine):
                 f"ibm-nasa-geospatial/{model_name}", trust_remote_code=True
             )
             model = model.to(device).eval()
-            processor = None
 
         # Read raster and extract embeddings
-        from agribound.io.raster import read_raster, get_raster_info
+        from agribound.io.raster import read_raster
 
-        info = get_raster_info(raster_path)
         data, meta = read_raster(raster_path)
 
         # Tile the raster into patches and extract embeddings
@@ -238,7 +235,6 @@ class PrithviEngine(DelineationEngine):
         numpy.ndarray
             Embedding array with shape ``(height, width, embed_dim)``.
         """
-        import torch
         from transformers import AutoModel
 
         model = AutoModel.from_pretrained(
@@ -258,10 +254,7 @@ class PrithviEngine(DelineationEngine):
                 data_float[b] = (band - mu) / std
 
         # Simple spatial average pooling to create a low-res embedding map
-        pool_size = patch_size // 16  # Typical ViT downscale factor
-        embed_h = max(1, height // pool_size)
-        embed_w = max(1, width // pool_size)
-
+        _pool_size = patch_size // 16  # Typical ViT downscale factor
         # For now, use PCA on spatial patches as a lightweight embedding proxy
         from sklearn.decomposition import PCA
 

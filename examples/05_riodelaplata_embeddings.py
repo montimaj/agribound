@@ -37,7 +37,7 @@ def parse_args():
         description="Rio de la Plata embedding-based field boundary delineation."
     )
     parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+        "--gee-project", default=None, help="GEE project ID."
     )
     return parser.parse_args()
 
@@ -112,7 +112,7 @@ def main():
     if google_gdf is not None and tessera_gdf is not None:
         from agribound.visualize import show_comparison
 
-        m = show_comparison(
+        show_comparison(
             [google_gdf, tessera_gdf],
             labels=[f"Google {latest}", f"TESSERA {latest}"],
             basemap="Esri.WorldImagery",
@@ -125,7 +125,7 @@ def main():
     if len(google_gdfs) >= 2:
         from agribound.visualize import show_comparison
 
-        m_ts = show_comparison(
+        show_comparison(
             google_gdfs,
             labels=[str(y) for y in YEARS],
             basemap="Esri.WorldImagery",

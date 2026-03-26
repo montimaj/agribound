@@ -13,9 +13,6 @@ from typing import Any
 
 import numpy as np
 import rasterio
-from rasterio.enums import Resampling
-from rasterio.transform import from_bounds
-from rasterio.warp import calculate_default_transform, reproject
 
 
 @dataclass
@@ -225,7 +222,7 @@ def clip_raster_to_geometry(
         Path to the clipped raster.
     """
     from rasterio.mask import mask as rio_mask
-    from shapely.geometry import mapping, shape
+    from shapely.geometry import mapping
 
     src_path = Path(src_path)
     dst_path = Path(dst_path)

@@ -8,7 +8,6 @@ to delineate field boundaries via unsupervised clustering. No GPU required.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -53,7 +52,7 @@ class EmbeddingEngine(DelineationEngine):
         geopandas.GeoDataFrame
             Field boundary polygons.
         """
-        from agribound.io.raster import read_raster, get_raster_info
+        from agribound.io.raster import get_raster_info, read_raster
 
         info = get_raster_info(raster_path)
         logger.info(
@@ -155,7 +154,6 @@ class EmbeddingEngine(DelineationEngine):
             Cluster labels with shape ``(n_pixels,)``.
         """
         from sklearn.cluster import KMeans, MiniBatchKMeans
-        from sklearn.metrics import silhouette_score
 
         valid_data = embeddings[valid_mask]
 
@@ -173,7 +171,10 @@ class EmbeddingEngine(DelineationEngine):
         if n_clusters == "auto":
             n_clusters = self._auto_select_k(sample)
 
-        logger.info("Clustering %d valid pixels into %d clusters (%s)", len(valid_data), n_clusters, method)
+        logger.info(
+            "Clustering %d valid pixels into %d clusters (%s)",
+            len(valid_data), n_clusters, method,
+        )
 
         if method == "kmeans":
             # Use MiniBatchKMeans for large datasets

@@ -7,6 +7,7 @@ using leafmap. Supports static plots and interactive HTML maps.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -83,7 +84,7 @@ def show_boundaries(
         raise ImportError(
             "leafmap is required for visualization. "
             "Install with: pip install leafmap"
-        )
+        ) from None
 
     if style is None:
         style = _DEFAULT_STYLE.copy()
@@ -170,7 +171,7 @@ def show_comparison(
     try:
         import leafmap
     except ImportError:
-        raise ImportError("leafmap is required for visualization.")
+        raise ImportError("leafmap is required for visualization.") from None
 
     colors = ["#ff6600", "#0066ff", "#00cc44", "#cc00ff", "#ffcc00"]
 
@@ -179,12 +180,10 @@ def show_comparison(
 
     m = leafmap.Map()
 
-    try:
+    with contextlib.suppress(Exception):
         m.add_basemap(basemap)
-    except Exception:
-        pass
 
-    for i, (gdf, label) in enumerate(zip(boundaries_list, labels)):
+    for i, (gdf, label) in enumerate(zip(boundaries_list, labels, strict=False)):
         if gdf.crs is not None and not gdf.crs.equals("EPSG:4326"):
             gdf = gdf.to_crs("EPSG:4326")
 

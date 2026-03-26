@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from agribound.composites.base import CompositeBuilder, SOURCE_REGISTRY
+from agribound.composites.base import SOURCE_REGISTRY, CompositeBuilder
 from agribound.config import AgriboundConfig
 
 logger = logging.getLogger(__name__)
@@ -53,8 +53,8 @@ class LocalCompositeBuilder(CompositeBuilder):
 
         # If study area is provided, clip the raster
         if config.study_area:
-            from agribound.io.vector import read_study_area, get_study_area_geometry
             from agribound.io.raster import clip_raster_to_geometry
+            from agribound.io.vector import get_study_area_geometry, read_study_area
 
             try:
                 study_gdf = read_study_area(config.study_area)
@@ -115,7 +115,7 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
         str
             Path to the downloaded embedding GeoTIFF.
         """
-        from agribound.io.vector import read_study_area, get_study_area_bounds
+        from agribound.io.vector import get_study_area_bounds, read_study_area
 
         study_gdf = read_study_area(config.study_area)
         bbox = get_study_area_bounds(study_gdf)
@@ -156,7 +156,7 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
             raise ImportError(
                 "geoai-py is required for Google Satellite Embedding downloads. "
                 "Install with: pip install agribound[geoai]"
-            )
+            ) from None
 
         logger.info(
             "Downloading Google Satellite Embeddings (year=%d, bbox=%s)", year, bbox
@@ -201,7 +201,7 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
             raise ImportError(
                 "geoai-py is required for TESSERA embedding downloads. "
                 "Install with: pip install agribound[tessera]"
-            )
+            ) from None
 
         logger.info("Downloading TESSERA embeddings (year=%d, bbox=%s)", year, bbox)
         paths = tessera_download(

@@ -10,8 +10,7 @@ from __future__ import annotations
 import logging
 
 import geopandas as gpd
-import numpy as np
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import MultiPolygon
 from shapely.ops import unary_union
 
 logger = logging.getLogger(__name__)
@@ -109,7 +108,7 @@ def merge_polygons(
         groups.setdefault(root, []).append(i)
 
     merged_geoms = []
-    for root, members in groups.items():
+    for _root, members in groups.items():
         if len(members) == 1:
             merged_geoms.append(gdf.iloc[members[0]].geometry)
         else:

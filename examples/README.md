@@ -64,7 +64,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 09 | `09_ensemble_comparison.py` | Andalusia, Spain | Sentinel-2 | ensemble | ~30--60 min | Runs delineate-anything, FTW, and geoai on the same AOI, then runs the ensemble engine with vote strategy. Visualizes per-engine and consensus results. |
 | 10 | `10_local_tif_quickstart.py` | User-provided | Local GeoTIFF | delineate-anything | ~2--5 min | Minimal 5-line quickstart using a local file. No GEE required. Edit `LOCAL_TIF` and `STUDY_AREA` paths before running. |
 | 11 | `11_mississippi_alluvial_plain_spot.py` | Mississippi Alluvial Plain, USA | SPOT 6/7 | delineate-anything | ~15--30 min | SPOT-based delineation of row-crop agriculture (2021--2023). Includes cross-year stability analysis using IoU/F1. **Restricted access** -- see note below. |
-| 12 | `12_new_mexico_ensemble_timeseries.py` | New Mexico, USA | Sentinel-2 | ensemble | ~4--8 h | 9-year ensemble time series (2017--2025). Runs delineate-anything, FTW, and geoai per year with vote-based merge. Evaluates per-engine and ensemble accuracy against NMOSE. Best run on HPC/cloud with GPU. |
+| 12 | `12_new_mexico_ensemble_timeseries.py` | Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (ensemble) | ~2--4 h | Multi-source, multi-engine ensemble (2020--2022). Runs every compatible source–engine combination per year and merges via majority vote. Evaluates individual and grand-ensemble accuracy against NMOSE (County 25). Best run on HPC/cloud with GPU. |
 
 ## Notebooks
 
@@ -83,7 +83,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 | 09 | [`09_ensemble_comparison.ipynb`](notebooks/09_ensemble_comparison.ipynb) | Ensemble multi-engine comparison (Andalusia) | Same scope as script |
 | 10 | [`10_local_tif_quickstart.ipynb`](notebooks/10_local_tif_quickstart.ipynb) | Local GeoTIFF quickstart (no GEE) | Same scope as script |
 | 11 | [`11_mississippi_alluvial_plain_spot.ipynb`](notebooks/11_mississippi_alluvial_plain_spot.ipynb) | Mississippi Alluvial Plain SPOT 6/7 (**restricted**) | Same scope as script |
-| 12 | [`12_new_mexico_ensemble_timeseries.ipynb`](notebooks/12_new_mexico_ensemble_timeseries.ipynb) | New Mexico ensemble time series (2023--2025) | Runs 2023--2025 (3 years) instead of 9 years, suitable for interactive use |
+| 12 | [`12_new_mexico_ensemble_timeseries.ipynb`](notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Lea County multi-source grand ensemble (2020--2022) | Same scope as script |
 
 ## Runtime Notes
 
@@ -98,7 +98,7 @@ Examples 08 and 11 use SPOT 6/7 imagery, which is restricted to select GEE users
 
 ## NMOSE Reference Data
 
-Example 01 uses NMOSE (New Mexico Office of the State Engineer) WUCB agricultural polygon boundaries located in `examples/NMOSE Field Boundaries/WUCB ag polys.shp` for fine-tuning and evaluation. This shapefile is included in the repository.
+Examples 01 and 12 use NMOSE (New Mexico Office of the State Engineer) WUCB agricultural polygon boundaries located in `examples/NMOSE Field Boundaries/WUCB ag polys.shp` for fine-tuning and evaluation. Example 12 filters to Lea County (County 25). This shapefile is included in the repository.
 
 ## Output Structure
 

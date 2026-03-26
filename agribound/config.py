@@ -11,13 +11,11 @@ passed via CLI flags.
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
-
 
 # ---------------------------------------------------------------------------
 # Valid choices
@@ -282,7 +280,7 @@ class AgriboundConfig:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "AgriboundConfig":
+    def from_yaml(cls, path: str | Path) -> AgriboundConfig:
         """Load configuration from a YAML file.
 
         Parameters
@@ -308,7 +306,7 @@ class AgriboundConfig:
         return cls(**data)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AgriboundConfig":
+    def from_dict(cls, data: dict[str, Any]) -> AgriboundConfig:
         """Create configuration from a dictionary.
 
         Parameters

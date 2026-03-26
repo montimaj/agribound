@@ -15,9 +15,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
-import geopandas as gpd
 import numpy as np
 
 from agribound.config import AgriboundConfig
@@ -119,8 +117,9 @@ def _prepare_training_data(
     """
     import rasterio
     from rasterio.features import rasterize
+
+    from agribound.io.raster import get_raster_info, read_raster, write_raster
     from agribound.io.vector import read_vector
-    from agribound.io.raster import read_raster, get_raster_info, write_raster
 
     cache_dir = config.get_working_dir()
     train_dir = cache_dir / "finetune_data"
@@ -235,15 +234,14 @@ def _finetune_ftw(train_dir: Path, config: AgriboundConfig) -> str:
         Path to the fine-tuned checkpoint.
     """
     try:
-        import torch
-        import lightning as L
-        from ftw_tools.training.trainers import CustomSemanticSegmentationTask
+        import lightning
         from ftw_tools.training.datamodules import FTWDataModule
+        from ftw_tools.training.trainers import CustomSemanticSegmentationTask
     except ImportError:
         raise ImportError(
             "ftw-tools and lightning are required for FTW fine-tuning. "
             "Install with: pip install agribound[ftw] ftw-tools"
-        )
+        ) from None
 
     device = config.resolve_device()
     checkpoint_dir = config.get_working_dir() / "checkpoints" / "ftw"
@@ -266,7 +264,7 @@ def _finetune_ftw(train_dir: Path, config: AgriboundConfig) -> str:
         map_location=device,
     )
 
-    trainer = L.Trainer(
+    trainer = lightning.Trainer(
         max_epochs=config.fine_tune_epochs,
         accelerator="gpu" if device == "cuda" else device,
         devices=1,
@@ -298,13 +296,13 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig) -> str:
         Path to the fine-tuned weights.
     """
     try:
-        from ultralytics import YOLO
         from huggingface_hub import hf_hub_download
+        from ultralytics import YOLO
     except ImportError:
         raise ImportError(
             "ultralytics is required for YOLO fine-tuning. "
             "Install with: pip install agribound[delineate-anything]"
-        )
+        ) from None
 
     # Download base model
     model_size = config.engine_params.get("model_size", "small")
@@ -326,7 +324,7 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig) -> str:
     data_yaml = _prepare_yolo_dataset(train_dir, checkpoint_dir)
 
     logger.info("Fine-tuning YOLO for %d epochs", config.fine_tune_epochs)
-    results = model.train(
+    model.train(
         data=str(data_yaml),
         epochs=config.fine_tune_epochs,
         imgsz=config.engine_params.get("chip_size", 256),
@@ -361,7 +359,7 @@ def _finetune_geoai(train_dir: Path, config: AgriboundConfig) -> str:
         raise ImportError(
             "geoai-py is required for GeoAI fine-tuning. "
             "Install with: pip install agribound[geoai]"
-        )
+        ) from None
 
     checkpoint_dir = config.get_working_dir() / "checkpoints" / "geoai"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -397,12 +395,12 @@ def _finetune_prithvi(train_dir: Path, config: AgriboundConfig) -> str:
         Path to the fine-tuned checkpoint.
     """
     try:
-        import lightning as L
+        import lightning  # noqa: F401
     except ImportError:
         raise ImportError(
             "terratorch and lightning are required for Prithvi fine-tuning. "
             "Install with: pip install agribound[prithvi]"
-        )
+        ) from None
 
     checkpoint_dir = config.get_working_dir() / "checkpoints" / "prithvi"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -454,7 +452,7 @@ def _finetune_prithvi(train_dir: Path, config: AgriboundConfig) -> str:
     try:
         from terratorch.cli_tools import LightningCLI
 
-        cli = LightningCLI(args=["fit", "--config", str(config_path)])
+        _cli = LightningCLI(args=["fit", "--config", str(config_path)])
         ckpt_path = str(checkpoint_dir / "prithvi_finetuned.ckpt")
         logger.info("Prithvi fine-tuned checkpoint saved to %s", ckpt_path)
         return ckpt_path
@@ -510,7 +508,10 @@ def _prepare_yolo_dataset(train_dir: Path, output_dir: Path) -> Path:
             h, w = mask_data.shape
 
         label_lines = []
-        for geom, val in rio_shapes(mask_data, transform=rasterio.transform.from_bounds(0, 0, 1, 1, w, h)):
+        for geom, val in rio_shapes(
+            mask_data,
+            transform=rasterio.transform.from_bounds(0, 0, 1, 1, w, h),
+        ):
             if val > 0:
                 poly = shapely_shape(geom)
                 if poly.is_valid:

@@ -71,7 +71,7 @@ def parse_args():
         description="Mississippi Alluvial Plain SPOT 6/7 field boundary delineation."
     )
     parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+        "--gee-project", default=None, help="GEE project ID."
     )
     return parser.parse_args()
 
@@ -150,7 +150,7 @@ def main():
         from agribound.visualize import show_comparison
 
         # Multi-year overlay
-        m = show_comparison(
+        show_comparison(
             list(all_results.values()),
             labels=[str(y) for y in sorted(all_results.keys())],
             basemap="Esri.WorldImagery",
@@ -160,7 +160,7 @@ def main():
 
         # Latest year standalone
         latest_year = max(all_results.keys())
-        m_latest = agribound.show_boundaries(
+        agribound.show_boundaries(
             all_results[latest_year],
             basemap="Google.Satellite",
             output_html=str(OUTPUT_DIR / "map_spot_latest.html"),

@@ -70,7 +70,7 @@ def parse_args():
         description="China North Plain SPOT 6/7 field boundary delineation."
     )
     parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+        "--gee-project", default=None, help="GEE project ID."
     )
     return parser.parse_args()
 
@@ -105,7 +105,7 @@ def main():
             print(f"Total agricultural area: {area_ha:,.1f} ha")
 
         # --- Visualization ---
-        m = agribound.show_boundaries(
+        agribound.show_boundaries(
             gdf,
             basemap="Esri.WorldImagery",
             output_html=str(OUTPUT_DIR / "map_north_china.html"),

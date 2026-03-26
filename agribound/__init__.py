@@ -19,11 +19,11 @@ Basic Usage
 """
 
 from agribound._version import __version__
-from agribound.pipeline import delineate
+from agribound.composites import list_sources
 from agribound.config import AgriboundConfig
 from agribound.engines import list_engines
-from agribound.composites import list_sources
 from agribound.evaluate import evaluate
+from agribound.pipeline import delineate
 from agribound.visualize import show_boundaries
 
 __all__ = [

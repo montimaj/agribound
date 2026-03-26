@@ -8,10 +8,9 @@ including GeoJSON, GeoPackage, and fiboa-compliant GeoParquet.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import geopandas as gpd
-from shapely.geometry import mapping, shape
+from shapely.geometry import shape
 
 
 def read_vector(path: str | Path) -> gpd.GeoDataFrame:
@@ -188,7 +187,7 @@ def _read_gee_asset(asset_id: str) -> gpd.GeoDataFrame:
         raise ImportError(
             "earthengine-api is required to read GEE assets. "
             "Install with: pip install agribound[gee]"
-        )
+        ) from None
 
     fc = ee.FeatureCollection(asset_id)
     features = fc.getInfo()["features"]

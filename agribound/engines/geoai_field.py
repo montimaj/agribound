@@ -8,7 +8,6 @@ field boundary instance segmentation.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import geopandas as gpd
 
@@ -52,7 +51,7 @@ class GeoAIEngine(DelineationEngine):
             raise ImportError(
                 "geoai-py is required for the GeoAI engine. "
                 "Install with: pip install agribound[geoai]"
-            )
+            ) from None
 
         self.validate_input(raster_path, config)
 

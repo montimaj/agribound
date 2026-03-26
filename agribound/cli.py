@@ -38,7 +38,11 @@ def main(verbose: bool) -> None:
 @click.option("--gee-project", default=None, help="GEE project ID.")
 @click.option("--export-method", default="local", type=click.Choice(["local", "gdrive", "gcs"]))
 @click.option("--gcs-bucket", default=None, help="GCS bucket name.")
-@click.option("--composite-method", default="median", type=click.Choice(["median", "greenest", "max_ndvi"]))
+@click.option(
+    "--composite-method",
+    default="median",
+    type=click.Choice(["median", "greenest", "max_ndvi"]),
+)
 @click.option("--date-range", nargs=2, default=None, help="Date range: START END (YYYY-MM-DD).")
 @click.option("--cloud-cover-max", default=20, type=int, help="Max cloud cover %%.")
 @click.option("--local-tif", default=None, help="Path to local GeoTIFF (source=local).")
@@ -48,7 +52,7 @@ def main(verbose: bool) -> None:
 @click.option("--n-workers", default=4, type=int, help="Parallel workers.")
 @click.option("--reference", default=None, help="Reference boundaries for evaluation/fine-tuning.")
 @click.option("--fine-tune", is_flag=True, help="Fine-tune engine on reference boundaries.")
-@click.option("--config", "config_file", default=None, help="YAML config file (overrides other options).")
+@click.option("--config", "config_file", default=None, help="YAML config file.")
 def delineate(
     study_area,
     source,

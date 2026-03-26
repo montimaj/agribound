@@ -8,9 +8,7 @@ for field boundary detection using 16+ pre-trained models.
 from __future__ import annotations
 
 import logging
-import tempfile
 from pathlib import Path
-from typing import Any
 
 import geopandas as gpd
 
@@ -73,7 +71,7 @@ class FTWEngine(DelineationEngine):
             raise ImportError(
                 "ftw-tools is required for the FTW engine. "
                 "Install with: pip install agribound[ftw] ftw-tools"
-            )
+            ) from None
 
         self.validate_input(raster_path, config)
 

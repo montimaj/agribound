@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import time
-from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
@@ -200,10 +199,10 @@ def _postprocess(gdf: gpd.GeoDataFrame, config: AgriboundConfig) -> gpd.GeoDataF
     geopandas.GeoDataFrame
         Post-processed polygons.
     """
-    from agribound.postprocess.merge import merge_polygons
-    from agribound.postprocess.simplify import simplify_polygons
     from agribound.postprocess.filter import filter_polygons
+    from agribound.postprocess.merge import merge_polygons
     from agribound.postprocess.regularize import regularize_polygons
+    from agribound.postprocess.simplify import simplify_polygons
 
     # Merge overlapping polygons (e.g., from tiled processing)
     gdf = merge_polygons(gdf)

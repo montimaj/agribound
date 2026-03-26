@@ -92,9 +92,7 @@ def filter_polygons(
 
 def _remove_small_holes(geometry, min_hole_area_m2: float, ea_crs, orig_crs):
     """Remove interior rings smaller than a threshold."""
-    from shapely.geometry import Polygon, MultiPolygon
-    from shapely.ops import transform
-    import pyproj
+    from shapely.geometry import MultiPolygon
 
     if geometry.geom_type == "Polygon":
         return _remove_holes_from_polygon(geometry, min_hole_area_m2, ea_crs, orig_crs)
@@ -109,8 +107,8 @@ def _remove_small_holes(geometry, min_hole_area_m2: float, ea_crs, orig_crs):
 
 def _remove_holes_from_polygon(polygon, min_hole_area_m2, ea_crs, orig_crs):
     """Remove small holes from a single Polygon."""
-    from shapely.geometry import Polygon
     import pyproj
+    from shapely.geometry import Polygon
     from shapely.ops import transform
 
     if not polygon.interiors:
@@ -135,7 +133,6 @@ def _filter_by_lulc(
 ) -> gpd.GeoDataFrame:
     """Filter polygons to keep only those overlapping agricultural LULC areas."""
     import rasterio
-    from rasterio.features import rasterize
 
     with rasterio.open(lulc_path) as src:
         lulc_data = src.read(1)
@@ -143,10 +140,7 @@ def _filter_by_lulc(
         lulc_crs = src.crs
 
     # Reproject polygons to LULC CRS if needed
-    if gdf.crs != lulc_crs:
-        gdf_reproj = gdf.to_crs(lulc_crs)
-    else:
-        gdf_reproj = gdf
+    gdf_reproj = gdf.to_crs(lulc_crs) if gdf.crs != lulc_crs else gdf
 
     keep = []
     for idx, row in gdf_reproj.iterrows():

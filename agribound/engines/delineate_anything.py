@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-import tempfile
 from pathlib import Path
-from typing import Any
 
 import geopandas as gpd
 
@@ -147,12 +145,13 @@ class DelineateAnythingEngine(DelineationEngine):
         """
         try:
             import importlib
+
             from huggingface_hub import hf_hub_download
         except ImportError:
             raise ImportError(
                 "ultralytics and huggingface-hub are required for "
                 "Delineate-Anything. Install with: pip install agribound[delineate-anything]"
-            )
+            ) from None
 
         self.validate_input(raster_path, config)
 
@@ -276,11 +275,11 @@ class DelineateAnythingEngine(DelineationEngine):
         geopandas.GeoDataFrame
             Field boundary polygons.
         """
-        from ultralytics import YOLO
-        import rasterio
         import numpy as np
-        from shapely.geometry import shape as shapely_shape
+        import rasterio
         from rasterio.features import shapes as rio_shapes
+        from shapely.geometry import shape as shapely_shape
+        from ultralytics import YOLO
 
         device = config.resolve_device()
         model = YOLO(model_path)

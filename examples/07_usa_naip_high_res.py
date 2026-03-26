@@ -63,7 +63,7 @@ def parse_args():
         description="USA Central Valley NAIP high-resolution field boundary delineation."
     )
     parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+        "--gee-project", default=None, help="GEE project ID."
     )
     return parser.parse_args()
 
@@ -98,7 +98,7 @@ def main():
         print(f"Average field size: {gdf['metrics:area'].mean() / 10000:,.1f} ha")
 
     # --- Visualization ---
-    m = agribound.show_boundaries(
+    agribound.show_boundaries(
         gdf,
         basemap="Google.Satellite",
         output_html=str(OUTPUT_DIR / "map_central_valley.html"),

@@ -48,7 +48,7 @@ def main():
             print(f"Largest field: {gdf['metrics:area'].max() / 10000:,.1f} ha")
 
         # Interactive map with the local TIF as backdrop
-        m = agribound.show_boundaries(
+        agribound.show_boundaries(
             gdf,
             satellite_tif=LOCAL_TIF,
             output_html=str(OUTPUT_DIR / "map.html"),

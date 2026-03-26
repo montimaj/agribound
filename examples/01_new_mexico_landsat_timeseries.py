@@ -81,7 +81,7 @@ def parse_args():
         description="New Mexico Landsat time series field boundary delineation."
     )
     parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+        "--gee-project", default=None, help="GEE project ID."
     )
     return parser.parse_args()
 
@@ -144,7 +144,7 @@ def main():
 
             # Evaluate fine-tuned results against NMOSE
             metrics = evaluate(gdf_ft, ref_gdf)
-            print(f"  Fine-tuned evaluation:")
+            print("  Fine-tuned evaluation:")
             print(f"    IoU:       {metrics['iou_mean']:.3f}")
             print(f"    Precision: {metrics['precision']:.3f}")
             print(f"    Recall:    {metrics['recall']:.3f}")
@@ -258,7 +258,7 @@ def main():
             labels.append(str(year))
 
     if boundaries_list:
-        m_compare = show_comparison(
+        show_comparison(
             boundaries_list,
             labels=labels,
             basemap="Esri.WorldImagery",
@@ -268,7 +268,7 @@ def main():
 
     # Latest year standalone map
     if all_results:
-        m_latest = agribound.show_boundaries(
+        agribound.show_boundaries(
             all_results[max(all_results.keys())],
             basemap="Esri.WorldImagery",
             output_html=str(OUTPUT_DIR / "map_latest.html"),

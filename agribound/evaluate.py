@@ -87,7 +87,6 @@ def evaluate(
 
         candidates = list(pred_sindex.intersection(ref_geom.bounds))
         best_iou = 0
-        best_pred = None
 
         for pred_idx in candidates:
             pred_geom = pred.iloc[pred_idx].geometry
@@ -97,16 +96,12 @@ def evaluate(
             try:
                 intersection = ref_geom.intersection(pred_geom)
                 union_area = ref_geom.area + pred_geom.area - intersection.area
-                if union_area > 0:
-                    iou = intersection.area / union_area
-                else:
-                    iou = 0
+                iou = intersection.area / union_area if union_area > 0 else 0
             except Exception:
                 iou = 0
 
             if iou > best_iou:
                 best_iou = iou
-                best_pred = pred_idx
 
             # Track all matches above threshold for over/under segmentation
             if iou >= iou_threshold:
@@ -129,8 +124,14 @@ def evaluate(
             matched_preds.add(best_pred_idx)
 
             # Area error
-            ref_area = ref.iloc[ref_idx].geometry.area if hasattr(ref.iloc[ref_idx], 'geometry') else 0
-            pred_area = pred.iloc[best_pred_idx].geometry.area if hasattr(pred.iloc[best_pred_idx], 'geometry') else 0
+            ref_area = (
+                ref.iloc[ref_idx].geometry.area
+                if hasattr(ref.iloc[ref_idx], 'geometry') else 0
+            )
+            pred_area = (
+                pred.iloc[best_pred_idx].geometry.area
+                if hasattr(pred.iloc[best_pred_idx], 'geometry') else 0
+            )
             area_errors.append(abs(ref_area - pred_area))
 
     fp = len(pred) - len(matched_preds)

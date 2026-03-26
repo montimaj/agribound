@@ -10,14 +10,11 @@ for large study areas.
 from __future__ import annotations
 
 import logging
-import math
-import tempfile
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
-from agribound.composites.base import CompositeBuilder, SOURCE_REGISTRY
+from agribound.composites.base import SOURCE_REGISTRY, CompositeBuilder
 from agribound.config import AgriboundConfig
 
 logger = logging.getLogger(__name__)
@@ -30,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 def _mask_landsat_clouds(image):
     """Apply QA_PIXEL cloud mask to a Landsat image."""
-    import ee
 
     qa = image.select("QA_PIXEL")
     # Bits 3 (cloud) and 4 (cloud shadow)
@@ -40,7 +36,6 @@ def _mask_landsat_clouds(image):
 
 def _mask_s2_clouds(image):
     """Apply SCL cloud mask to a Sentinel-2 image."""
-    import ee
 
     scl = image.select("SCL")
     # SCL classes: 3=cloud shadow, 8=cloud medium, 9=cloud high, 10=cirrus
@@ -50,7 +45,6 @@ def _mask_s2_clouds(image):
 
 def _mask_hls_clouds(image):
     """Apply Fmask cloud mask to an HLS image."""
-    import ee
 
     fmask = image.select("Fmask")
     # Bits 1 (cloud) and 3 (cloud shadow)
@@ -244,7 +238,6 @@ def _get_date_range(config: AgriboundConfig) -> tuple[str, str]:
 
 def _apply_composite_method(collection, method: str):
     """Apply the compositing method to a collection."""
-    import ee
 
     if method == "median":
         return collection.median()
@@ -371,7 +364,7 @@ def _download_tile_local(
         raise ImportError(
             "geemap is required for local GEE downloads. "
             "Install with: pip install agribound[gee]"
-        )
+        ) from None
 
     logger.info("Downloading composite to %s (local method)", output_path)
 
@@ -520,10 +513,9 @@ class GEECompositeBuilder(CompositeBuilder):
         str
             Path to the downloaded composite GeoTIFF.
         """
-        import ee
 
         from agribound.auth import setup_gee
-        from agribound.io.vector import read_study_area, get_study_area_bounds
+        from agribound.io.vector import get_study_area_bounds, read_study_area
 
         # Initialize GEE
         setup_gee(project=config.gee_project)

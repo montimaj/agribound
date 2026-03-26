@@ -63,7 +63,7 @@ def parse_args():
         description="Australia Murray-Darling Basin HLS field boundary delineation."
     )
     parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+        "--gee-project", default=None, help="GEE project ID."
     )
     return parser.parse_args()
 
@@ -100,9 +100,9 @@ def main():
         from agribound.visualize import show_comparison
 
         boundaries = list(all_results.values())
-        labels = [str(y) for y in all_results.keys()]
+        labels = [str(y) for y in all_results]
 
-        m = show_comparison(
+        show_comparison(
             boundaries,
             labels=labels,
             basemap="Esri.WorldImagery",

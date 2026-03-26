@@ -74,7 +74,7 @@ def setup_gee(
         raise ImportError(
             "earthengine-api is required for GEE operations. "
             "Install with: pip install agribound[gee]"
-        )
+        ) from None
 
     # Resolve project ID
     if project is None:

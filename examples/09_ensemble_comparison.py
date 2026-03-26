@@ -64,7 +64,7 @@ def parse_args():
         description="Ensemble comparison of multiple delineation engines."
     )
     parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+        "--gee-project", default=None, help="GEE project ID."
     )
     return parser.parse_args()
 
@@ -138,7 +138,7 @@ def main():
     if len(results) >= 2:
         from agribound.visualize import show_comparison
 
-        m = show_comparison(
+        show_comparison(
             list(results.values()),
             labels=list(results.keys()),
             basemap="Esri.WorldImagery",

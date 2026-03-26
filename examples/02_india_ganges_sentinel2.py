@@ -65,7 +65,7 @@ def parse_args():
         description="India Ganges Plain Sentinel-2 field boundary delineation."
     )
     parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+        "--gee-project", default=None, help="GEE project ID."
     )
     return parser.parse_args()
 
@@ -101,7 +101,7 @@ def main():
     # --- Visualization ---
     if all_results:
         latest_year = max(all_results.keys())
-        m = agribound.show_boundaries(
+        agribound.show_boundaries(
             all_results[latest_year],
             basemap="Google.Satellite",
             output_html=str(OUTPUT_DIR / "map_ganges.html"),

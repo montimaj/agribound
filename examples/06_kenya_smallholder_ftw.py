@@ -64,7 +64,7 @@ def parse_args():
         description="Kenya smallholder Sentinel-2 field boundary delineation."
     )
     parser.add_argument(
-        "--gee-project", default=None, help="GEE project ID (auto-detected from gcloud config if not set)."
+        "--gee-project", default=None, help="GEE project ID."
     )
     return parser.parse_args()
 
@@ -109,7 +109,7 @@ def main():
     # --- Visualization: overlay all thresholds ---
     from agribound.visualize import show_comparison
 
-    m = show_comparison(
+    show_comparison(
         list(results.values()),
         labels=[f"min={t} m2" for t in thresholds],
         basemap="Google.Satellite",
