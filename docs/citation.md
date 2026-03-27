@@ -79,7 +79,8 @@ Agribound builds on the work of many open-source projects and research teams:
 - The **Fields of The World** consortium and Hannah Kerner's group at Arizona State University
 - **Qiusheng Wu** for the GeoAI Python package and field boundary segmentation model
 - **NASA** and **IBM Research** for the Prithvi geospatial foundation model and TerraTorch
-- **Google Research** for satellite embeddings and the TESSERA model
+- **Google Research** for AlphaEarth satellite embeddings
+- **Feng et al.** for the TESSERA foundation model embeddings
 - The **Google Earth Engine** team for planetary-scale geospatial computing
 - The **fiboa** community for the field boundary schema standard
 - The **TorchGeo** team for geospatial deep learning data loaders and utilities

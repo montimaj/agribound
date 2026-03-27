@@ -79,7 +79,7 @@ pip install agribound[geoai]
 
 **Supported sources**: `google-embedding`, `tessera-embedding`
 
-**Reference**: TESSERA (CVPR 2026) + Google AlphaEarth
+**Reference**: [Google AlphaEarth](https://arxiv.org/abs/2507.22291), [TESSERA (Feng et al.)](https://arxiv.org/abs/2506.20380)
 
 ### Ensemble
 

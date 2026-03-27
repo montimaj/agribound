@@ -116,4 +116,4 @@ config = AgriboundConfig(
 The `google-embedding` and `tessera-embedding` sources provide pre-computed pixel-level embeddings rather than raw imagery. These are used exclusively with the `embedding` engine and do not require GEE authentication.
 
 - **Google Satellite Embedding V1**: 64-dimensional embeddings at 10 m resolution, derived from high-resolution satellite imagery.
-- **TESSERA Embeddings**: 128-dimensional embeddings at 10 m resolution, from the TESSERA model (CVPR 2026).
+- **TESSERA Embeddings**: 128-dimensional embeddings at 10 m resolution, from the TESSERA foundation model ([Feng et al., 2025](https://arxiv.org/abs/2506.20380)).

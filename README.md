@@ -23,7 +23,7 @@ Agribound is a Python package that provides a unified framework for agricultural
 - **14+ pre-trained FTW models** -- All FTW model variants (EfficientNet-B3/B5/B7, CC-BY and standard licensing, v1--v3) are available via `agribound.list_ftw_models()` and selectable through `engine_params`
 - **Smart DA routing** -- For Sentinel-2, Delineate-Anything automatically delegates to FTW's built-in instance segmentation with proper S2 preprocessing and native MPS (Apple GPU) support. For other sensors, the standalone DA pipeline with sensor-agnostic normalization is used
 - **Google Earth Engine integration** -- Annual cloud-free composite generation with configurable date ranges, compositing methods (median, greenest pixel, max NDVI), and cloud masking
-- **Embedding-based unsupervised delineation** -- Google Open Buildings and TESSERA embeddings for CPU-only boundary extraction without any labeled training data
+- **Embedding-based unsupervised delineation** -- Google AlphaEarth and TESSERA (Feng et al.) embeddings for CPU-only boundary extraction without any labeled training data
 - **Automatic fine-tuning** -- Supply reference boundaries and agribound will fine-tune Delineate-Anything (YOLO), GeoAI, or Prithvi on your region before inference. FTW uses pre-trained weights (fine-tuning requires paired temporal windows not yet supported)
 - **CLI and Python API** -- Full-featured command-line interface (`agribound delineate`) and a clean Python API (`agribound.delineate()`) for scripting and notebooks
 - **fiboa-compliant output** -- Export to GeoPackage, GeoJSON, or GeoParquet with field area, perimeter, and compactness attributes
@@ -318,7 +318,8 @@ Agribound builds on the work of many open-source projects and research teams:
 - The **Fields of The World** consortium and Hannah Kerner's group at Arizona State University
 - **Qiusheng Wu** for the GeoAI Python package and field boundary segmentation model
 - **NASA** and **IBM Research** for the Prithvi geospatial foundation model and TerraTorch
-- **Google Research** for Open Buildings embeddings and the TESSERA model
+- **Google Research** for AlphaEarth satellite embeddings
+- **Feng et al.** for the TESSERA foundation model embeddings
 - The **Google Earth Engine** team for planetary-scale geospatial computing
 - The **fiboa** community for the field boundary schema standard
 - The **TorchGeo** team for geospatial deep learning data loaders and utilities
