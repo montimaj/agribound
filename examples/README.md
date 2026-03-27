@@ -90,6 +90,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 - Estimated runtimes assume a single NVIDIA GPU (e.g., A100/V100) and moderate internet speed for GEE downloads.
 - GEE composite generation adds ~2--5 minutes per year per source.
 - CPU-only runs (example 05, embedding engine) are 2--5x slower for inference but have no GPU requirement.
+- Fine-tuning (examples 01, 12) takes ~30 minutes per model on an Apple M2 Max (MPS). In example 12, DA (2 variants) and GeoAI/Prithvi are fine-tuned on NMOSE reference boundaries (~1.5 hours total). FTW uses pre-trained weights directly (fine-tuning not yet supported — FTW requires paired temporal windows). Fine-tuned checkpoints are cached and reused across years.
 - The 40-year New Mexico script (01) is best run as an overnight batch job or on HPC. The notebook version runs only 2023--2025.
 
 ## SPOT Access

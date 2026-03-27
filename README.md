@@ -24,7 +24,7 @@ Agribound is a Python package that provides a unified framework for agricultural
 - **Smart DA routing** -- For Sentinel-2, Delineate-Anything automatically delegates to FTW's built-in instance segmentation with proper S2 preprocessing and native MPS (Apple GPU) support. For other sensors, the standalone DA pipeline with sensor-agnostic normalization is used
 - **Google Earth Engine integration** -- Annual cloud-free composite generation with configurable date ranges, compositing methods (median, greenest pixel, max NDVI), and cloud masking
 - **Embedding-based unsupervised delineation** -- Google Open Buildings and TESSERA embeddings for CPU-only boundary extraction without any labeled training data
-- **Automatic fine-tuning** -- Supply reference boundaries and agribound will fine-tune a supported engine on your region before inference
+- **Automatic fine-tuning** -- Supply reference boundaries and agribound will fine-tune Delineate-Anything (YOLO), GeoAI, or Prithvi on your region before inference. FTW uses pre-trained weights (fine-tuning requires paired temporal windows not yet supported)
 - **CLI and Python API** -- Full-featured command-line interface (`agribound delineate`) and a clean Python API (`agribound.delineate()`) for scripting and notebooks
 - **fiboa-compliant output** -- Export to GeoPackage, GeoJSON, or GeoParquet with field area, perimeter, and compactness attributes
 - **Dask-based parallelism** -- Large study areas are automatically tiled and processed in parallel
@@ -92,7 +92,14 @@ pip install "agribound[tessera]"
 pip install "agribound[all]"
 ```
 
-> **Note:** The FTW extra installs `ftw-tools` from the [ftw-baselines](https://github.com/fieldsoftheworld/ftw-baselines) GitHub repository (development version) which provides Delineate-Anything instance segmentation support via `ftw_tools`. The PyPI release (`ftw-tools` v1.x) uses the older `ftw_cli` module name and does not include instance segmentation. Once `ftw-tools` v2.0+ is released on PyPI, this will switch to a standard PyPI dependency.
+> **Note:** The `[ftw]` extra installs `ftw-tools` v1.x from PyPI, which supports FTW semantic segmentation. To use **Delineate-Anything on Sentinel-2** (instance segmentation via FTW), you must also install the development version of ftw-baselines:
+>
+> ```bash
+> git clone https://github.com/fieldsoftheworld/ftw-baselines.git
+> pip install -e ftw-baselines
+> ```
+>
+> This provides the `ftw_tools` module with `run_instance_segmentation`. Without it, DA on Sentinel-2 will fall back to an error. DA on all other sensors (Landsat, NAIP, HLS, SPOT, local) works without this step. Once `ftw-tools` v2.0+ is released on PyPI, this extra install step will no longer be needed.
 
 For development:
 
@@ -101,7 +108,7 @@ git clone https://github.com/montimaj/agribound.git
 cd agribound
 pip install -e ".[all,dev,docs]"
 
-# Optional: use a local ftw-baselines checkout for live FTW development
+# Required for DA instance segmentation on Sentinel-2
 git clone https://github.com/fieldsoftheworld/ftw-baselines.git ../ftw-baselines
 pip install -e ../ftw-baselines
 ```

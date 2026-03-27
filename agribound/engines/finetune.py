@@ -82,6 +82,9 @@ def fine_tune(
 
     # Check for cached checkpoint — avoid redundant fine-tuning
     checkpoint_path = _get_cached_checkpoint(engine, model_key, config)
+    if checkpoint_path == "pretrained":
+        # Engine doesn't support fine-tuning — use pre-trained weights
+        return None
     if checkpoint_path is not None:
         logger.info("Using cached fine-tuned checkpoint: %s", checkpoint_path)
         return checkpoint_path
@@ -125,7 +128,8 @@ def _get_cached_checkpoint(engine: str, model_key: str, config: AgriboundConfig)
     safe_key = model_key.replace("/", "_").replace(" ", "_")
 
     if engine == "ftw":
-        path = cache_dir / "checkpoints" / "ftw" / f"{safe_key}.ckpt"
+        # FTW fine-tuning not supported — return sentinel to skip
+        return "pretrained"
     elif engine == "delineate-anything":
         path = cache_dir / "checkpoints" / "yolo" / safe_key / "weights" / "best.pt"
     elif engine == "geoai":
@@ -288,79 +292,23 @@ def _prepare_training_data(raster_path: str, config: AgriboundConfig, engine: st
     return train_dir
 
 
-def _finetune_ftw(train_dir: Path, config: AgriboundConfig, model_key: str) -> str:
-    """Fine-tune using FTW's PyTorch Lightning pipeline.
+def _finetune_ftw(train_dir: Path, config: AgriboundConfig, model_key: str) -> str | None:
+    """FTW fine-tuning is not yet supported — returns None.
 
-    Parameters
-    ----------
-    train_dir : Path
-        Directory with prepared training data.
-    config : AgriboundConfig
-        Pipeline configuration.
-    model_key : str
-        Model registry name (e.g. ``"FTW_PRUE_EFNET_B5"``).
+    FTW's training pipeline requires paired temporal windows with specific
+    band ordering, which differs from agribound's single-composite format.
+    The pre-trained FTW models already generalize well across regions.
 
-    Returns
-    -------
-    str
-        Path to the fine-tuned checkpoint.
+    Returns None so the pipeline skips setting checkpoint_path and the
+    FTW engine uses the model name from the registry directly.
     """
-    try:
-        import lightning
-
-        try:
-            from ftw_tools.training.datamodules import FTWDataModule
-            from ftw_tools.training.trainers import CustomSemanticSegmentationTask
-        except ImportError:
-            from ftw.datamodules import FTWDataModule
-            from ftw.trainers import CustomSemanticSegmentationTask
-    except ImportError:
-        raise ImportError(
-            "ftw-tools and lightning are required for FTW fine-tuning. "
-            "Install with: pip install agribound[ftw]"
-        ) from None
-
-    device = config.resolve_device()
-    checkpoint_dir = config.get_working_dir() / "checkpoints" / "ftw"
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-    # Use the specific model variant as the base for fine-tuning
     base_model = config.engine_params.get("model", model_key)
-
-    logger.info(
-        "Fine-tuning FTW model %s for %d epochs",
+    logger.warning(
+        "FTW fine-tuning is not yet supported — using pre-trained %s. "
+        "FTW models require paired temporal windows for training.",
         base_model,
-        config.fine_tune_epochs,
     )
-
-    # Create datamodule from chipped data
-    datamodule = FTWDataModule(
-        root=str(train_dir),
-        batch_size=config.engine_params.get("batch_size", 8),
-        num_workers=config.n_workers,
-    )
-
-    # Load pre-trained model
-    task = CustomSemanticSegmentationTask.load_from_checkpoint(
-        base_model,
-        map_location=device,
-    )
-
-    trainer = lightning.Trainer(
-        max_epochs=config.fine_tune_epochs,
-        accelerator="gpu" if device == "cuda" else device,
-        devices=1,
-        default_root_dir=str(checkpoint_dir),
-    )
-
-    trainer.fit(task, datamodule=datamodule)
-
-    # Save checkpoint with model-specific name
-    safe_key = model_key.replace("/", "_").replace(" ", "_")
-    ckpt_path = str(checkpoint_dir / f"{safe_key}.ckpt")
-    trainer.save_checkpoint(ckpt_path)
-    logger.info("FTW fine-tuned checkpoint saved to %s", ckpt_path)
-    return ckpt_path
+    return None
 
 
 def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> str:
@@ -424,9 +372,19 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         device=config.resolve_device(),
     )
 
-    best_path = str(checkpoint_dir / safe_key / "weights" / "best.pt")
+    best_path = Path(checkpoint_dir / safe_key / "weights" / "best.pt")
+    if not best_path.exists():
+        # Fall back to last.pt if best.pt wasn't saved
+        last_path = best_path.parent / "last.pt"
+        if last_path.exists():
+            best_path = last_path
+        else:
+            raise RuntimeError(
+                f"YOLO fine-tuning produced no checkpoint at {best_path}. "
+                "Check training logs for errors (corrupt images, empty labels)."
+            )
     logger.info("YOLO fine-tuned weights saved to %s", best_path)
-    return best_path
+    return str(best_path)
 
 
 def _finetune_geoai(train_dir: Path, config: AgriboundConfig) -> str:
@@ -615,16 +573,13 @@ def _prepare_yolo_dataset(train_dir: Path, output_dir: Path) -> Path:
             h, w = mask_data.shape
 
         label_lines = []
-        for geom, val in rio_shapes(
-            mask_data,
-            transform=rasterio.transform.from_bounds(0, 0, 1, 1, w, h),
-        ):
+        for geom, val in rio_shapes(mask_data, transform=None):
             if val > 0:
                 poly = shapely_shape(geom)
-                if poly.is_valid:
+                if poly.is_valid and not poly.is_empty:
                     coords = list(poly.exterior.coords)
-                    # YOLO format: class_id x1 y1 x2 y2 ...
-                    points = " ".join(f"{x:.6f} {y:.6f}" for x, y in coords)
+                    # Normalize to [0,1] with Y top-to-bottom (YOLO convention)
+                    points = " ".join(f"{x / w:.6f} {y / h:.6f}" for x, y in coords)
                     label_lines.append(f"0 {points}")
 
         label_file = yolo_labels / f"{img_file.stem}.txt"

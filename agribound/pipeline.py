@@ -134,8 +134,11 @@ def delineate(
         from agribound.engines.finetune import fine_tune as run_fine_tune
 
         checkpoint_path = run_fine_tune(raster_path, config)
-        config.engine_params["checkpoint_path"] = checkpoint_path
-        logger.info("Fine-tuning complete: %s", checkpoint_path)
+        if checkpoint_path is not None:
+            config.engine_params["checkpoint_path"] = checkpoint_path
+            logger.info("Fine-tuning complete: %s", checkpoint_path)
+        else:
+            logger.info("Fine-tuning skipped (engine uses pre-trained weights)")
 
     # Step 3: Run delineation engine
     logger.info("Step 3: Running delineation engine (%s)", config.engine)

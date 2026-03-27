@@ -50,11 +50,21 @@ pip install agribound[delineate-anything]
 
 ### Fields of The World (FTW)
 
-Semantic segmentation with 16+ pre-trained models covering 25 countries:
+Semantic segmentation with 14+ pre-trained models covering 25 countries:
 
 ```bash
 pip install agribound[ftw]
 ```
+
+!!! note "Delineate-Anything on Sentinel-2"
+    For Sentinel-2, the `delineate-anything` engine routes through FTW's built-in instance segmentation with proper S2 preprocessing and native MPS (Apple GPU) support. This requires the **development version** of ftw-baselines (not yet on PyPI):
+
+    ```bash
+    git clone https://github.com/fieldsoftheworld/ftw-baselines.git
+    pip install -e ftw-baselines
+    ```
+
+    Without this, DA on Sentinel-2 will error. DA on all other sensors (Landsat, NAIP, HLS, SPOT, local) works without this step. Once `ftw-tools` v2.0+ is released on PyPI, this extra install step will no longer be needed.
 
 ### GeoAI
 
@@ -114,6 +124,10 @@ conda activate agribound-dev
 git clone https://github.com/montimaj/agribound.git
 cd agribound
 pip install -e ".[all,dev,docs]"
+
+# Required for DA instance segmentation on Sentinel-2
+git clone https://github.com/fieldsoftheworld/ftw-baselines.git ../ftw-baselines
+pip install -e ../ftw-baselines
 ```
 
 ## Verifying the Installation

@@ -63,18 +63,18 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 COUNTY_CODE = "25"  # Lea County
 FINE_TUNE = True  # Fine-tune engines on NMOSE reference boundaries
-FINE_TUNE_EPOCHS = 20
-FINE_TUNE_ENGINES = {"ftw", "delineate-anything", "geoai", "prithvi"}
+FINE_TUNE_EPOCHS = 3  # Set to 20 for production runs
+FINE_TUNE_ENGINES = {"delineate-anything", "geoai", "prithvi"}  # FTW uses pre-trained weights
 YEARS = range(2020, 2023)
 VOTE_THRESHOLD = 0.3  # Fraction of source–engine combos that must agree
 
 # Source → compatible engines
 # For "ftw" entries, each FTW model is run separately via FTW_MODELS below.
 SOURCE_ENGINE_MAP = {
-    "sentinel2": ["delineate-anything", "ftw", "geoai", "prithvi"],
-    "landsat": ["delineate-anything", "ftw", "prithvi"],
-    "hls": ["delineate-anything", "ftw", "prithvi"],
-    "naip": ["delineate-anything", "geoai"],
+    "sentinel2": ["ftw", "geoai", "prithvi", "delineate-anything"],
+    "landsat": ["ftw", "prithvi", "delineate-anything"],
+    "hls": ["ftw", "prithvi", "delineate-anything"],
+    "naip": ["geoai", "delineate-anything"],
     "spot": ["delineate-anything"],
     "google-embedding": ["embedding"],
     "tessera-embedding": ["embedding"],
@@ -195,9 +195,13 @@ def run_delineation(source, engine, year, study_area, gee_project, model=None, r
         kwargs["fine_tune_epochs"] = FINE_TUNE_EPOCHS
 
     # Source-specific composite parameters
+    # Use October (harvest season) composite for non-FTW engines.
+    # FTW builds its own bi-temporal input (Apr + Oct) internally.
     if source in ("sentinel2", "landsat", "hls"):
         kwargs["composite_method"] = "median"
         kwargs["cloud_cover_max"] = 20
+        if engine != "ftw":
+            kwargs["date_range"] = (f"{year}-10-01", f"{year}-10-31")
     elif source == "spot":
         kwargs["composite_method"] = "median"
         kwargs["cloud_cover_max"] = 15

@@ -112,7 +112,11 @@ def merge_polygons(
         if len(members) == 1:
             merged_geoms.append(gdf.iloc[members[0]].geometry)
         else:
-            geoms = [gdf.iloc[m].geometry for m in members if gdf.iloc[m].geometry is not None]
+            geoms = [
+                g.buffer(0) if not g.is_valid else g
+                for m in members
+                if (g := gdf.iloc[m].geometry) is not None
+            ]
             if geoms:
                 merged = unary_union(geoms)
                 # Explode MultiPolygons

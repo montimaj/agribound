@@ -51,23 +51,17 @@ agribound delineate \
 
 ## Engine-Specific Fine-Tuning
 
-### FTW (Default for Fine-Tuning)
+### FTW (Pre-Trained Only)
 
-FTW uses PyTorch Lightning for training. It is the default and most robust fine-tuning pipeline.
-
-- Architecture: UNet, UPerNet, or DeepLabV3+
-- Input: 3-band (R, G, B) chips
-- Framework: torchgeo + Lightning
+!!! warning "FTW fine-tuning is not yet supported"
+    FTW's training pipeline requires paired temporal windows (two Sentinel-2 scenes from different seasons) in a specific band ordering, which differs from agribound's single-composite format. When `fine_tune=True` is set with the FTW engine, agribound downloads the pre-trained checkpoint and uses it directly. The pre-trained FTW models already generalize well across regions.
 
 ```python
+# FTW will use pre-trained weights even with fine_tune=True
 config = AgriboundConfig(
     engine="ftw",
-    fine_tune=True,
-    fine_tune_epochs=30,
-    engine_params={
-        "ftw_model": "unet-s2-rgb",
-        "batch_size": 8,
-    },
+    fine_tune=True,  # Downloads pre-trained checkpoint, logs a warning
+    engine_params={"model": "FTW_PRUE_EFNET_B5"},
     ...
 )
 ```
@@ -136,14 +130,15 @@ If the selected engine does not support fine-tuning (e.g., `embedding` or `ensem
 
 | Source | Fallback Engine |
 |---|---|
-| `sentinel2`, `hls`, `landsat`, `local` | `ftw` |
+| `sentinel2`, `hls`, `landsat`, `local` | `ftw` (pre-trained only) |
 | `naip`, `spot` | `delineate-anything` |
 
-A warning is logged when a fallback occurs.
+A warning is logged when a fallback occurs. Note that falling back to FTW will use pre-trained weights since FTW fine-tuning is not yet supported.
 
 ## Tips
 
 - Provide at least 50--100 reference field polygons for meaningful fine-tuning.
 - Use polygons that are representative of the study area's field sizes and shapes.
 - Start with 10--20 epochs and increase if validation loss is still decreasing.
-- Fine-tuned checkpoints are saved in the `.agribound_cache/checkpoints/` directory next to the output path.
+- Fine-tuning takes ~30 minutes per model on an Apple M2 Max (MPS). Each model variant is fine-tuned independently.
+- Fine-tuned checkpoints are cached in `.agribound_cache/checkpoints/` and reused across years and runs. Delete the cache to force re-training.

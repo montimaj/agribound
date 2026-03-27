@@ -6,8 +6,8 @@ Agribound provides six delineation engines, each suited to different use cases, 
 
 | Engine | Approach | GPU | Input Bands | Best For |
 |---|---|---|---|---|
-| `delineate-anything` | YOLO instance segmentation | Required | R, G, B | High-res imagery (NAIP, SPOT), resolution-agnostic (1 m--10 m+) |
-| `ftw` | Semantic segmentation (UNet/UPerNet/DeepLabV3+) | Required | R, G, B | Sentinel-2, 25-country pre-trained models |
+| `delineate-anything` | YOLO instance segmentation (2 variants) | Required | R, G, B | High-res imagery (NAIP, SPOT), resolution-agnostic; routes through FTW for S2 |
+| `ftw` | Semantic segmentation (14+ models: EfficientNet-B3/B5/B7) | Required | R, G, B, NIR | Sentinel-2, 25-country pre-trained models; list via `list_ftw_models()` |
 | `geoai` | Mask R-CNN instance segmentation | Required | R, G, B | Sentinel-2, NAIP, built-in NDVI support |
 | `prithvi` | Foundation model (ViT) + segmentation | Required | R, G, B, NIR | HLS, Landsat, multi-temporal analysis |
 | `embedding` | Unsupervised K-means/spectral clustering | Not required | Embeddings | Pre-computed embedding datasets, no GPU needed |
@@ -17,7 +17,9 @@ Agribound provides six delineation engines, each suited to different use cases, 
 
 ### Delineate-Anything
 
-Instance segmentation based on Ultralytics YOLO, trained on global agricultural field boundaries. Resolution-agnostic: works across 1 m (NAIP) to 10 m+ (Sentinel-2) imagery.
+Instance segmentation based on Ultralytics YOLO (DelineateAnything and DelineateAnything-S), trained on the FBIS-22M dataset. Resolution-agnostic: works across 1 m (NAIP) to 10 m+ (Sentinel-2) imagery.
+
+For **Sentinel-2**, DA automatically routes through FTW's built-in instance segmentation with proper S2 preprocessing (`/3000` normalization) and native MPS (Apple GPU) support. For all other sensors, the standalone DA pipeline with sensor-agnostic percentile normalization is used.
 
 ```bash
 pip install agribound[delineate-anything]
@@ -25,17 +27,21 @@ pip install agribound[delineate-anything]
 
 **Supported sources**: `landsat`, `sentinel2`, `hls`, `naip`, `spot`, `local`
 
+**Fine-tuning**: Supported (YOLO). Chips are converted to PNG with percentile-normalized uint8 RGB.
+
 **Reference**: arXiv:2504.02534
 
 ### Fields of The World (FTW)
 
-Semantic segmentation using architectures like UNet, UPerNet, and DeepLabV3+. Ships with 16+ pre-trained models covering 25 countries. Produces field interior and boundary masks that are then polygonized.
+Semantic segmentation using EfficientNet-B3/B5/B7, UNet, UPerNet, and DeepLabV3+ architectures. Ships with 14+ pre-trained models covering 25 countries. All models are available via `agribound.list_ftw_models()`. Produces field interior and boundary masks that are then polygonized.
 
 ```bash
 pip install agribound[ftw]
 ```
 
 **Supported sources**: `landsat`, `sentinel2`, `hls`, `local`
+
+**Fine-tuning**: Not yet supported (requires paired temporal windows). Pre-trained weights are used directly.
 
 **Reference**: Fields of The World (FTW) dataset
 
