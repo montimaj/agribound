@@ -18,7 +18,7 @@ Agribound is a Python package that provides a unified framework for agricultural
 ## Features
 
 - **Multi-satellite support** -- Landsat (30 m, 1984--present), Sentinel-2 (10 m), Harmonized Landsat Sentinel (HLS, 30 m), NAIP (1 m), and SPOT 6/7 (1.5 m)
-- **All spectral bands downloaded** -- Full multi-band composites are downloaded for each sensor (e.g., all 12 Sentinel-2 spectral bands, all 6 Landsat SR bands). Engines automatically select the bands they need via canonical band mappings
+- **All spectral bands downloaded** -- Full multi-band composites are downloaded for each sensor (e.g., all 12 Sentinel-2 spectral bands, all 6 Landsat SR bands). Engines automatically extract and reorder the bands they need via canonical band mappings (e.g., FTW expects R, G, B, NIR as bands 1--4 matching its `B04, B03, B02, B08` training order, so agribound extracts those from the full composite before passing to FTW)
 - **Six delineation engines** -- Delineate-Anything, Fields of The World (FTW), GeoAI Field Boundary, Prithvi-EO-2.0, embedding-based unsupervised delineation, and a multi-model ensemble mode
 - **14+ pre-trained FTW models** -- All FTW model variants (EfficientNet-B3/B5/B7, CC-BY and standard licensing, v1--v3) are available via `agribound.list_ftw_models()` and selectable through `engine_params`
 - **Smart DA routing** -- For Sentinel-2, Delineate-Anything automatically delegates to FTW's built-in instance segmentation with proper S2 preprocessing and native MPS (Apple GPU) support. For other sensors, the standalone DA pipeline with sensor-agnostic normalization is used
@@ -92,12 +92,18 @@ pip install "agribound[tessera]"
 pip install "agribound[all]"
 ```
 
+> **Note:** The FTW extra installs `ftw-tools` from the [ftw-baselines](https://github.com/fieldsoftheworld/ftw-baselines) GitHub repository (development version) which provides Delineate-Anything instance segmentation support via `ftw_tools`. The PyPI release (`ftw-tools` v1.x) uses the older `ftw_cli` module name and does not include instance segmentation. Once `ftw-tools` v2.0+ is released on PyPI, this will switch to a standard PyPI dependency.
+
 For development:
 
 ```bash
 git clone https://github.com/montimaj/agribound.git
 cd agribound
 pip install -e ".[all,dev,docs]"
+
+# Optional: use a local ftw-baselines checkout for live FTW development
+git clone https://github.com/fieldsoftheworld/ftw-baselines.git ../ftw-baselines
+pip install -e ../ftw-baselines
 ```
 
 ## Quick Start (Python)
@@ -234,7 +240,7 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [09_ensemble_comparison.py](examples/09_ensemble_comparison.py) | [notebook](examples/notebooks/09_ensemble_comparison.ipynb) | Multi-engine comparison and ensemble fusion |
 | [10_local_tif_quickstart.py](examples/10_local_tif_quickstart.py) | [notebook](examples/notebooks/10_local_tif_quickstart.ipynb) | Five-line quickstart using a local GeoTIFF with no GEE dependency |
 | [11_mississippi_alluvial_plain_spot.py](examples/11_mississippi_alluvial_plain_spot.py) | [notebook](examples/notebooks/11_mississippi_alluvial_plain_spot.ipynb) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
-| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-engine, multi-model grand ensemble (2020--2022) over Lea County, NM. Runs all 12 FTW models and both DA variants per source for maximum ensemble diversity |
+| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-model grand ensemble (2020--2022) over Lea County, NM with per-model fine-tuning. Runs FTW B3/B5/B7 + both DA variants per source |
 
 ## Google Earth Engine Authentication
 

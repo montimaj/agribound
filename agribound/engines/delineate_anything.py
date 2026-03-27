@@ -157,7 +157,10 @@ class DelineateAnythingEngine(DelineationEngine):
         """
         self.validate_input(raster_path, config)
 
-        if config.source == "sentinel2":
+        # If fine-tuned checkpoint exists, always use standalone path
+        # (FTW's run_instance_segmentation doesn't accept custom weights)
+        checkpoint = config.engine_params.get("checkpoint_path")
+        if config.source == "sentinel2" and not checkpoint:
             return self._delineate_via_ftw(raster_path, config)
         return self._delineate_standalone(raster_path, config)
 
@@ -172,6 +175,10 @@ class DelineateAnythingEngine(DelineationEngine):
 
         FTW wraps DelineateAnything with proper S2 preprocessing (/ 3000
         normalization) and native MPS support.
+
+        FTW's DA model takes the first 3 bands of the input raster
+        (``x[:, :3, ...]``), so we extract R, G, B into a temporary
+        raster to ensure the correct bands are used.
         """
         try:
             from ftw_tools.inference.inference import run_instance_segmentation
@@ -197,6 +204,15 @@ class DelineateAnythingEngine(DelineationEngine):
         output_ext = config.get_output_extension()
         output_path = str(cache_dir / f"da_ftw_output{output_ext}")
 
+        # FTW's DA model takes first 3 bands blindly (x[:, :3, ...]).
+        # Extract R, G, B into a temp raster so the correct bands are first.
+        from agribound.engines.base import get_canonical_band_indices
+        from agribound.io.raster import select_and_reorder_bands
+
+        rgb_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
+        rgb_raster = str(cache_dir / "da_ftw_rgb_input.tif")
+        select_and_reorder_bands(raster_path, rgb_raster, rgb_indices)
+
         logger.info(
             "Running Delineate-Anything via FTW (model=%s, mps=%s)",
             da_model,
@@ -204,7 +220,7 @@ class DelineateAnythingEngine(DelineationEngine):
         )
 
         run_instance_segmentation(
-            input=raster_path,
+            input=rgb_raster,
             model=da_model,
             out=output_path,
             gpu=gpu,
@@ -279,12 +295,17 @@ class DelineateAnythingEngine(DelineationEngine):
             "small": "DelineateAnything-S.pt",
         }.get(model_size, "DelineateAnything.pt")
 
-        # Download model
-        logger.info("Loading Delineate-Anything model (%s)", model_size)
-        model_path = hf_hub_download(
-            repo_id="MykolaL/DelineateAnything",
-            filename=model_filename,
-        )
+        # Use fine-tuned checkpoint if available, otherwise download from HF
+        checkpoint = config.engine_params.get("checkpoint_path")
+        if checkpoint:
+            logger.info("Using fine-tuned DA checkpoint: %s", checkpoint)
+            model_path = checkpoint
+        else:
+            logger.info("Loading Delineate-Anything model (%s)", model_size)
+            model_path = hf_hub_download(
+                repo_id="MykolaL/DelineateAnything",
+                filename=model_filename,
+            )
 
         # Setup working directories
         cache_dir = config.get_working_dir()

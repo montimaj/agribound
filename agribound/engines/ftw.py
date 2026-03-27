@@ -121,13 +121,32 @@ class FTWEngine(DelineationEngine):
 
         self.validate_input(raster_path, config)
 
-        # Determine model -- FTW receives the full multi-band raster
-        model_name = config.engine_params.get("model")
-        if model_name is None:
-            model_name = _get_default_model(config.source)
+        # Use fine-tuned checkpoint if available, otherwise select model by name
+        checkpoint = config.engine_params.get("checkpoint_path")
+        if checkpoint:
+            model_name = checkpoint  # FTW's run() accepts .ckpt paths directly
+            logger.info("Using fine-tuned FTW checkpoint: %s", checkpoint)
+        else:
+            model_name = config.engine_params.get("model")
+            if model_name is None:
+                model_name = _get_default_model(config.source)
 
         cache_dir = config.get_working_dir()
-        pred_path = str(cache_dir / "ftw_prediction.tif")
+        pred_path = str(cache_dir / f"ftw_prediction_{model_name}.tif")
+
+        # FTW semantic seg models expect R, G, B, NIR as the first 4 bands.
+        # Extract the correct bands from the multi-band composite.
+        if config.source != "local":
+            from agribound.engines.base import get_canonical_band_indices
+            from agribound.io.raster import select_and_reorder_bands
+
+            rgbn_indices = get_canonical_band_indices(
+                config.source, ["R", "G", "B", "NIR"]
+            )
+            ftw_input = str(cache_dir / "ftw_rgbn_input.tif")
+            select_and_reorder_bands(raster_path, ftw_input, rgbn_indices)
+        else:
+            ftw_input = raster_path
 
         device = config.resolve_device()
         gpu = 0 if device == "cuda" else (-1 if device == "cpu" else None)
@@ -149,7 +168,7 @@ class FTWEngine(DelineationEngine):
             mps_mode,
         )
         ftw_run(
-            input=raster_path,
+            input=ftw_input,
             model=model_name,
             out=pred_path,
             gpu=gpu,

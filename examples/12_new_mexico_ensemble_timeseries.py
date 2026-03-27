@@ -3,25 +3,26 @@
 
 Comprehensive field boundary delineation using ALL available satellite
 products, delineation engines, and model variants with vote-based ensemble
-merging.
+merging and per-model fine-tuning on NMOSE reference boundaries.
 
 Sources: Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings
-Engines: delineate-anything (2 variants), FTW (12 models), GeoAI, Prithvi,
-         embedding
+Engines: delineate-anything (2 variants), FTW (3 models: B3/B5/B7),
+         GeoAI, Prithvi, embedding
 
-For each source, FTW is expanded into all 12 semantic segmentation models
-(EfficientNet-B3/B5/B7 × standard/CC-BY + legacy v1/v2) and
-Delineate-Anything into both model variants (full + small). For Sentinel-2,
-DA automatically routes through FTW's instance segmentation with proper S2
-preprocessing and native MPS support.
+For each source, FTW is expanded into 3 EfficientNet models (B3, B5, B7)
+and Delineate-Anything into both model variants (full + small). Each model
+is independently fine-tuned on NMOSE reference boundaries before inference.
+For Sentinel-2, DA automatically routes through FTW's instance segmentation
+with proper S2 preprocessing and native MPS support.
 
 Study area: Lea County (County 25) from NMOSE WUCB agricultural polygon
 boundaries.  The ensemble runs every compatible source–engine–model
 combination per year and merges via majority-vote overlap, producing
 higher-confidence boundaries than any single run alone.
 
-Estimated runtime: ~4–8 hours (3 years × up to 50+ source–engine–model
-combos, GPU recommended).  Best run on HPC/cloud with GPU.
+Estimated runtime: ~3–6 hours (3 years × up to 20+ source–engine–model
+combos + per-model fine-tuning, GPU recommended).  Best run on HPC/cloud
+with GPU.
 
 Prerequisites:
     pip install agribound[gee,delineate-anything,ftw,geoai,prithvi]
@@ -61,6 +62,9 @@ OUTPUT_DIR = Path("outputs/lea_county_ensemble")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 COUNTY_CODE = "25"  # Lea County
+FINE_TUNE = True  # Fine-tune engines on NMOSE reference boundaries
+FINE_TUNE_EPOCHS = 20
+FINE_TUNE_ENGINES = {"ftw", "delineate-anything", "geoai", "prithvi"}
 YEARS = range(2020, 2023)
 VOTE_THRESHOLD = 0.3  # Fraction of source–engine combos that must agree
 
@@ -76,25 +80,12 @@ SOURCE_ENGINE_MAP = {
     "tessera-embedding": ["embedding"],
 }
 
-# All FTW semantic segmentation models to run individually.
+# FTW v3 EfficientNet models (current, best performance).
 # When "ftw" appears in SOURCE_ENGINE_MAP, each of these models is run.
 FTW_MODELS = [
-    # v3 (current, standard licensing)
     "FTW_PRUE_EFNET_B3",
     "FTW_PRUE_EFNET_B5",
     "FTW_PRUE_EFNET_B7",
-    # v3.1 (CC-BY licensed)
-    "FTW_PRUE_EFNET_B3_CCBY",
-    "FTW_PRUE_EFNET_B5_CCBY",
-    "FTW_PRUE_EFNET_B7_CCBY",
-    # v2 (legacy but still useful for ensemble diversity)
-    "FTW_v2_3_Class_FULL_singleWindow",
-    "FTW_v2_3_Class_FULL_multiWindow",
-    # v1 (legacy)
-    "FTW_v1_3_Class_FULL",
-    "FTW_v1_3_Class_CCBY",
-    "FTW_v1_2_Class_FULL",
-    "FTW_v1_2_Class_CCBY",
 ]
 
 # Delineate-Anything model variants (instance segmentation).
@@ -157,10 +148,18 @@ def create_county_study_area(shapefile_path, county_code):
     out_path = OUTPUT_DIR / "lea_county_study_area.geojson"
     with open(out_path, "w") as f:
         json.dump(bbox_geojson, f)
-    return str(out_path), county_gdf
+
+    # Save reference boundaries for fine-tuning
+    ref_path = OUTPUT_DIR / "lea_county_reference.gpkg"
+    if not ref_path.exists():
+        county_gdf.to_file(ref_path, driver="GPKG")
+
+    return str(out_path), county_gdf, str(ref_path)
 
 
-def run_delineation(source, engine, year, study_area, gee_project, model=None):
+def run_delineation(
+    source, engine, year, study_area, gee_project, model=None, ref_path=None
+):
     """Run a single source–engine delineation, returning (GeoDataFrame, path).
 
     Parameters
@@ -168,6 +167,8 @@ def run_delineation(source, engine, year, study_area, gee_project, model=None):
     model : str or None
         Model name override for FTW (e.g. ``"FTW_PRUE_EFNET_B7"``) or
         Delineate-Anything (e.g. ``"DelineateAnything-S"``).
+    ref_path : str or None
+        Path to reference boundaries for fine-tuning.
     """
     import geopandas as gpd
 
@@ -188,6 +189,12 @@ def run_delineation(source, engine, year, study_area, gee_project, model=None):
         simplify=2.0,
         device="auto",
     )
+
+    # Fine-tune on NMOSE reference boundaries if supported
+    if FINE_TUNE and ref_path and engine in FINE_TUNE_ENGINES:
+        kwargs["reference_boundaries"] = ref_path
+        kwargs["fine_tune"] = True
+        kwargs["fine_tune_epochs"] = FINE_TUNE_EPOCHS
 
     # Source-specific composite parameters
     if source in ("sentinel2", "landsat", "hls"):
@@ -241,9 +248,11 @@ def main():
     import geopandas as gpd
 
     # --- Derive study area from Lea County subset ---
-    study_area, ref_gdf = create_county_study_area(NMOSE_SHAPEFILE, COUNTY_CODE)
+    study_area, ref_gdf, ref_path = create_county_study_area(NMOSE_SHAPEFILE, COUNTY_CODE)
     print(f"Study area: Lea County ({len(ref_gdf)} reference polygons)")
     print(f"Study area GeoJSON: {study_area}")
+    if FINE_TUNE:
+        print(f"Fine-tuning enabled ({FINE_TUNE_EPOCHS} epochs) using: {ref_path}")
 
     # ================================================================
     # Phase 1: Individual source–engine delineation (2020–2022)
@@ -271,40 +280,32 @@ def main():
                     for ftw_model in FTW_MODELS:
                         tag = f"{source}/ftw/{ftw_model}"
                         print(f"  {tag}: starting...", flush=True)
-                        try:
-                            gdf, _ = run_delineation(
-                                source, engine, year, study_area, gee_project,
-                                model=ftw_model,
-                            )
-                            all_results[year][tag] = gdf
-                            print(f"  {tag}: {len(gdf)} fields")
-                        except Exception as exc:
-                            print(f"  {tag}: FAILED — {exc}")
+                        gdf, _ = run_delineation(
+                            source, engine, year, study_area, gee_project,
+                            model=ftw_model, ref_path=ref_path,
+                        )
+                        all_results[year][tag] = gdf
+                        print(f"  {tag}: {len(gdf)} fields")
                 elif engine == "delineate-anything":
                     # Run both DA model variants
                     for da_model in DA_MODELS:
                         tag = f"{source}/da/{da_model}"
                         print(f"  {tag}: starting...", flush=True)
-                        try:
-                            gdf, _ = run_delineation(
-                                source, engine, year, study_area, gee_project,
-                                model=da_model,
-                            )
-                            all_results[year][tag] = gdf
-                            print(f"  {tag}: {len(gdf)} fields")
-                        except Exception as exc:
-                            print(f"  {tag}: FAILED — {exc}")
-                else:
-                    tag = f"{source}/{engine}"
-                    print(f"  {tag}: starting...", flush=True)
-                    try:
                         gdf, _ = run_delineation(
                             source, engine, year, study_area, gee_project,
+                            model=da_model, ref_path=ref_path,
                         )
                         all_results[year][tag] = gdf
                         print(f"  {tag}: {len(gdf)} fields")
-                    except Exception as exc:
-                        print(f"  {tag}: FAILED — {exc}")
+                else:
+                    tag = f"{source}/{engine}"
+                    print(f"  {tag}: starting...", flush=True)
+                    gdf, _ = run_delineation(
+                        source, engine, year, study_area, gee_project,
+                        ref_path=ref_path,
+                    )
+                    all_results[year][tag] = gdf
+                    print(f"  {tag}: {len(gdf)} fields")
 
     # ================================================================
     # Phase 2: Grand ensemble per year (vote merge)

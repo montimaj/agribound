@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
+from agribound.composites.base import SOURCE_REGISTRY
 from agribound.config import AgriboundConfig
 
 logger = logging.getLogger(__name__)
@@ -76,28 +77,91 @@ def fine_tune(
         )
         engine = fallback
 
-    # Prepare training data
-    logger.info("Preparing training data for fine-tuning")
-    train_dir = _prepare_training_data(raster_path, config)
+    # Derive a model key for per-model checkpoint isolation
+    model_key = _get_model_key(engine, config)
+
+    # Check for cached checkpoint — avoid redundant fine-tuning
+    checkpoint_path = _get_cached_checkpoint(engine, model_key, config)
+    if checkpoint_path is not None:
+        logger.info("Using cached fine-tuned checkpoint: %s", checkpoint_path)
+        return checkpoint_path
+
+    # Prepare training data (isolated per engine to handle different band counts)
+    logger.info("Preparing training data for fine-tuning (%s)", engine)
+    train_dir = _prepare_training_data(raster_path, config, engine)
 
     # Route to engine-specific fine-tuning
     if engine == "ftw":
-        return _finetune_ftw(train_dir, config)
+        return _finetune_ftw(train_dir, config, model_key)
     elif engine == "delineate-anything":
-        return _finetune_yolo(train_dir, config)
+        return _finetune_yolo(train_dir, config, model_key)
     elif engine == "geoai":
         return _finetune_geoai(train_dir, config)
     elif engine == "prithvi":
         return _finetune_prithvi(train_dir, config)
     else:
-        raise NotImplementedError(f"Fine-tuning is not yet implemented for engine {engine!r}")
+        raise NotImplementedError(
+            f"Fine-tuning not implemented for engine {engine!r}"
+        )
 
 
-def _prepare_training_data(raster_path: str, config: AgriboundConfig) -> Path:
+def _get_model_key(engine: str, config: AgriboundConfig) -> str:
+    """Derive a unique key for the specific model variant being fine-tuned."""
+    if engine == "ftw":
+        return config.engine_params.get("model", "FTW_PRUE_EFNET_B5")
+    elif engine == "delineate-anything":
+        da_model = config.engine_params.get("da_model")
+        model_size = config.engine_params.get("model_size", "large")
+        if da_model:
+            return da_model
+        return f"DA-{model_size}"
+    elif engine == "prithvi":
+        return config.engine_params.get(
+            "model_name", "Prithvi-EO-2.0-300M-TL"
+        )
+    return engine
+
+
+def _get_cached_checkpoint(
+    engine: str, model_key: str, config: AgriboundConfig
+) -> str | None:
+    """Return the path to a cached fine-tuned checkpoint, or None."""
+    cache_dir = config.get_working_dir()
+    # Sanitize model_key for filesystem
+    safe_key = model_key.replace("/", "_").replace(" ", "_")
+
+    if engine == "ftw":
+        path = cache_dir / "checkpoints" / "ftw" / f"{safe_key}.ckpt"
+    elif engine == "delineate-anything":
+        path = (
+            cache_dir / "checkpoints" / "yolo" / safe_key
+            / "weights" / "best.pt"
+        )
+    elif engine == "geoai":
+        geoai_dir = cache_dir / "checkpoints" / "geoai"
+        if geoai_dir.exists():
+            pth_files = list(geoai_dir.glob("*.pth"))
+            return str(pth_files[0]) if pth_files else None
+        return None
+    elif engine == "prithvi":
+        path = (
+            cache_dir / "checkpoints" / "prithvi" / f"{safe_key}.ckpt"
+        )
+    else:
+        return None
+
+    return str(path) if path.exists() else None
+
+
+def _prepare_training_data(
+    raster_path: str, config: AgriboundConfig, engine: str
+) -> Path:
     """Prepare training chips from raster + reference boundaries.
 
     Rasterizes polygons to segmentation masks, chips into patches,
-    and splits into train/val sets.
+    and splits into train/val sets. Training data is isolated per engine
+    since different engines need different bands (DA needs RGB, FTW needs
+    RGBN).
 
     Parameters
     ----------
@@ -105,6 +169,8 @@ def _prepare_training_data(raster_path: str, config: AgriboundConfig) -> Path:
         Path to the satellite composite.
     config : AgriboundConfig
         Pipeline configuration.
+    engine : str
+        Engine name (used to determine which bands to extract).
 
     Returns
     -------
@@ -118,7 +184,14 @@ def _prepare_training_data(raster_path: str, config: AgriboundConfig) -> Path:
     from agribound.io.vector import read_vector
 
     cache_dir = config.get_working_dir()
-    train_dir = cache_dir / "finetune_data"
+    # Isolate training data per engine to handle different band requirements
+    train_dir = cache_dir / f"finetune_data_{engine}"
+
+    # Skip if already prepared
+    if (train_dir / "images").exists() and any((train_dir / "images").glob("*.tif")):
+        logger.info("Using cached training data: %s", train_dir)
+        return train_dir
+
     images_dir = train_dir / "images"
     masks_dir = train_dir / "masks"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -152,9 +225,25 @@ def _prepare_training_data(raster_path: str, config: AgriboundConfig) -> Path:
         mask[mask_interior > 0] = 2  # boundary
         mask[eroded] = 1  # interior
 
-    # Chip into patches
+    # Read only the bands relevant to the engine.
+    # YOLO / PIL can only handle up to 4-band TIFFs.
     chip_size = config.engine_params.get("chip_size", 256)
-    data, meta = read_raster(raster_path)
+
+    if config.source != "local" and config.source in SOURCE_REGISTRY:
+        from agribound.engines.base import get_canonical_band_indices
+
+        if engine in ("delineate-anything", "geoai"):
+            band_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
+        elif engine in ("prithvi", "ftw"):
+            band_indices = get_canonical_band_indices(
+                config.source, ["R", "G", "B", "NIR"]
+            )
+        else:
+            band_indices = None
+    else:
+        band_indices = None
+
+    data, meta = read_raster(raster_path, bands=band_indices)
     bands, height, width = data.shape
 
     chip_idx = 0
@@ -214,7 +303,9 @@ def _prepare_training_data(raster_path: str, config: AgriboundConfig) -> Path:
     return train_dir
 
 
-def _finetune_ftw(train_dir: Path, config: AgriboundConfig) -> str:
+def _finetune_ftw(
+    train_dir: Path, config: AgriboundConfig, model_key: str
+) -> str:
     """Fine-tune using FTW's PyTorch Lightning pipeline.
 
     Parameters
@@ -223,6 +314,8 @@ def _finetune_ftw(train_dir: Path, config: AgriboundConfig) -> str:
         Directory with prepared training data.
     config : AgriboundConfig
         Pipeline configuration.
+    model_key : str
+        Model registry name (e.g. ``"FTW_PRUE_EFNET_B5"``).
 
     Returns
     -------
@@ -236,16 +329,20 @@ def _finetune_ftw(train_dir: Path, config: AgriboundConfig) -> str:
     except ImportError:
         raise ImportError(
             "ftw-tools and lightning are required for FTW fine-tuning. "
-            "Install with: pip install agribound[ftw] ftw-tools"
+            "Install with: pip install agribound[ftw]"
         ) from None
 
     device = config.resolve_device()
     checkpoint_dir = config.get_working_dir() / "checkpoints" / "ftw"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    model_name = config.engine_params.get("ftw_model", "unet-s2-rgb")
+    # Use the specific model variant as the base for fine-tuning
+    base_model = config.engine_params.get("model", model_key)
 
-    logger.info("Fine-tuning FTW model %s for %d epochs", model_name, config.fine_tune_epochs)
+    logger.info(
+        "Fine-tuning FTW model %s for %d epochs",
+        base_model, config.fine_tune_epochs,
+    )
 
     # Create datamodule from chipped data
     datamodule = FTWDataModule(
@@ -256,7 +353,7 @@ def _finetune_ftw(train_dir: Path, config: AgriboundConfig) -> str:
 
     # Load pre-trained model
     task = CustomSemanticSegmentationTask.load_from_checkpoint(
-        model_name,
+        base_model,
         map_location=device,
     )
 
@@ -269,14 +366,17 @@ def _finetune_ftw(train_dir: Path, config: AgriboundConfig) -> str:
 
     trainer.fit(task, datamodule=datamodule)
 
-    # Save checkpoint
-    ckpt_path = str(checkpoint_dir / "ftw_finetuned.ckpt")
+    # Save checkpoint with model-specific name
+    safe_key = model_key.replace("/", "_").replace(" ", "_")
+    ckpt_path = str(checkpoint_dir / f"{safe_key}.ckpt")
     trainer.save_checkpoint(ckpt_path)
     logger.info("FTW fine-tuned checkpoint saved to %s", ckpt_path)
     return ckpt_path
 
 
-def _finetune_yolo(train_dir: Path, config: AgriboundConfig) -> str:
+def _finetune_yolo(
+    train_dir: Path, config: AgriboundConfig, model_key: str
+) -> str:
     """Fine-tune using Ultralytics YOLO.
 
     Parameters
@@ -285,6 +385,8 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig) -> str:
         Directory with prepared training data.
     config : AgriboundConfig
         Pipeline configuration.
+    model_key : str
+        Model variant key (e.g. ``"DelineateAnything"``).
 
     Returns
     -------
@@ -300,34 +402,45 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig) -> str:
             "Install with: pip install agribound[delineate-anything]"
         ) from None
 
-    # Download base model
-    model_size = config.engine_params.get("model_size", "small")
+    # Determine base model from model_key
+    da_model = config.engine_params.get("da_model")
+    model_size = config.engine_params.get("model_size", "large")
+    if da_model:
+        model_size = "small" if da_model == "DelineateAnything-S" else "large"
     filename = {
         "large": "DelineateAnything.pt",
         "small": "DelineateAnything-S.pt",
-    }.get(model_size, "DelineateAnything-S.pt")
+    }.get(model_size, "DelineateAnything.pt")
 
-    model_path = hf_hub_download(repo_id="MykolaL/DelineateAnything", filename=filename)
+    model_path = hf_hub_download(
+        repo_id="MykolaL/DelineateAnything", filename=filename
+    )
 
     model = YOLO(model_path)
 
+    safe_key = model_key.replace("/", "_").replace(" ", "_")
     checkpoint_dir = config.get_working_dir() / "checkpoints" / "yolo"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    # Convert masks to YOLO segmentation format
+    # Convert masks to YOLO segmentation format (shared across DA variants)
     data_yaml = _prepare_yolo_dataset(train_dir, checkpoint_dir)
 
-    logger.info("Fine-tuning YOLO for %d epochs", config.fine_tune_epochs)
+    logger.info(
+        "Fine-tuning YOLO (%s) for %d epochs",
+        model_key, config.fine_tune_epochs,
+    )
     model.train(
         data=str(data_yaml),
         epochs=config.fine_tune_epochs,
         imgsz=config.engine_params.get("chip_size", 256),
         project=str(checkpoint_dir),
-        name="finetune",
+        name=safe_key,
         device=config.resolve_device(),
     )
 
-    best_path = str(checkpoint_dir / "finetune" / "weights" / "best.pt")
+    best_path = str(
+        checkpoint_dir / safe_key / "weights" / "best.pt"
+    )
     logger.info("YOLO fine-tuned weights saved to %s", best_path)
     return best_path
 
@@ -476,8 +589,6 @@ def _prepare_yolo_dataset(train_dir: Path, output_dir: Path) -> Path:
     yolo_images.mkdir(parents=True, exist_ok=True)
     yolo_labels.mkdir(parents=True, exist_ok=True)
 
-    import shutil
-
     images_dir = train_dir / "images"
     masks_dir = train_dir / "masks"
 
@@ -486,14 +597,35 @@ def _prepare_yolo_dataset(train_dir: Path, output_dir: Path) -> Path:
         if not mask_file.exists():
             continue
 
-        # Copy image
-        shutil.copy2(str(img_file), str(yolo_images / img_file.name))
-
-        # Convert mask to YOLO segmentation format
+        # Convert GeoTIFF chip to PNG (YOLO uses PIL which can't read GeoTIFFs)
         import rasterio
+        from PIL import Image
         from rasterio.features import shapes as rio_shapes
         from shapely.geometry import shape as shapely_shape
 
+        with rasterio.open(img_file) as src:
+            img_data = src.read()  # (bands, h, w)
+
+        # Normalize to uint8 for PNG
+        import numpy as np
+
+        img_float = img_data.astype(np.float32)
+        for b in range(img_float.shape[0]):
+            band = img_float[b]
+            valid = band[band > 0]
+            if len(valid) > 0:
+                p1, p99 = np.percentile(valid, [1, 99])
+                if p99 > p1:
+                    band = np.clip((band - p1) / (p99 - p1) * 255, 0, 255)
+            img_float[b] = band
+        img_uint8 = img_float.astype(np.uint8)
+
+        # Save as PNG (HWC format, RGB only)
+        img_hwc = np.transpose(img_uint8[:3], (1, 2, 0))
+        png_path = yolo_images / f"{img_file.stem}.png"
+        Image.fromarray(img_hwc).save(str(png_path))
+
+        # Convert mask to YOLO segmentation format
         with rasterio.open(mask_file) as src:
             mask_data = src.read(1)
             h, w = mask_data.shape
