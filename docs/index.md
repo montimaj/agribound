@@ -4,6 +4,8 @@
 
 Agribound provides a single interface to multiple delineation engines and satellite sources, handling the full pipeline from satellite composite generation through post-processing and export. It supports Google Earth Engine-based imagery (Landsat, Sentinel-2, HLS, NAIP, SPOT), local GeoTIFFs, and pre-computed embedding datasets (Google Satellite Embedding, TESSERA).
 
+The pipeline runs: **composite building** &rarr; **optional fine-tuning** &rarr; **delineation engine** &rarr; **optional SAM2 boundary refinement** &rarr; **post-processing** (smooth, simplify, filter) &rarr; **export**. When running ensembles, each engine's output is independently refined by SAM2 before vote-based merging.
+
 ---
 
 ## Quick Install

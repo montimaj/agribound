@@ -387,6 +387,54 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
     return str(best_path)
 
 
+def _build_geoai_model(num_classes: int = 2, num_channels: int = 3):
+    """Build a Mask R-CNN model, working around geoai/torchvision compat bugs.
+
+    geoai's ``get_instance_segmentation_model`` passes both the deprecated
+    ``pretrained`` and the new ``weights`` kwarg to ``maskrcnn_resnet50_fpn``,
+    which crashes on torchvision >= 0.15.  We replicate the logic with the
+    correct API.
+    """
+    import torch
+    import torchvision
+    from torchvision.models.detection import maskrcnn_resnet50_fpn
+    from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+    from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+
+    model = maskrcnn_resnet50_fpn(
+        weights=torchvision.models.detection.MaskRCNN_ResNet50_FPN_Weights.DEFAULT,
+        progress=True,
+    )
+
+    if num_channels != 3:
+        transform = model.transform
+        rgb_mean = [0.485, 0.456, 0.406]
+        rgb_std = [0.229, 0.224, 0.225]
+        mean_extra = sum(rgb_mean) / len(rgb_mean)
+        std_extra = sum(rgb_std) / len(rgb_std)
+        transform.image_mean = rgb_mean + [mean_extra] * (num_channels - 3)
+        transform.image_std = rgb_std + [std_extra] * (num_channels - 3)
+
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+
+    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+    model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask, 256, num_classes)
+
+    if num_channels != 3:
+        orig = model.backbone.body.conv1
+        model.backbone.body.conv1 = torch.nn.Conv2d(
+            num_channels,
+            orig.out_channels,
+            kernel_size=orig.kernel_size,
+            stride=orig.stride,
+            padding=orig.padding,
+            bias=orig.bias is not None,
+        )
+
+    return model
+
+
 def _finetune_geoai(train_dir: Path, config: AgriboundConfig) -> str:
     """Fine-tune using geoai's Mask R-CNN pipeline.
 
@@ -403,7 +451,7 @@ def _finetune_geoai(train_dir: Path, config: AgriboundConfig) -> str:
         Path to the fine-tuned weights.
     """
     try:
-        from geoai import train_instance_segmentation_model
+        from geoai.train import train_MaskRCNN_model
     except ImportError:
         raise ImportError(
             "geoai-py is required for GeoAI fine-tuning. Install with: pip install agribound[geoai]"
@@ -412,15 +460,28 @@ def _finetune_geoai(train_dir: Path, config: AgriboundConfig) -> str:
     checkpoint_dir = config.get_working_dir() / "checkpoints" / "geoai"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Fine-tuning GeoAI Mask R-CNN for %d epochs", config.fine_tune_epochs)
+    # MPS (Apple Silicon) is unstable for Mask R-CNN training — Metal command
+    # buffers frequently crash.  Force CPU for training; inference can still
+    # use MPS via the engine.
+    device = config.resolve_device()
+    if device == "mps":
+        logger.info("MPS is unstable for Mask R-CNN training, using CPU instead")
+        device = "cpu"
 
-    model_path = train_instance_segmentation_model(
+    logger.info(
+        "Fine-tuning GeoAI Mask R-CNN for %d epochs (device=%s)", config.fine_tune_epochs, device
+    )
+
+    model = _build_geoai_model(num_classes=2, num_channels=3)
+
+    model_path = train_MaskRCNN_model(
         images_dir=str(train_dir / "images"),
         labels_dir=str(train_dir / "masks"),
         output_dir=str(checkpoint_dir),
+        model=model,
         num_epochs=config.fine_tune_epochs,
-        batch_size=config.engine_params.get("batch_size", 4),
-        device=config.resolve_device(),
+        batch_size=config.engine_params.get("batch_size", 8),
+        device=device,
     )
 
     logger.info("GeoAI fine-tuned model saved to %s", model_path)

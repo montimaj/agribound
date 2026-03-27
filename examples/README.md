@@ -64,7 +64,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 09 | `09_ensemble_comparison.py` | Andalusia, Spain | Sentinel-2 | ensemble | ~30--60 min | Runs delineate-anything, FTW, and geoai on the same AOI, then runs the ensemble engine with vote strategy. Visualizes per-engine and consensus results. |
 | 10 | `10_local_tif_quickstart.py` | User-provided | Local GeoTIFF | delineate-anything | ~2--5 min | Minimal 5-line quickstart using a local file. No GEE required. Edit `LOCAL_TIF` and `STUDY_AREA` paths before running. |
 | 11 | `11_mississippi_alluvial_plain_spot.py` | Mississippi Alluvial Plain, USA | SPOT 6/7 | delineate-anything | ~15--30 min | SPOT-based delineation of row-crop agriculture (2021--2023). Includes cross-year stability analysis using IoU/F1. **Restricted access** -- see note below. |
-| 12 | `12_new_mexico_ensemble_timeseries.py` | Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (ensemble) | ~3--6 h | Multi-source, multi-model ensemble (2020--2022) with per-model fine-tuning on NMOSE references. Expands FTW into 3 EfficientNet models (B3/B5/B7) and DA into both variants. Each model is independently fine-tuned before inference. Merges via majority vote. Best run on HPC/cloud with GPU. |
+| 12 | `12_new_mexico_ensemble_timeseries.py` | Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (ensemble) | ~3--6 h | Multi-source, multi-model ensemble (2020--2022) with per-model fine-tuning and SAM2 boundary refinement on NMOSE references. Expands FTW into 3 EfficientNet models (B3/B5/B7) and DA into both variants. Each model's output is refined by SAM2 before majority-vote merging. Best run on HPC/cloud with GPU. |
 
 ## Notebooks
 
@@ -91,6 +91,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 - GEE composite generation adds ~2--5 minutes per year per source.
 - CPU-only runs (example 05, embedding engine) are 2--5x slower for inference but have no GPU requirement.
 - Fine-tuning (examples 01, 12) takes ~30 minutes per model on an Apple M2 Max (MPS). In example 12, DA (2 variants) and GeoAI/Prithvi are fine-tuned on NMOSE reference boundaries (~1.5 hours total). FTW uses pre-trained weights directly (fine-tuning not yet supported — FTW requires paired temporal windows). Fine-tuned checkpoints are cached and reused across years.
+- SAM2 boundary refinement (example 12) adds ~1--2 minutes per engine per year. Each engine's field bounding boxes are fed to SAM2 as prompts, producing pixel-accurate masks that replace the original polygons before the grand ensemble vote.
 - The 40-year New Mexico script (01) is best run as an overnight batch job or on HPC. The notebook version runs only 2023--2025.
 
 ## SPOT Access

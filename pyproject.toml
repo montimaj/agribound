@@ -90,6 +90,10 @@ prithvi = [
     "torchgeo>=0.6",
     "kornia>=0.7",
 ]
+samgeo = [
+    "segment-geospatial>=1.3",
+    "torch>=2.1",
+]
 tessera = [
     "torch>=2.1",
     "geoai-py>=0.30",
@@ -106,7 +110,7 @@ dev = [
     "ruff>=0.3",
 ]
 all = [
-    "agribound[gee,delineate-anything,ftw,geoai,prithvi,tessera]",
+    "agribound[gee,delineate-anything,ftw,geoai,prithvi,samgeo,tessera]",
 ]
 
 [project.scripts]

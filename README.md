@@ -20,6 +20,7 @@ Agribound is a Python package that provides a unified framework for agricultural
 - **Multi-satellite support** -- Landsat (30 m, 1984--present), Sentinel-2 (10 m), Harmonized Landsat Sentinel (HLS, 30 m), NAIP (1 m), and SPOT 6/7 (1.5 m)
 - **All spectral bands downloaded** -- Full multi-band composites are downloaded for each sensor (e.g., all 12 Sentinel-2 spectral bands, all 6 Landsat SR bands). Engines automatically extract and reorder the bands they need via canonical band mappings (e.g., FTW expects R, G, B, NIR as bands 1--4 matching its `B04, B03, B02, B08` training order, so agribound extracts those from the full composite before passing to FTW)
 - **Six delineation engines** -- Delineate-Anything, Fields of The World (FTW), GeoAI Field Boundary, Prithvi-EO-2.0, embedding-based unsupervised delineation, and a multi-model ensemble mode
+- **SAM2 boundary refinement** -- Optional post-delineation step that feeds each engine's field bounding boxes as prompts to SAM2, producing pixel-accurate masks that replace the original polygons. Enable with `engine_params={"sam_refine": True}`
 - **14+ pre-trained FTW models** -- All FTW model variants (EfficientNet-B3/B5/B7, CC-BY and standard licensing, v1--v3) are available via `agribound.list_ftw_models()` and selectable through `engine_params`
 - **Smart DA routing** -- For Sentinel-2, Delineate-Anything automatically delegates to FTW's built-in instance segmentation with proper S2 preprocessing and native MPS (Apple GPU) support. For other sensors, the standalone DA pipeline with sensor-agnostic normalization is used
 - **Google Earth Engine integration** -- Annual cloud-free composite generation with configurable date ranges, compositing methods (median, greenest pixel, max NDVI), and cloud masking
@@ -28,7 +29,7 @@ Agribound is a Python package that provides a unified framework for agricultural
 - **CLI and Python API** -- Full-featured command-line interface (`agribound delineate`) and a clean Python API (`agribound.delineate()`) for scripting and notebooks
 - **fiboa-compliant output** -- Export to GeoPackage, GeoJSON, or GeoParquet with field area, perimeter, and compactness attributes
 - **Dask-based parallelism** -- Large study areas are automatically tiled and processed in parallel
-- **Post-processing pipeline** -- Configurable minimum area filtering, polygon simplification, overlap removal, and slivers cleanup
+- **Post-processing pipeline** -- Configurable minimum area filtering, Chaikin corner-cutting smoothing, metric-aware polygon simplification, overlap removal, and slivers cleanup
 - **Built-in evaluation** -- Compare delineated boundaries against reference data with IoU, boundary F1, and over/under-segmentation metrics
 
 ## Satellite Sources
@@ -86,6 +87,7 @@ pip install "agribound[delineate-anything]"
 pip install "agribound[ftw]"
 pip install "agribound[geoai]"
 pip install "agribound[prithvi]"
+pip install "agribound[samgeo]"
 pip install "agribound[tessera]"
 
 # Everything
@@ -165,6 +167,7 @@ postprocess:
 engine_params:
   confidence: 0.4
   iou_threshold: 0.5
+  sam_refine: true              # refine boundaries with SAM2 (requires agribound[samgeo])
 
 output:
   path: fields.gpkg
@@ -205,6 +208,7 @@ agribound/
 │   │   ├── prithvi.py          # Prithvi-EO-2.0 foundation model
 │   │   ├── embedding.py        # Unsupervised K-means on embeddings
 │   │   ├── ensemble.py         # Multi-engine vote / union / intersection
+│   │   ├── samgeo_engine.py    # SAM2 boundary refinement (box-prompted)
 │   │   └── finetune.py         # Reference-boundary fine-tuning
 │   ├── io/                     # I/O utilities
 │   │   ├── crs.py              # CRS helpers (UTM lookup, equal-area)
@@ -247,7 +251,7 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [09_ensemble_comparison.py](examples/09_ensemble_comparison.py) | [notebook](examples/notebooks/09_ensemble_comparison.ipynb) | Multi-engine comparison and ensemble fusion |
 | [10_local_tif_quickstart.py](examples/10_local_tif_quickstart.py) | [notebook](examples/notebooks/10_local_tif_quickstart.ipynb) | Five-line quickstart using a local GeoTIFF with no GEE dependency |
 | [11_mississippi_alluvial_plain_spot.py](examples/11_mississippi_alluvial_plain_spot.py) | [notebook](examples/notebooks/11_mississippi_alluvial_plain_spot.ipynb) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
-| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-model grand ensemble (2020--2022) over Lea County, NM with per-model fine-tuning. Runs FTW B3/B5/B7 + both DA variants per source |
+| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-model grand ensemble (2020--2022) over Lea County, NM with per-model fine-tuning and SAM2 boundary refinement. Each engine's output is refined by SAM2 before majority-vote merging |
 
 ## Google Earth Engine Authentication
 
@@ -302,6 +306,9 @@ Please also cite the underlying engines and models as appropriate:
 - **GeoAI**: Wu, Q. (2026). GeoAI: A Python package for integrating artificial intelligence with geospatial data analysis and visualization. *Journal of Open Source Software*, 11(118), 9605. https://doi.org/10.21105/joss.09605
 - **Prithvi-EO-2.0**: Szwarcman, D., Roy, S., Fraccaro, P., et al. (2024). Prithvi-EO-2.0: A versatile multi-temporal foundation model for Earth observation applications. *arXiv preprint arXiv:2412.02732*. https://arxiv.org/abs/2412.02732
 - **TESSERA**: Feng, Z. et al. (2025). TESSERA: Temporal embeddings of surface spectra for Earth representation and analysis. *arXiv preprint arXiv:2506.20380*. https://arxiv.org/abs/2506.20380
+- **SamGeo**: Wu, Q., & Osco, L. (2023). samgeo: A Python package for segmenting geospatial data with the Segment Anything Model (SAM). *Journal of Open Source Software*, 8(89), 5663. https://doi.org/10.21105/joss.05663
+- **SAM for Remote Sensing**: Osco, L. P., Wu, Q., de Lemos, E. L., Gonçalves, W. N., Ramos, A. P. M., Li, J., & Junior, J. M. (2023). The Segment Anything Model (SAM) for remote sensing applications: From zero to one shot. *International Journal of Applied Earth Observation and Geoinformation*, 124, 103540. https://doi.org/10.1016/j.jag.2023.103540
+- **SAM 2**: Ravi, N., Gabeur, V., Hu, Y.-T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., Mintun, E., Pan, J., Alwala, K. V., Carion, N., Wu, C.-Y., Girshick, R., Dollár, P., & Feichtenhofer, C. (2024). SAM 2: Segment anything in images and videos. *arXiv preprint arXiv:2408.00714*. https://arxiv.org/abs/2408.00714
 - **geemap**: Wu, Q. (2020). geemap: A Python package for interactive mapping with Google Earth Engine. *Journal of Open Source Software*, 5(51), 2305. https://doi.org/10.21105/joss.02305
 - **Google Satellite Embeddings (AlphaEarth)**: Brown, C. F., Kazmierski, M. R., Pasquarella, V. J., Rucklidge, W. J., Samsikova, M., Zhang, C., Shelhamer, E., Lahera, E., Wiles, O., Ilyushchenko, S., Gorelick, N., Zhang, L. L., Alj, S., Schechter, E., Askay, S., Guinan, O., Moore, R., Boukouvalas, A., & Kohli, P. (2025). AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data. *arXiv preprint arXiv:2507.22291*. https://doi.org/10.48550/arXiv.2507.22291
 

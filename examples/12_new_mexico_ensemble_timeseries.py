@@ -7,7 +7,7 @@ merging and per-model fine-tuning on NMOSE reference boundaries.
 
 Sources: Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings
 Engines: delineate-anything (2 variants), FTW (3 models: B3/B5/B7),
-         GeoAI, Prithvi, embedding
+         GeoAI, Prithvi, SamGeo (SAM2), embedding
 
 For each source, FTW is expanded into 3 EfficientNet models (B3, B5, B7)
 and Delineate-Anything into both model variants (full + small). Each model
@@ -25,7 +25,7 @@ combos + per-model fine-tuning, GPU recommended).  Best run on HPC/cloud
 with GPU.
 
 Prerequisites:
-    pip install agribound[gee,delineate-anything,ftw,geoai,prithvi]
+    pip install agribound[gee,delineate-anything,ftw,geoai,prithvi,samgeo]
     agribound auth --project YOUR_GEE_PROJECT
 """
 
@@ -63,8 +63,10 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 COUNTY_CODE = "25"  # Lea County
 FINE_TUNE = True  # Fine-tune engines on NMOSE reference boundaries
-FINE_TUNE_EPOCHS = 3  # Set to 20 for production runs
+FINE_TUNE_EPOCHS = 10  # Set to 20 for production runs
 FINE_TUNE_ENGINES = {"delineate-anything", "geoai", "prithvi"}  # FTW uses pre-trained weights
+BATCH_SIZE = 8  # Increase for more RAM (e.g. 16 for 128 GB)
+SAM_REFINE = True  # Refine boundaries with SAM2 (requires pip install agribound[samgeo])
 YEARS = range(2020, 2023)
 VOTE_THRESHOLD = 0.3  # Fraction of source–engine combos that must agree
 
@@ -186,6 +188,7 @@ def run_delineation(source, engine, year, study_area, gee_project, model=None, r
         min_area=2500,
         simplify=2.0,
         device="auto",
+        engine_params={"batch_size": BATCH_SIZE, "sam_refine": SAM_REFINE},
     )
 
     # Fine-tune on NMOSE reference boundaries if supported
@@ -210,11 +213,13 @@ def run_delineation(source, engine, year, study_area, gee_project, model=None, r
     elif source in ("google-embedding", "tessera-embedding"):
         kwargs["device"] = "cpu"
         kwargs["min_area"] = 5000
-        kwargs["engine_params"] = {
-            "use_pca": True,
-            "pca_components": 16,
-            "n_clusters": "auto",
-        }
+        kwargs["engine_params"].update(
+            {
+                "use_pca": True,
+                "pca_components": 16,
+                "n_clusters": "auto",
+            }
+        )
 
     # Model override for FTW or Delineate-Anything
     if model and engine == "ftw":

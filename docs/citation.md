@@ -36,6 +36,16 @@ Feng, Z. et al. (2025). TESSERA: Temporal embeddings of surface spectra for Eart
 
 Wu, Q. (2020). geemap: A Python package for interactive mapping with Google Earth Engine. *Journal of Open Source Software*, 5(51), 2305. [https://doi.org/10.21105/joss.02305](https://doi.org/10.21105/joss.02305)
 
+### SamGeo (Segment Anything for Geospatial Data)
+
+Wu, Q., & Osco, L. (2023). samgeo: A Python package for segmenting geospatial data with the Segment Anything Model (SAM). *Journal of Open Source Software*, 8(89), 5663. [https://doi.org/10.21105/joss.05663](https://doi.org/10.21105/joss.05663)
+
+Osco, L. P., Wu, Q., de Lemos, E. L., Gonçalves, W. N., Ramos, A. P. M., Li, J., & Junior, J. M. (2023). The Segment Anything Model (SAM) for remote sensing applications: From zero to one shot. *International Journal of Applied Earth Observation and Geoinformation*, 124, 103540. [https://doi.org/10.1016/j.jag.2023.103540](https://doi.org/10.1016/j.jag.2023.103540)
+
+### SAM 2
+
+Ravi, N., Gabeur, V., Hu, Y.-T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., Mintun, E., Pan, J., Alwala, K. V., Carion, N., Wu, C.-Y., Girshick, R., Dollár, P., & Feichtenhofer, C. (2024). SAM 2: Segment anything in images and videos. *arXiv preprint arXiv:2408.00714*. [https://arxiv.org/abs/2408.00714](https://arxiv.org/abs/2408.00714)
+
 ### Google Satellite Embeddings (AlphaEarth)
 
 Brown, C. F., Kazmierski, M. R., Pasquarella, V. J., Rucklidge, W. J., Samsikova, M., Zhang, C., Shelhamer, E., Lahera, E., Wiles, O., Ilyushchenko, S., Gorelick, N., Zhang, L. L., Alj, S., Schechter, E., Askay, S., Guinan, O., Moore, R., Boukouvalas, A., & Kohli, P. (2025). AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data. *arXiv preprint arXiv:2507.22291*. [https://doi.org/10.48550/arXiv.2507.22291](https://doi.org/10.48550/arXiv.2507.22291)
