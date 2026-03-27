@@ -147,7 +147,11 @@ def _get_cached_checkpoint(engine: str, model_key: str, config: AgriboundConfig)
     elif engine == "dinov3":
         dinov3_dir = cache_dir / "checkpoints" / "dinov3"
         if dinov3_dir.exists():
-            ckpt_files = sorted(dinov3_dir.glob("*.ckpt"), key=lambda p: p.stat().st_mtime)
+            ckpt_files = sorted(dinov3_dir.glob("**/*.ckpt"), key=lambda p: p.stat().st_mtime)
+            # Prefer best checkpoint over last.ckpt
+            best = [f for f in ckpt_files if "last" not in f.name and "nan" not in f.name]
+            if best:
+                return str(best[-1])
             return str(ckpt_files[-1]) if ckpt_files else None
         return None
     else:
