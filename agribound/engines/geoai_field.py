@@ -17,6 +17,39 @@ from agribound.engines.base import DelineationEngine
 logger = logging.getLogger(__name__)
 
 
+def _patched_init_sentinel2_model(self, model=None):
+    """Workaround for geoai bug where ``maskrcnn_resnet50_fpn`` receives
+    a duplicate ``backbone`` keyword argument.  Uses ``MaskRCNN`` directly.
+    """
+    import torch
+    from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
+    from torchvision.models.detection.mask_rcnn import MaskRCNN
+
+    num_input_channels = len(self.custom_band_selection or [1, 2, 3])
+    if self.use_ndvi:
+        num_input_channels += 1
+
+    backbone = resnet_fpn_backbone("resnet50", weights=None)
+    original_conv = backbone.body.conv1
+    backbone.body.conv1 = torch.nn.Conv2d(
+        num_input_channels,
+        original_conv.out_channels,
+        kernel_size=original_conv.kernel_size,
+        stride=original_conv.stride,
+        padding=original_conv.padding,
+        bias=original_conv.bias is not None,
+    )
+
+    model = MaskRCNN(
+        backbone,
+        num_classes=2,
+        image_mean=[0.485] * num_input_channels,
+        image_std=[0.229] * num_input_channels,
+    )
+    model.to(self.device)
+    return model
+
+
 class GeoAIEngine(DelineationEngine):
     """Field boundary delineation using geoai's AgricultureFieldDelineator.
 
@@ -53,8 +86,10 @@ class GeoAIEngine(DelineationEngine):
 
         self.validate_input(raster_path, config)
 
-        # Configuration
-        model_path = config.engine_params.get("model_path")
+        # Configuration — use fine-tuned checkpoint if available
+        model_path = config.engine_params.get("checkpoint_path") or config.engine_params.get(
+            "model_path"
+        )
         repo_id = config.engine_params.get("repo_id")
         use_ndvi = config.engine_params.get("use_ndvi", False)
         band_selection = config.engine_params.get("band_selection")
@@ -68,13 +103,20 @@ class GeoAIEngine(DelineationEngine):
         device = config.resolve_device()
 
         logger.info("Initializing GeoAI AgricultureFieldDelineator")
-        delineator = AgricultureFieldDelineator(
-            model_path=model_path,
-            repo_id=repo_id,
-            device=device,
-            band_selection=band_selection,
-            use_ndvi=use_ndvi,
-        )
+        # Patch geoai bug: maskrcnn_resnet50_fpn() doesn't accept a
+        # `backbone` kwarg — use MaskRCNN() directly instead.
+        _orig = AgricultureFieldDelineator.initialize_sentinel2_model
+        AgricultureFieldDelineator.initialize_sentinel2_model = _patched_init_sentinel2_model
+        try:
+            delineator = AgricultureFieldDelineator(
+                model_path=model_path,
+                repo_id=repo_id,
+                device=device,
+                band_selection=band_selection,
+                use_ndvi=use_ndvi,
+            )
+        finally:
+            AgricultureFieldDelineator.initialize_sentinel2_model = _orig
 
         # Override thresholds
         delineator.confidence_threshold = config.engine_params.get("confidence_threshold", 0.5)

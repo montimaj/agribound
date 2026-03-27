@@ -271,6 +271,35 @@ def main():
         print(f"\n--- Year {year} ---")
         all_results[year] = {}
 
+        # Skip Phase 1 entirely if the grand ensemble for this year exists
+        ensemble_path = OUTPUT_DIR / f"fields_grand_ensemble_{year}.gpkg"
+        if ensemble_path.exists():
+            print(f"  Grand ensemble already exists: {ensemble_path}, skipping individual runs.")
+            # Still load individual results for evaluation (Phase 3)
+            for source, engines in SOURCE_ENGINE_MAP.items():
+                yr_min, yr_max = SOURCE_YEAR_RANGE[source]
+                if year < yr_min or year > yr_max:
+                    continue
+                for engine in engines:
+                    if engine == "ftw":
+                        for ftw_model in FTW_MODELS:
+                            tag = f"{source}/ftw/{ftw_model}"
+                            p = OUTPUT_DIR / f"fields_{source}_{engine}_{ftw_model}_{year}.gpkg"
+                            if p.exists():
+                                all_results[year][tag] = gpd.read_file(p)
+                    elif engine == "delineate-anything":
+                        for da_model in DA_MODELS:
+                            tag = f"{source}/da/{da_model}"
+                            p = OUTPUT_DIR / f"fields_{source}_{engine}_{da_model}_{year}.gpkg"
+                            if p.exists():
+                                all_results[year][tag] = gpd.read_file(p)
+                    else:
+                        tag = f"{source}/{engine}"
+                        p = OUTPUT_DIR / f"fields_{source}_{engine}_{year}.gpkg"
+                        if p.exists():
+                            all_results[year][tag] = gpd.read_file(p)
+            continue
+
         for source, engines in SOURCE_ENGINE_MAP.items():
             yr_min, yr_max = SOURCE_YEAR_RANGE[source]
             if year < yr_min or year > yr_max:
@@ -282,46 +311,55 @@ def main():
                     for ftw_model in FTW_MODELS:
                         tag = f"{source}/ftw/{ftw_model}"
                         print(f"  {tag}: starting...", flush=True)
-                        gdf, _ = run_delineation(
-                            source,
-                            engine,
-                            year,
-                            study_area,
-                            gee_project,
-                            model=ftw_model,
-                            ref_path=ref_path,
-                        )
-                        all_results[year][tag] = gdf
-                        print(f"  {tag}: {len(gdf)} fields")
+                        try:
+                            gdf, _ = run_delineation(
+                                source,
+                                engine,
+                                year,
+                                study_area,
+                                gee_project,
+                                model=ftw_model,
+                                ref_path=ref_path,
+                            )
+                            all_results[year][tag] = gdf
+                            print(f"  {tag}: {len(gdf)} fields")
+                        except Exception as exc:
+                            print(f"  {tag}: FAILED — {exc}")
                 elif engine == "delineate-anything":
                     # Run both DA model variants
                     for da_model in DA_MODELS:
                         tag = f"{source}/da/{da_model}"
                         print(f"  {tag}: starting...", flush=True)
+                        try:
+                            gdf, _ = run_delineation(
+                                source,
+                                engine,
+                                year,
+                                study_area,
+                                gee_project,
+                                model=da_model,
+                                ref_path=ref_path,
+                            )
+                            all_results[year][tag] = gdf
+                            print(f"  {tag}: {len(gdf)} fields")
+                        except Exception as exc:
+                            print(f"  {tag}: FAILED — {exc}")
+                else:
+                    tag = f"{source}/{engine}"
+                    print(f"  {tag}: starting...", flush=True)
+                    try:
                         gdf, _ = run_delineation(
                             source,
                             engine,
                             year,
                             study_area,
                             gee_project,
-                            model=da_model,
                             ref_path=ref_path,
                         )
                         all_results[year][tag] = gdf
                         print(f"  {tag}: {len(gdf)} fields")
-                else:
-                    tag = f"{source}/{engine}"
-                    print(f"  {tag}: starting...", flush=True)
-                    gdf, _ = run_delineation(
-                        source,
-                        engine,
-                        year,
-                        study_area,
-                        gee_project,
-                        ref_path=ref_path,
-                    )
-                    all_results[year][tag] = gdf
-                    print(f"  {tag}: {len(gdf)} fields")
+                    except Exception as exc:
+                        print(f"  {tag}: FAILED — {exc}")
 
     # ================================================================
     # Phase 2: Grand ensemble per year (vote merge)
