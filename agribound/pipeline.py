@@ -205,7 +205,7 @@ def _postprocess(gdf: gpd.GeoDataFrame, config: AgriboundConfig) -> gpd.GeoDataF
     from agribound.postprocess.filter import filter_polygons
     from agribound.postprocess.merge import merge_polygons
     from agribound.postprocess.regularize import regularize_polygons
-    from agribound.postprocess.simplify import simplify_polygons
+    from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
 
     # Merge overlapping polygons (e.g., from tiled processing)
     gdf = merge_polygons(gdf)
@@ -216,6 +216,11 @@ def _postprocess(gdf: gpd.GeoDataFrame, config: AgriboundConfig) -> gpd.GeoDataF
         min_area_m2=config.min_field_area_m2,
         remove_holes_below_m2=config.min_field_area_m2,
     )
+
+    # Smooth pixel-staircase artifacts before simplification
+    smooth_iterations = config.engine_params.get("smooth_iterations", 3)
+    if smooth_iterations > 0:
+        gdf = smooth_polygons(gdf, iterations=smooth_iterations)
 
     # Simplify
     if config.simplify_tolerance > 0:

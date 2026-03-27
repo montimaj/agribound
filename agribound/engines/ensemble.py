@@ -77,6 +77,7 @@ class EnsembleEngine(DelineationEngine):
 
         # Run each engine/model
         results: dict[str, gpd.GeoDataFrame] = {}
+        errors: dict[str, Exception] = {}
         for i, spec in enumerate(specs):
             eng_name = spec["engine"]
             per_run_params = spec.get("engine_params", {})
@@ -99,10 +100,13 @@ class EnsembleEngine(DelineationEngine):
                     logger.warning("%s produced no results", label)
             except Exception as exc:
                 logger.error("%s failed: %s", label, exc)
+                errors[label] = exc
 
         if not results:
-            logger.warning("No engines produced results")
-            return gpd.GeoDataFrame(columns=["geometry"])
+            msg = "All ensemble engines failed:\n" + "\n".join(
+                f"  - {k}: {v}" for k, v in errors.items()
+            )
+            raise RuntimeError(msg)
 
         if len(results) == 1:
             return next(iter(results.values()))

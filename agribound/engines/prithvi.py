@@ -163,7 +163,7 @@ class PrithviEngine(DelineationEngine):
         try:
             from geoai import load_prithvi_model
 
-            _processor = load_prithvi_model(model_name=model_name, device=device)
+            model = load_prithvi_model(model_name=model_name, device=device)
         except ImportError:
             logger.info("Loading Prithvi via transformers")
             from transformers import AutoModel
@@ -191,7 +191,7 @@ class PrithviEngine(DelineationEngine):
 
         # Tile the raster into patches and extract embeddings
         patch_size = config.engine_params.get("patch_size", 224)
-        embeddings = self._extract_embeddings(data, model_name, device, patch_size)
+        embeddings = self._extract_embeddings(data, model, device, patch_size)
 
         # Cluster embeddings
         n_clusters = config.engine_params.get("n_clusters", "auto")
@@ -220,7 +220,7 @@ class PrithviEngine(DelineationEngine):
     def _extract_embeddings(
         self,
         data: np.ndarray,
-        model_name: str,
+        model,
         device: str,
         patch_size: int,
     ) -> np.ndarray:
@@ -230,8 +230,8 @@ class PrithviEngine(DelineationEngine):
         ----------
         data : numpy.ndarray
             Raster data with shape ``(bands, height, width)``.
-        model_name : str
-            Prithvi model variant.
+        model
+            Pre-loaded Prithvi model.
         device : str
             Compute device.
         patch_size : int
@@ -242,12 +242,6 @@ class PrithviEngine(DelineationEngine):
         numpy.ndarray
             Embedding array with shape ``(height, width, embed_dim)``.
         """
-        from transformers import AutoModel
-
-        model = AutoModel.from_pretrained(
-            f"ibm-nasa-geospatial/{model_name}", trust_remote_code=True
-        )
-        model = model.to(device).eval()
 
         bands, height, width = data.shape
 

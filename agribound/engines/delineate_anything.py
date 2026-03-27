@@ -241,13 +241,15 @@ class DelineateAnythingEngine(DelineationEngine):
             overlap_contain_threshold=config.engine_params.get("overlap_contain_threshold", 0.8),
         )
 
-        if Path(output_path).exists():
-            gdf = gpd.read_file(output_path)
-            logger.info("Delineated %d field boundaries (FTW DA)", len(gdf))
-            return gdf
+        if not Path(output_path).exists():
+            raise RuntimeError(
+                "FTW instance segmentation failed: no output produced at "
+                f"{output_path}"
+            )
 
-        logger.warning("No output produced by FTW instance segmentation")
-        return gpd.GeoDataFrame(columns=["geometry"], crs=None)
+        gdf = gpd.read_file(output_path)
+        logger.info("Delineated %d field boundaries (FTW DA)", len(gdf))
+        return gdf
 
     # ------------------------------------------------------------------
     # Non-S2 path: standalone Delineate-Anything
@@ -386,13 +388,15 @@ class DelineateAnythingEngine(DelineationEngine):
             return self._yolo_fallback(raster_path, model_path, config)
 
         # Read output
-        if output_path.exists():
-            gdf = gpd.read_file(output_path)
-            logger.info("Delineated %d field boundaries", len(gdf))
-            return gdf
-        else:
-            logger.warning("No output produced by Delineate-Anything")
-            return gpd.GeoDataFrame(columns=["geometry"], crs=None)
+        if not output_path.exists():
+            raise RuntimeError(
+                "Delineate-Anything inference failed: no output produced at "
+                f"{output_path}"
+            )
+
+        gdf = gpd.read_file(output_path)
+        logger.info("Delineated %d field boundaries", len(gdf))
+        return gdf
 
     def _yolo_fallback(
         self, raster_path: str, model_path: str, config: AgriboundConfig

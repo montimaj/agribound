@@ -336,6 +336,11 @@ class FTWEngine(DelineationEngine):
             save_scores=False,
         )
 
+        if not Path(pred_path).exists():
+            raise RuntimeError(
+                f"FTW inference failed: prediction raster not created at {pred_path}"
+            )
+
         # Polygonize
         output_ext = config.get_output_extension()
         poly_path = str(cache_dir / f"ftw_polygons{output_ext}")
@@ -344,14 +349,19 @@ class FTWEngine(DelineationEngine):
         ftw_polygonize(
             input=pred_path,
             out=poly_path,
-            simplify=config.simplify_tolerance,
+            simplify=config.engine_params.get("simplify", 0),
             min_size=int(config.min_field_area_m2),
             overwrite=True,
-            close_interiors=config.engine_params.get("close_interiors", False),
+            close_interiors=config.engine_params.get("close_interiors", True),
             merge_adjacent=config.engine_params.get("merge_adjacent"),
         )
 
+        if not Path(poly_path).exists():
+            raise RuntimeError(
+                f"FTW polygonization failed: output not created at {poly_path}"
+            )
+
         # Read result
-        gdf = gpd.read_file(poly_path) if Path(poly_path).exists() else gpd.GeoDataFrame()
+        gdf = gpd.read_file(poly_path)
         logger.info("FTW delineated %d field boundaries", len(gdf))
         return gdf
