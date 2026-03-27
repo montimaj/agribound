@@ -153,27 +153,27 @@ source: sentinel2
 year: 2024
 engine: delineate-anything
 
-gee:
-  project: my-gee-project
-  export_method: local        # local | gdrive | gcs
-  cloud_cover_max: 20
-  composite_method: median    # median | greenest | max_ndvi
+# GEE settings
+gee_project: my-gee-project
+export_method: local            # local | gdrive | gcs
+cloud_cover_max: 20
+composite_method: median        # median | greenest | max_ndvi
 
-postprocess:
-  min_area: 2500              # minimum field area in m^2
-  simplify: 2.0               # polygon simplification tolerance in meters
-  remove_overlaps: true
+# Post-processing
+min_field_area_m2: 2500         # minimum field area in m²
+simplify_tolerance: 2.0         # simplification tolerance in meters
 
+# Engine-specific parameters
 engine_params:
   confidence: 0.4
   iou_threshold: 0.5
   sam_refine: true              # refine boundaries with SAM2 (requires agribound[samgeo])
 
-output:
-  path: fields.gpkg
-  format: gpkg                # gpkg | geojson | parquet
+# Output
+output_path: fields.gpkg
+output_format: gpkg             # gpkg | geojson | parquet
 
-device: auto                  # auto | cuda | cpu | mps
+device: auto                    # auto | cuda | cpu | mps
 n_workers: 4
 ```
 
