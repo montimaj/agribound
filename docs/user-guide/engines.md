@@ -1,6 +1,6 @@
 # Delineation Engines
 
-Agribound provides six delineation engines, each suited to different use cases, satellite sources, and hardware configurations.
+Agribound provides seven delineation engines, each suited to different use cases, satellite sources, and hardware configurations.
 
 ## Engine Comparison
 

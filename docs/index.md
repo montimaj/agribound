@@ -49,7 +49,7 @@ The returned `GeoDataFrame` contains field boundary polygons with area, perimete
 | [Installation](installation.md) | Install agribound and optional dependencies |
 | [Quickstart](user-guide/quickstart.md) | 5-minute tutorial covering Python and CLI usage |
 | [Satellite Sources](user-guide/satellite-sources.md) | Available imagery sources and compositing options |
-| [Engines](user-guide/engines.md) | Comparison of all six delineation engines |
+| [Engines](user-guide/engines.md) | Comparison of all seven delineation engines |
 | [Configuration](user-guide/configuration.md) | Full reference for `AgriboundConfig` |
 | [CLI Usage](user-guide/cli.md) | Command-line interface reference |
 | [API Reference](api/pipeline.md) | Python API documentation |

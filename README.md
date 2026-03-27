@@ -13,7 +13,7 @@
 
 ## Overview
 
-Agribound is a Python package that provides a unified framework for agricultural field boundary delineation by combining six complementary approaches: object detection, semantic segmentation, foundation model inference, embedding-based unsupervised clustering, supervised fine-tuning, and multi-engine ensembling. It handles the full pipeline from satellite composite generation through Google Earth Engine (or local GeoTIFFs) to vectorized, post-processed field boundary polygons, supporting Landsat, Sentinel-2, HLS, NAIP, and SPOT imagery out of the box. The result is a single `agribound.delineate()` call or CLI command that replaces dozens of ad hoc scripts with a reproducible, configurable workflow.
+Agribound is a Python package that provides a unified framework for agricultural field boundary delineation by combining seven complementary approaches: object detection, semantic segmentation, vision transformer segmentation, foundation model inference, embedding-based unsupervised clustering, supervised fine-tuning, and multi-engine ensembling. It handles the full pipeline from satellite composite generation through Google Earth Engine (or local GeoTIFFs) to vectorized, post-processed field boundary polygons, supporting Landsat, Sentinel-2, HLS, NAIP, and SPOT imagery out of the box. The result is a single `agribound.delineate()` call or CLI command that replaces dozens of ad hoc scripts with a reproducible, configurable workflow.
 
 ## Features
 

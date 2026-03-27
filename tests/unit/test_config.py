@@ -56,7 +56,16 @@ class TestAgriboundConfigValidation:
             AgriboundConfig(source="local", local_tif_path="/tmp/x.tif", device="tpu")
 
     def test_gee_source_requires_project(self):
-        with pytest.raises(ValueError, match="gee_project is required"):
+        import os
+        from unittest.mock import patch
+
+        # Remove GEE_PROJECT env var and mock gcloud auto-detection
+        env = {k: v for k, v in os.environ.items() if k != "GEE_PROJECT"}
+        with (
+            patch.dict("os.environ", env, clear=True),
+            patch("agribound.auth._get_gcloud_project", return_value=None),
+            pytest.raises(ValueError, match="gee_project is required"),
+        ):
             AgriboundConfig(source="sentinel2")
 
     def test_gee_source_with_project_ok(self):

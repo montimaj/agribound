@@ -10,9 +10,9 @@ from agribound.engines.base import ENGINE_REGISTRY, get_engine, list_engines
 class TestListEngines:
     """Test the list_engines function."""
 
-    def test_returns_all_six_engines(self):
+    def test_returns_all_engines(self):
         engines = list_engines()
-        assert len(engines) == 6
+        assert len(engines) == 7
 
     def test_expected_engine_names(self):
         engines = list_engines()
@@ -20,6 +20,7 @@ class TestListEngines:
             "delineate-anything",
             "ftw",
             "geoai",
+            "dinov3",
             "prithvi",
             "embedding",
             "ensemble",
