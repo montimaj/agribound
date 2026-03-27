@@ -92,6 +92,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 - CPU-only runs (example 05, embedding engine) are 2--5x slower for inference but have no GPU requirement.
 - Fine-tuning (examples 01, 12) takes ~30 minutes per model on an Apple M2 Max (MPS). In example 12, DA (2 variants) and GeoAI/Prithvi are fine-tuned on NMOSE reference boundaries (~1.5 hours total). FTW uses pre-trained weights directly (fine-tuning not yet supported — FTW requires paired temporal windows). Fine-tuned checkpoints are cached and reused across years.
 - SAM2 boundary refinement (example 12) adds ~1--2 minutes per engine per year. Each engine's field bounding boxes are fed to SAM2 as prompts, producing pixel-accurate masks that replace the original polygons before the grand ensemble vote.
+- **Apple Silicon (MPS):** The GeoAI engine (Mask R-CNN) crashes on MPS due to Metal command buffer errors. Agribound automatically falls back to CPU for GeoAI training and inference. All other engines (FTW, Delineate-Anything, Prithvi) work correctly on MPS.
 - The 40-year New Mexico script (01) is best run as an overnight batch job or on HPC. The notebook version runs only 2023--2025.
 
 ## SPOT Access

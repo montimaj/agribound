@@ -101,8 +101,12 @@ class GeoAIEngine(DelineationEngine):
             band_selection = get_canonical_band_indices(config.source, ["R", "G", "B"])
 
         device = config.resolve_device()
+        # Mask R-CNN is unstable on MPS (Metal command buffer crashes)
+        if device == "mps":
+            logger.info("MPS is unstable for Mask R-CNN, using CPU instead")
+            device = "cpu"
 
-        logger.info("Initializing GeoAI AgricultureFieldDelineator")
+        logger.info("Initializing GeoAI AgricultureFieldDelineator (device=%s)", device)
         # Patch geoai bug: maskrcnn_resnet50_fpn() doesn't accept a
         # `backbone` kwarg — use MaskRCNN() directly instead.
         _orig = AgricultureFieldDelineator.initialize_sentinel2_model

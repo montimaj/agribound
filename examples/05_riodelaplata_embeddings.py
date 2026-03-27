@@ -30,6 +30,9 @@ STUDY_AREA = "projects/ssebop-471916/assets/riodelaplata_guarani"
 
 YEARS = range(2020, 2025)
 
+# Set to True to refine boundaries with SAM2
+SAM_REFINE = True
+
 
 def parse_args():
     """Parse command-line arguments."""
@@ -65,6 +68,7 @@ def main():
             gee_project=gee_project,
             device="cpu",
             min_area=5000,
+            engine_params={"sam_refine": SAM_REFINE},
         )
         all_results[f"google_{year}"] = gdf
         print(f"  {year}: {len(gdf)} fields delineated")
@@ -87,6 +91,7 @@ def main():
             gee_project=gee_project,
             device="cpu",
             min_area=5000,
+            engine_params={"sam_refine": SAM_REFINE},
         )
         all_results[f"tessera_{year}"] = gdf
         print(f"  {year}: {len(gdf)} fields delineated")

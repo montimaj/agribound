@@ -24,6 +24,9 @@ SOURCE = "sentinel2"
 ENGINE = "geoai"
 YEAR = 2023
 
+# Set to True to refine boundaries with SAM2
+SAM_REFINE = True
+
 
 def create_study_area():
     """Create a study area GeoJSON in the Beauce region."""
@@ -86,6 +89,7 @@ def main():
         # European large fields
         min_area=5000,
         simplify=2.5,
+        engine_params={"sam_refine": SAM_REFINE},
     )
 
     print(f"\nDelineated {len(gdf)} fields")

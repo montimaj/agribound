@@ -19,6 +19,7 @@ import agribound
 LOCAL_TIF = "path/to/your/satellite_image.tif"
 STUDY_AREA = "path/to/your/study_area.geojson"
 OUTPUT_DIR = Path("outputs/local_quickstart")
+SAM_REFINE = True
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -33,6 +34,7 @@ def main():
         engine="delineate-anything",
         local_tif_path=LOCAL_TIF,
         output_path=str(output_path),
+        engine_params={"sam_refine": SAM_REFINE},
     )
 
     print(f"Delineated {len(gdf)} field boundaries")

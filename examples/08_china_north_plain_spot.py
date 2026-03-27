@@ -30,6 +30,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SOURCE = "spot"
 ENGINE = "delineate-anything"
 YEAR = 2022
+SAM_REFINE = True
 
 
 def create_study_area():
@@ -92,6 +93,7 @@ def main():
             engine=ENGINE,
             output_path=str(output_path),
             gee_project=gee_project,
+            engine_params={"sam_refine": SAM_REFINE},
             cloud_cover_max=15,
             min_area=3000,
             simplify=2.0,

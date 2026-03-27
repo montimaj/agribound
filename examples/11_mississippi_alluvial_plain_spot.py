@@ -31,6 +31,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SOURCE = "spot"
 ENGINE = "delineate-anything"
 YEARS = [2021, 2022, 2023]
+SAM_REFINE = True
 
 
 def create_study_area():
@@ -97,6 +98,7 @@ def main():
                 engine=ENGINE,
                 output_path=str(output_path),
                 gee_project=gee_project,
+                engine_params={"sam_refine": SAM_REFINE},
                 cloud_cover_max=15,
                 # Large row-crop fields in the MAP
                 min_area=10000,

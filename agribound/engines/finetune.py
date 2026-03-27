@@ -474,7 +474,7 @@ def _finetune_geoai(train_dir: Path, config: AgriboundConfig) -> str:
 
     model = _build_geoai_model(num_classes=2, num_channels=3)
 
-    model_path = train_MaskRCNN_model(
+    train_MaskRCNN_model(
         images_dir=str(train_dir / "images"),
         labels_dir=str(train_dir / "masks"),
         output_dir=str(checkpoint_dir),
@@ -484,8 +484,15 @@ def _finetune_geoai(train_dir: Path, config: AgriboundConfig) -> str:
         device=device,
     )
 
+    # train_MaskRCNN_model saves weights to output_dir but returns None;
+    # find the saved checkpoint file ourselves.
+    pth_files = sorted(checkpoint_dir.glob("*.pth"), key=lambda p: p.stat().st_mtime)
+    if not pth_files:
+        raise RuntimeError(f"GeoAI fine-tuning produced no .pth files in {checkpoint_dir}")
+
+    model_path = str(pth_files[-1])  # most recent
     logger.info("GeoAI fine-tuned model saved to %s", model_path)
-    return str(model_path)
+    return model_path
 
 
 def _finetune_prithvi(train_dir: Path, config: AgriboundConfig) -> str:
@@ -522,24 +529,58 @@ def _finetune_prithvi(train_dir: Path, config: AgriboundConfig) -> str:
         config.fine_tune_epochs,
     )
 
-    # Build terratorch config dynamically
+    # Build terratorch config dynamically using GenericNonGeoSegmentationDataModule
+    # which properly handles batch_size, train/val dirs, and band normalization.
+    batch_size = config.engine_params.get("batch_size", 4)
+    n_workers = config.n_workers
+    train_images = str(train_dir / "images")
+    train_masks = str(train_dir / "masks")
+    val_images = str(train_dir / "val_images")
+    val_masks = str(train_dir / "val_masks")
+
+    # Ensure val dirs exist (use train as fallback)
+    if not Path(val_images).exists():
+        val_images = train_images
+        val_masks = train_masks
+
+    device = config.resolve_device()
+    accelerator = "gpu" if device == "cuda" else ("mps" if device == "mps" else "cpu")
+
     tt_config = {
         "model": {
-            "backbone": model_name,
-            "decoder": "UperNet",
-            "num_classes": 3,
+            "class_path": "terratorch.tasks.SemanticSegmentationTask",
+            "init_args": {
+                "model_args": {
+                    "backbone": f"ibm-nasa-geospatial/{model_name}",
+                    "decoder": "UperNetDecoder",
+                    "num_classes": 3,
+                    "in_channels": 4,
+                },
+                "loss": "ce",
+                "ignore_index": -1,
+            },
         },
         "data": {
-            "train_dir": str(train_dir / "images"),
-            "train_label_dir": str(train_dir / "masks"),
-            "val_dir": str(train_dir / "val_images"),
-            "val_label_dir": str(train_dir / "val_masks"),
-            "batch_size": config.engine_params.get("batch_size", 4),
-            "num_workers": config.n_workers,
+            "class_path": "terratorch.datamodules.GenericNonGeoSegmentationDataModule",
+            "init_args": {
+                "batch_size": batch_size,
+                "num_workers": n_workers,
+                "train_data_root": train_images,
+                "val_data_root": val_images,
+                "test_data_root": val_images,
+                "train_label_data_root": train_masks,
+                "val_label_data_root": val_masks,
+                "test_label_data_root": val_masks,
+                "num_classes": 3,
+                "means": [0.0] * 4,
+                "stds": [1.0] * 4,
+                "img_grep": "*.tif",
+                "label_grep": "*.tif",
+            },
         },
         "trainer": {
             "max_epochs": config.fine_tune_epochs,
-            "accelerator": "gpu" if config.resolve_device() == "cuda" else "cpu",
+            "accelerator": accelerator,
             "devices": 1,
             "default_root_dir": str(checkpoint_dir),
         },

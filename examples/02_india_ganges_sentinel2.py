@@ -28,6 +28,9 @@ YEARS = range(2020, 2025)
 SOURCE = "sentinel2"
 ENGINE = "ftw"
 
+# Set to True to refine boundaries with SAM2
+SAM_REFINE = True
+
 
 def create_study_area():
     """Create a small study area GeoJSON in the Ganges Plain."""
@@ -92,6 +95,7 @@ def main():
             # Smallholder fields — lower minimum area
             min_area=500,
             simplify=1.0,
+            engine_params={"sam_refine": SAM_REFINE},
         )
         all_results[year] = gdf
         print(f"  {year}: {len(gdf)} fields delineated")

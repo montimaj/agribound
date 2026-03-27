@@ -53,7 +53,7 @@ All spectral bands are downloaded for each sensor. Engines automatically select 
 |---|---|---|---|---|---|
 | Delineate-Anything | `delineate-anything` | YOLO instance segmentation (2 model variants) | Fast; resolution-agnostic (1--10 m+); routes through FTW for S2 with native MPS support | Recommended | [Lavreniuk et al. (2025)](https://arxiv.org/abs/2504.02534) |
 | Fields of The World | `ftw` | Semantic segmentation (14+ models: EfficientNet-B3/B5/B7, UNet, UPerNet) | Strong generalization; 25-country training set; all models via `list_ftw_models()` | Yes | [Kerner et al. (2024)](https://fieldsofthe.world/) |
-| GeoAI Field Boundary | `geoai` | Mask R-CNN instance segmentation | Easy to use; built-in NDVI support | No | [Wu (2026)](https://github.com/opengeos/geoai) |
+| GeoAI Field Boundary | `geoai` | Mask R-CNN instance segmentation | Easy to use; built-in NDVI support; auto-falls back to CPU on Apple Silicon (see [MPS note](#apple-silicon-mps-note)) | No | [Wu (2026)](https://github.com/opengeos/geoai) |
 | Prithvi-EO-2.0 | `prithvi` | NASA/IBM geospatial foundation model with TerraTorch fine-tuning | State-of-the-art foundation model; multi-temporal | Yes | [Jakubik et al. (2024)](https://huggingface.co/ibm-nasa-geospatial) |
 | Embedding | `embedding` | Unsupervised clustering of pre-computed embeddings | No GPU needed; no labeled data required | No | [Aung et al. (2024)](https://sites.research.google/gr/open-buildings/) |
 | Ensemble | `ensemble` | Multi-engine or multi-model consensus (vote / union / intersection) | Best accuracy; supports running same engine with different models | Depends on engines | -- |
@@ -291,6 +291,10 @@ See the [Earth Engine Python installation guide](https://developers.google.com/e
 The SPOT 6/7 collection in Google Earth Engine is **restricted** and is not publicly available. Access is limited to select GEE users under a data-sharing agreement. This source is primarily intended for internal use at the Desert Research Institute (DRI).
 
 If you are interested in having SPOT-based field boundaries processed for your study area, please contact the author at <sayantan.majumdar@dri.edu> to discuss data access and processing arrangements.
+
+## Apple Silicon (MPS) Note
+
+The **GeoAI engine** (Mask R-CNN) is unstable on Apple Silicon GPUs via MPS (Metal Performance Shaders). Metal command buffer errors cause crashes during both training and inference. Agribound automatically detects MPS and falls back to CPU for GeoAI operations. All other engines (FTW, Delineate-Anything, Prithvi) work correctly on MPS.
 
 ## Citation
 

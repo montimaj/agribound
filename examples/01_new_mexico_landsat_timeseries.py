@@ -41,6 +41,9 @@ ENGINE = "delineate-anything"
 # Set to True to fine-tune the engine on NMOSE boundaries before inference
 FINE_TUNE = True
 
+# Set to True to refine boundaries with SAM2
+SAM_REFINE = True
+
 
 def create_study_area_from_shapefile(shapefile_path):
     """Derive study area GeoJSON from the bounding box of a shapefile."""
@@ -138,6 +141,7 @@ def main():
                 device="auto",
                 reference_boundaries=NMOSE_SHAPEFILE,
                 fine_tune=True,
+                engine_params={"sam_refine": SAM_REFINE},
             )
 
             print(f"\n  Fine-tuned model produced {len(gdf_ft)} fields for {finetune_year}")
@@ -165,7 +169,7 @@ def main():
         print(f"  Using fine-tuned checkpoint: {checkpoint_path}")
     print(f"{'=' * 60}")
 
-    engine_params = {}
+    engine_params = {"sam_refine": SAM_REFINE}
     if checkpoint_path:
         engine_params["checkpoint_path"] = checkpoint_path
 

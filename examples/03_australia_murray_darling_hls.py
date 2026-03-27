@@ -25,6 +25,9 @@ YEARS = range(2022, 2025)
 SOURCE = "hls"
 ENGINE = "prithvi"
 
+# Set to True to refine boundaries with SAM2
+SAM_REFINE = True
+
 
 def create_study_area():
     """Create a study area GeoJSON in the Murray-Darling Basin."""
@@ -89,6 +92,7 @@ def main():
             # Large irrigated fields
             min_area=5000,
             simplify=3.0,
+            engine_params={"sam_refine": SAM_REFINE},
         )
         all_results[year] = gdf
         print(f"  {year}: {len(gdf)} fields delineated")

@@ -25,6 +25,9 @@ SOURCE = "sentinel2"
 ENGINE = "ftw"
 YEAR = 2023
 
+# Set to True to refine boundaries with SAM2
+SAM_REFINE = True
+
 
 def create_study_area():
     """Create a study area GeoJSON in Central Kenya."""
@@ -92,6 +95,7 @@ def main():
             composite_method="median",
             min_area=min_area,
             simplify=1.0,
+            engine_params={"sam_refine": SAM_REFINE},
         )
         results[min_area] = gdf
         print(f"  min_area={min_area}: {len(gdf)} fields detected")

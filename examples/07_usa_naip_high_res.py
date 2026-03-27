@@ -23,6 +23,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SOURCE = "naip"
 ENGINE = "delineate-anything"
 YEAR = 2022
+SAM_REFINE = True
 
 
 def create_study_area():
@@ -83,6 +84,7 @@ def main():
         engine=ENGINE,
         output_path=str(output_path),
         gee_project=gee_project,
+        engine_params={"sam_refine": SAM_REFINE},
         # Large commercial fields
         min_area=10000,
         simplify=3.0,

@@ -24,6 +24,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SOURCE = "sentinel2"
 YEAR = 2024
 ENGINES = ["delineate-anything", "ftw", "geoai"]
+SAM_REFINE = True
 
 
 def create_study_area():
@@ -91,6 +92,7 @@ def main():
                 engine=engine_name,
                 output_path=str(output_path),
                 gee_project=gee_project,
+                engine_params={"sam_refine": SAM_REFINE},
                 min_area=2500,
                 simplify=2.0,
             )
@@ -115,6 +117,7 @@ def main():
             engine_params={
                 "engines": ENGINES,
                 "merge_strategy": "vote",
+                "sam_refine": SAM_REFINE,
             },
             min_area=2500,
         )
