@@ -24,6 +24,10 @@ Kerner, H., Chaudhari, S., Ghosh, A., Robinson, C., Ahmad, A., Choi, E., Jacobs,
 
 Wu, Q. (2026). GeoAI: A Python package for integrating artificial intelligence with geospatial data analysis and visualization. *Journal of Open Source Software*, 11(118), 9605. [https://doi.org/10.21105/joss.09605](https://doi.org/10.21105/joss.09605)
 
+### DINOv3
+
+Siméoni, O., Vo, H. V., Seitzer, M., Baldassarre, F., Oquab, M., Jose, C., Khalidov, V., Szafraniec, M., Yi, S., Ramamonjisoa, M., Massa, F., Haziza, D., Wehrstedt, L., Wang, J., Darcet, T., Moutakanni, T., Sentana, L., Roberts, C., Vedaldi, A., ... Bojanowski, P. (2025). DINOv3. *arXiv preprint arXiv:2508.10104*. [https://arxiv.org/abs/2508.10104](https://arxiv.org/abs/2508.10104)
+
 ### Prithvi-EO-2.0
 
 Szwarcman, D., Roy, S., Fraccaro, P., et al. (2024). Prithvi-EO-2.0: A versatile multi-temporal foundation model for Earth observation applications. *arXiv preprint arXiv:2412.02732*. [https://arxiv.org/abs/2412.02732](https://arxiv.org/abs/2412.02732)

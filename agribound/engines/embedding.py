@@ -8,6 +8,7 @@ to delineate field boundaries via unsupervised clustering. No GPU required.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -93,29 +94,32 @@ class EmbeddingEngine(DelineationEngine):
         else:
             embeddings_reduced = embeddings
 
-        # Clustering
-        n_clusters = config.engine_params.get("n_clusters", "auto")
-        clustering_method = config.engine_params.get("clustering_method", "kmeans")
-
-        cluster_labels = self._cluster(
-            embeddings_reduced, valid_mask, n_clusters, clustering_method
-        )
-
-        # Reshape to raster
-        cluster_map = cluster_labels.reshape(1, height, width)
-
         # Write cluster raster
         cache_dir = config.get_working_dir()
         cluster_path = str(cache_dir / "embedding_clusters.tif")
 
-        from agribound.io.raster import write_raster
+        if Path(cluster_path).exists():
+            logger.info("Using cached embedding clusters: %s", cluster_path)
+        else:
+            # Clustering
+            n_clusters = config.engine_params.get("n_clusters", "auto")
+            clustering_method = config.engine_params.get("clustering_method", "kmeans")
 
-        write_raster(
-            cluster_path,
-            cluster_map.astype(np.int32),
-            crs=meta["crs"],
-            transform=meta["transform"],
-        )
+            cluster_labels = self._cluster(
+                embeddings_reduced, valid_mask, n_clusters, clustering_method
+            )
+
+            # Reshape to raster
+            cluster_map = cluster_labels.reshape(1, height, width)
+
+            from agribound.io.raster import write_raster
+
+            write_raster(
+                cluster_path,
+                cluster_map.astype(np.int32),
+                crs=meta["crs"],
+                transform=meta["transform"],
+            )
 
         # Polygonize
         from agribound.postprocess.polygonize import polygonize_mask

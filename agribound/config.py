@@ -36,6 +36,7 @@ VALID_ENGINES = (
     "delineate-anything",
     "ftw",
     "geoai",
+    "dinov3",
     "prithvi",
     "embedding",
     "ensemble",

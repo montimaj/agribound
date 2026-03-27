@@ -151,13 +151,6 @@ def delineate(
         logger.warning("No field boundaries detected")
         return gdf
 
-    # Step 4: Optional SAM2 boundary refinement
-    if config.engine_params.get("sam_refine", False):
-        logger.info("Step 4a: Refining boundaries with SAM2")
-        from agribound.engines.samgeo_engine import refine_boundaries
-
-        gdf = refine_boundaries(gdf, raster_path, config)
-
     # Step 4: Post-processing
     logger.info("Step 4: Post-processing (%d polygons)", len(gdf))
     gdf = _postprocess(gdf, config)

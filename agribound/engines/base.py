@@ -66,6 +66,23 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
         "reference": "NASA/IBM Prithvi-EO-2.0",
         "install_extra": "prithvi",
     },
+    "dinov3": {
+        "name": "DINOv3",
+        "approach": "DINOv2/v3 ViT backbone + DPT segmentation head",
+        "strengths": "Powerful ViT features, LoRA fine-tuning, resolution-agnostic",
+        "gpu_required": True,
+        "requires_bands": ["R", "G", "B"],
+        "supported_sources": [
+            "landsat",
+            "sentinel2",
+            "hls",
+            "naip",
+            "spot",
+            "local",
+        ],
+        "reference": "Siméoni et al. (2025) DINOv3",
+        "install_extra": "geoai",
+    },
     "embedding": {
         "name": "Embedding Clustering",
         "approach": "Unsupervised K-means/spectral clustering on pixel embeddings",
@@ -262,6 +279,10 @@ def get_engine(engine_name: str) -> DelineationEngine:
         from agribound.engines.prithvi import PrithviEngine
 
         return PrithviEngine()
+    elif engine_name == "dinov3":
+        from agribound.engines.dinov3 import DINOv3Engine
+
+        return DINOv3Engine()
     elif engine_name == "embedding":
         from agribound.engines.embedding import EmbeddingEngine
 

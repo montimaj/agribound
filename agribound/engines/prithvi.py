@@ -14,6 +14,7 @@ Supports two modes:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -112,12 +113,15 @@ class PrithviEngine(DelineationEngine):
         cache_dir = config.get_working_dir()
         pred_path = str(cache_dir / "prithvi_segmentation.tif")
 
-        model.predict_raster(
-            raster_path,
-            output_path=pred_path,
-            patch_size=config.engine_params.get("patch_size", 224),
-            overlap=config.engine_params.get("overlap", 0.25),
-        )
+        if Path(pred_path).exists():
+            logger.info("Using cached Prithvi segmentation: %s", pred_path)
+        else:
+            model.predict_raster(
+                raster_path,
+                output_path=pred_path,
+                patch_size=config.engine_params.get("patch_size", 224),
+                overlap=config.engine_params.get("overlap", 0.25),
+            )
 
         # Polygonize the segmentation mask
         from agribound.postprocess.polygonize import polygonize_mask
@@ -187,28 +191,34 @@ class PrithviEngine(DelineationEngine):
             logger.warning("Empty raster data from %s", raster_path)
             return gpd.GeoDataFrame(columns=["geometry"], crs=meta.get("crs"))
 
+        # Replace inf/nan/nodata with 0
+        data = np.where(np.isfinite(data), data, 0)
+
         logger.info("Raster shape: %s", data.shape)
-
-        # Tile the raster into patches and extract embeddings
-        patch_size = config.engine_params.get("patch_size", 224)
-        embeddings = self._extract_embeddings(data, model, device, patch_size)
-
-        # Cluster embeddings
-        n_clusters = config.engine_params.get("n_clusters", "auto")
-        cluster_map = self._cluster_embeddings(embeddings, n_clusters)
 
         # Write cluster map as raster
         cache_dir = config.get_working_dir()
         cluster_path = str(cache_dir / "prithvi_clusters.tif")
 
-        from agribound.io.raster import write_raster
+        if Path(cluster_path).exists():
+            logger.info("Using cached Prithvi clusters: %s", cluster_path)
+        else:
+            # Tile the raster into patches and extract embeddings
+            patch_size = config.engine_params.get("patch_size", 224)
+            embeddings = self._extract_embeddings(data, model, device, patch_size)
 
-        write_raster(
-            cluster_path,
-            cluster_map.astype(np.int32),
-            crs=meta["crs"],
-            transform=meta["transform"],
-        )
+            # Cluster embeddings
+            n_clusters = config.engine_params.get("n_clusters", "auto")
+            cluster_map = self._cluster_embeddings(embeddings, n_clusters)
+
+            from agribound.io.raster import write_raster
+
+            write_raster(
+                cluster_path,
+                cluster_map.astype(np.int32),
+                crs=meta["crs"],
+                transform=meta["transform"],
+            )
 
         # Polygonize
         from agribound.postprocess.polygonize import polygonize_mask

@@ -60,24 +60,32 @@ logging.getLogger("methods").setLevel(logging.WARNING)
 NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
 OUTPUT_DIR = Path("outputs/lea_county_ensemble")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_CRS = "EPSG:26913"  # Match NMOSE reference CRS (NAD83 / UTM zone 13N)
 
 COUNTY_CODE = "25"  # Lea County
 FINE_TUNE = True  # Fine-tune engines on NMOSE reference boundaries
 FINE_TUNE_EPOCHS = 10  # Set to 20 for production runs
-FINE_TUNE_ENGINES = {"delineate-anything", "geoai", "prithvi"}  # FTW uses pre-trained weights
+FINE_TUNE_ENGINES = {
+    "delineate-anything",
+    "geoai",
+    "prithvi",
+    "dinov3",
+}  # FTW uses pre-trained weights
 BATCH_SIZE = 8  # Increase for more RAM (e.g. 16 for 128 GB)
 SAM_REFINE = True  # Refine boundaries with SAM2 (requires pip install agribound[samgeo])
+SAM_MODEL = "tiny"  # SAM2 variant: "tiny", "small", "base_plus", "large"
+SAM_BATCH_SIZE = 50  # Number of field boxes per SAM2 batch
 YEARS = range(2020, 2023)
 VOTE_THRESHOLD = 0.3  # Fraction of source–engine combos that must agree
 
 # Source → compatible engines
 # For "ftw" entries, each FTW model is run separately via FTW_MODELS below.
 SOURCE_ENGINE_MAP = {
-    "sentinel2": ["ftw", "geoai", "prithvi", "delineate-anything"],
-    "landsat": ["ftw", "prithvi", "delineate-anything"],
-    "hls": ["ftw", "prithvi", "delineate-anything"],
-    "naip": ["geoai", "delineate-anything"],
-    "spot": ["delineate-anything"],
+    "sentinel2": ["ftw", "geoai", "dinov3", "prithvi", "delineate-anything"],
+    "landsat": ["ftw", "dinov3", "prithvi", "delineate-anything"],
+    "hls": ["ftw", "dinov3", "prithvi", "delineate-anything"],
+    "naip": ["geoai", "dinov3", "delineate-anything"],
+    "spot": ["dinov3", "delineate-anything"],
     "google-embedding": ["embedding"],
     "tessera-embedding": ["embedding"],
 }
@@ -188,7 +196,7 @@ def run_delineation(source, engine, year, study_area, gee_project, model=None, r
         min_area=2500,
         simplify=2.0,
         device="auto",
-        engine_params={"batch_size": BATCH_SIZE, "sam_refine": SAM_REFINE},
+        engine_params={"batch_size": BATCH_SIZE},
     )
 
     # Fine-tune on NMOSE reference boundaries if supported
@@ -230,6 +238,10 @@ def run_delineation(source, engine, year, study_area, gee_project, model=None, r
         kwargs["engine_params"]["da_model"] = model
 
     gdf = agribound.delineate(**kwargs)
+    # Reproject to match NMOSE reference CRS
+    if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
+        gdf = gdf.to_crs(OUTPUT_CRS)
+        gdf.to_file(output_path, driver="GPKG", layer="fields")
     return gdf, output_path
 
 
@@ -396,10 +408,46 @@ def main():
             from agribound.postprocess import filter_polygons
 
             gdf = filter_polygons(gdf, min_area_m2=2500)
-            gdf.to_file(output_path, driver="GPKG")
+            print(f"{len(gdf)} fields")
+
+            # SAM2 boundary refinement on the final ensemble
+            if SAM_REFINE:
+                print(f"  {year}: refining {len(gdf)} ensemble boundaries with SAM2...", flush=True)
+                try:
+                    from agribound.config import AgriboundConfig
+                    from agribound.engines.samgeo_engine import refine_boundaries
+
+                    # Find the raster for this year (use sentinel2 composite as default)
+                    raster_cache = OUTPUT_DIR / ".agribound_cache"
+                    raster_candidates = sorted(raster_cache.glob(f"*sentinel2*{year}*.tif"))
+                    if not raster_candidates:
+                        raster_candidates = sorted(raster_cache.glob(f"*{year}*.tif"))
+                    if raster_candidates:
+                        sam_config = AgriboundConfig(
+                            source="sentinel2",
+                            engine="ftw",
+                            year=year,
+                            study_area=study_area,
+                            output_path=str(output_path),
+                            engine_params={
+                                "sam_model": SAM_MODEL,
+                                "sam_batch_size": SAM_BATCH_SIZE,
+                            },
+                            device="auto",
+                        )
+                        gdf = refine_boundaries(gdf, str(raster_candidates[0]), sam_config)
+                        print(f"  {year}: SAM2 refined {len(gdf)} boundaries")
+                    else:
+                        print(f"  {year}: no raster found for SAM2 refinement, skipping")
+                except Exception as exc:
+                    print(f"  {year}: SAM2 refinement failed: {exc}")
+
+            # Reproject to match NMOSE reference CRS
+            if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
+                gdf = gdf.to_crs(OUTPUT_CRS)
+            gdf.to_file(output_path, driver="GPKG", layer="fields")
 
             ensemble_results[year] = gdf
-            print(f"{len(gdf)} fields")
         except Exception as exc:
             print(f"FAILED — {exc}")
 

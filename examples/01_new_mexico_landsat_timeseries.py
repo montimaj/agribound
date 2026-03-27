@@ -33,6 +33,7 @@ from agribound.evaluate import evaluate
 NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
 OUTPUT_DIR = Path("outputs/new_mexico_timeseries")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_CRS = "EPSG:26913"  # Match NMOSE reference CRS (NAD83 / UTM zone 13N)
 
 YEARS = range(1985, 2026)
 SOURCE = "landsat"
@@ -144,6 +145,10 @@ def main():
                 engine_params={"sam_refine": SAM_REFINE},
             )
 
+            # Reproject to match NMOSE reference CRS
+            if gdf_ft.crs is not None and str(gdf_ft.crs) != OUTPUT_CRS:
+                gdf_ft = gdf_ft.to_crs(OUTPUT_CRS)
+                gdf_ft.to_file(finetune_output, driver="GPKG", layer="fields")
             print(f"\n  Fine-tuned model produced {len(gdf_ft)} fields for {finetune_year}")
 
             # Evaluate fine-tuned results against NMOSE
@@ -203,6 +208,10 @@ def main():
                 fine_tune=False,
                 engine_params=engine_params,
             )
+            # Reproject to match NMOSE reference CRS
+            if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
+                gdf = gdf.to_crs(OUTPUT_CRS)
+                gdf.to_file(output_path, driver="GPKG", layer="fields")
             all_results[year] = gdf
             print(f"  Delineated {len(gdf)} fields for {year}")
 

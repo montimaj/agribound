@@ -100,6 +100,8 @@ def write_vector(
             gdf = gdf.to_crs("EPSG:4326")
         gdf.to_file(path, driver="GeoJSON")
     elif format == "gpkg":
+        if path.exists():
+            path.unlink()  # Remove existing to avoid stale layers
         gdf.to_file(path, driver="GPKG", layer="fields")
     elif format == "shp":
         gdf.to_file(path, driver="ESRI Shapefile")

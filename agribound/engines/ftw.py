@@ -316,30 +316,33 @@ class FTWEngine(DelineationEngine):
         gpu = 0 if device == "cuda" else (-1 if device == "cpu" else None)
         mps_mode = device == "mps"
 
-        logger.info(
-            "Running FTW semantic segmentation (model=%s, mps=%s)",
-            model_name,
-            mps_mode,
-        )
-        ftw_run(
-            input=ftw_input,
-            model=model_name,
-            out=pred_path,
-            resize_factor=config.engine_params.get("resize_factor", 2),
-            gpu=gpu,
-            patch_size=config.engine_params.get("patch_size"),
-            batch_size=config.engine_params.get("batch_size", 2),
-            num_workers=config.n_workers,
-            padding=config.engine_params.get("padding"),
-            overwrite=True,
-            mps_mode=mps_mode,
-            save_scores=False,
-        )
-
-        if not Path(pred_path).exists():
-            raise RuntimeError(
-                f"FTW inference failed: prediction raster not created at {pred_path}"
+        if Path(pred_path).exists():
+            logger.info("Using cached FTW prediction: %s", pred_path)
+        else:
+            logger.info(
+                "Running FTW semantic segmentation (model=%s, mps=%s)",
+                model_name,
+                mps_mode,
             )
+            ftw_run(
+                input=ftw_input,
+                model=model_name,
+                out=pred_path,
+                resize_factor=config.engine_params.get("resize_factor", 2),
+                gpu=gpu,
+                patch_size=config.engine_params.get("patch_size"),
+                batch_size=config.engine_params.get("batch_size", 2),
+                num_workers=config.n_workers,
+                padding=config.engine_params.get("padding"),
+                overwrite=True,
+                mps_mode=mps_mode,
+                save_scores=False,
+            )
+
+            if not Path(pred_path).exists():
+                raise RuntimeError(
+                    f"FTW inference failed: prediction raster not created at {pred_path}"
+                )
 
         # Polygonize
         output_ext = config.get_output_extension()

@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 
 # SAM2 model variants (hosted on HuggingFace)
 SAM2_MODELS = {
-    "tiny": "facebook/sam2.1-hiera-tiny",
-    "small": "facebook/sam2.1-hiera-small",
-    "base_plus": "facebook/sam2.1-hiera-base-plus",
-    "large": "facebook/sam2.1-hiera-large",
+    "tiny": "facebook/sam2-hiera-tiny",
+    "small": "facebook/sam2-hiera-small",
+    "base_plus": "facebook/sam2-hiera-base-plus",
+    "large": "facebook/sam2-hiera-large",
 }
 
 
@@ -147,11 +147,21 @@ def refine_boundaries(
     sam.predictor.set_image(rgb_array)
 
     # Process in batches to avoid OOM
-    batch_size = config.engine_params.get("sam_batch_size", 32)
+    batch_size = config.engine_params.get("sam_batch_size", 100)
+    total_batches = (len(boxes_px) + batch_size - 1) // batch_size
     refined_geoms = []
 
     for batch_start in range(0, len(boxes_px), batch_size):
+        batch_idx = batch_start // batch_size + 1
         batch_boxes = boxes_px[batch_start : batch_start + batch_size]
+        logger.info(
+            "SAM2 batch %d/%d: refining %d fields (%d/%d done)",
+            batch_idx,
+            total_batches,
+            len(batch_boxes),
+            batch_start,
+            len(boxes_px),
+        )
         input_boxes = np.array(batch_boxes)
 
         masks, scores, _ = sam.predictor.predict(

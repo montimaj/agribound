@@ -8,6 +8,7 @@ field boundary instance segmentation.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import geopandas as gpd
 
@@ -127,19 +128,23 @@ class GeoAIEngine(DelineationEngine):
         delineator.min_object_area = config.engine_params.get("min_object_area", 1000)
         delineator.simplify_tolerance = config.simplify_tolerance
 
-        # Run delineation
+        # Run delineation (skip if cached output exists)
         cache_dir = config.get_working_dir()
         output_path = str(cache_dir / "geoai_output.geojson")
 
-        logger.info("Running GeoAI field delineation on %s", raster_path)
-        gdf = delineator.process_sentinel_raster(
-            raster_path=raster_path,
-            output_path=output_path,
-            batch_size=config.engine_params.get("batch_size", 4),
-            band_selection=band_selection,
-            use_ndvi=use_ndvi,
-            filter_edges=config.engine_params.get("filter_edges", True),
-        )
+        if Path(output_path).exists():
+            logger.info("Using cached GeoAI output: %s", output_path)
+            gdf = gpd.read_file(output_path)
+        else:
+            logger.info("Running GeoAI field delineation on %s", raster_path)
+            gdf = delineator.process_sentinel_raster(
+                raster_path=raster_path,
+                output_path=output_path,
+                batch_size=config.engine_params.get("batch_size", 4),
+                band_selection=band_selection,
+                use_ndvi=use_ndvi,
+                filter_edges=config.engine_params.get("filter_edges", True),
+            )
 
         if gdf is None or len(gdf) == 0:
             logger.warning("No field boundaries detected by GeoAI")

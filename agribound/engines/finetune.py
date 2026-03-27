@@ -67,7 +67,7 @@ def fine_tune(
     source = config.source
 
     # Check if engine supports fine-tuning, fallback if needed
-    supported_engines = {"ftw", "delineate-anything", "geoai", "prithvi"}
+    supported_engines = {"ftw", "delineate-anything", "geoai", "prithvi", "dinov3"}
     if engine not in supported_engines:
         fallback = _FINETUNE_FALLBACK.get(source, "ftw")
         logger.warning(
@@ -102,6 +102,8 @@ def fine_tune(
         return _finetune_geoai(train_dir, config)
     elif engine == "prithvi":
         return _finetune_prithvi(train_dir, config)
+    elif engine == "dinov3":
+        return _finetune_dinov3(train_dir, config)
     else:
         raise NotImplementedError(f"Fine-tuning not implemented for engine {engine!r}")
 
@@ -118,6 +120,8 @@ def _get_model_key(engine: str, config: AgriboundConfig) -> str:
         return f"DA-{model_size}"
     elif engine == "prithvi":
         return config.engine_params.get("model_name", "Prithvi-EO-2.0-300M-TL")
+    elif engine == "dinov3":
+        return config.engine_params.get("dinov3_model", "dinov3_vitl16")
     return engine
 
 
@@ -140,6 +144,12 @@ def _get_cached_checkpoint(engine: str, model_key: str, config: AgriboundConfig)
         return None
     elif engine == "prithvi":
         path = cache_dir / "checkpoints" / "prithvi" / f"{safe_key}.ckpt"
+    elif engine == "dinov3":
+        dinov3_dir = cache_dir / "checkpoints" / "dinov3"
+        if dinov3_dir.exists():
+            ckpt_files = sorted(dinov3_dir.glob("*.ckpt"), key=lambda p: p.stat().st_mtime)
+            return str(ckpt_files[-1]) if ckpt_files else None
+        return None
     else:
         return None
 
@@ -223,7 +233,7 @@ def _prepare_training_data(raster_path: str, config: AgriboundConfig, engine: st
     if config.source != "local" and config.source in SOURCE_REGISTRY:
         from agribound.engines.base import get_canonical_band_indices
 
-        if engine in ("delineate-anything", "geoai"):
+        if engine in ("delineate-anything", "geoai", "dinov3"):
             band_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
         elif engine in ("prithvi", "ftw"):
             band_indices = get_canonical_band_indices(config.source, ["R", "G", "B", "NIR"])
@@ -233,6 +243,8 @@ def _prepare_training_data(raster_path: str, config: AgriboundConfig, engine: st
         band_indices = None
 
     data, meta = read_raster(raster_path, bands=band_indices)
+    # Replace inf/nan with 0 to avoid NaN loss during training
+    data = np.where(np.isfinite(data), data, 0)
     bands, height, width = data.shape
 
     chip_idx = 0
@@ -608,6 +620,106 @@ def _finetune_prithvi(train_dir: Path, config: AgriboundConfig) -> str:
         logger.warning("Programmatic terratorch fine-tuning failed: %s", exc)
         logger.info("Use the saved config file to fine-tune manually")
         return str(config_path)
+
+
+def _finetune_dinov3(train_dir: Path, config: AgriboundConfig) -> str:
+    """Fine-tune DINOv3 + DPT segmentation head via geoai.
+
+    Parameters
+    ----------
+    train_dir : Path
+        Directory with prepared training data.
+    config : AgriboundConfig
+        Pipeline configuration.
+
+    Returns
+    -------
+    str
+        Path to the fine-tuned checkpoint.
+    """
+    try:
+        from geoai.dinov3_finetune import (
+            DINOv3SegmentationDataset,
+            train_dinov3_segmentation,
+        )
+    except ImportError:
+        raise ImportError(
+            "geoai-py is required for DINOv3 fine-tuning. "
+            "Install with: pip install agribound[geoai]"
+        ) from None
+
+    checkpoint_dir = config.get_working_dir() / "checkpoints" / "dinov3"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    model_name = config.engine_params.get("dinov3_model", "large")
+    # Resolve alias
+    model_name = {
+        "small": "dinov3_vits16",
+        "base": "dinov3_vitb16",
+        "large": "dinov3_vitl16",
+    }.get(model_name, model_name)
+
+    device = config.resolve_device()
+
+    # Collect image and mask paths
+    images_dir = train_dir / "images"
+    masks_dir = train_dir / "masks"
+    image_paths = sorted(str(p) for p in images_dir.glob("*.tif"))
+    mask_paths = sorted(str(p) for p in masks_dir.glob("*.tif"))
+
+    if not image_paths:
+        raise RuntimeError(f"No training images found in {images_dir}")
+
+    # Split into train/val
+    val_split = config.fine_tune_val_split
+    n_val = max(1, int(len(image_paths) * val_split))
+    train_imgs, val_imgs = image_paths[n_val:], image_paths[:n_val]
+    train_masks, val_masks = mask_paths[n_val:], mask_paths[:n_val]
+
+    train_dataset = DINOv3SegmentationDataset(
+        image_paths=train_imgs,
+        mask_paths=train_masks,
+        num_channels=3,
+    )
+    val_dataset = DINOv3SegmentationDataset(
+        image_paths=val_imgs,
+        mask_paths=val_masks,
+        num_channels=3,
+    )
+
+    logger.info(
+        "Fine-tuning DINOv3 %s for %d epochs (%d train, %d val)",
+        model_name,
+        config.fine_tune_epochs,
+        len(train_imgs),
+        len(val_imgs),
+    )
+
+    train_dinov3_segmentation(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
+        model_name=model_name,
+        num_classes=config.engine_params.get("num_classes", 3),
+        output_dir=str(checkpoint_dir),
+        batch_size=config.engine_params.get("batch_size", 4),
+        num_epochs=config.fine_tune_epochs,
+        learning_rate=config.engine_params.get("learning_rate", 1e-4),
+        freeze_backbone=config.engine_params.get("freeze_backbone", False),
+        use_lora=config.engine_params.get("use_lora", False),
+        lora_rank=config.engine_params.get("lora_rank", 4),
+        num_workers=config.n_workers,
+        accelerator="cpu" if device == "mps" else "auto",
+        devices="auto",
+    )
+
+    # Find the best checkpoint saved by the trainer
+    ckpt_files = sorted(checkpoint_dir.glob("**/*.ckpt"), key=lambda p: p.stat().st_mtime)
+    if not ckpt_files:
+        raise RuntimeError(f"DINOv3 fine-tuning produced no checkpoints in {checkpoint_dir}")
+
+    best_ckpt = str(ckpt_files[-1])
+    logger.info("DINOv3 fine-tuned checkpoint saved to %s", best_ckpt)
+    return best_ckpt
 
 
 def _prepare_yolo_dataset(train_dir: Path, output_dir: Path) -> Path:

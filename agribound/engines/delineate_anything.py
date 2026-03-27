@@ -208,9 +208,18 @@ class DelineateAnythingEngine(DelineationEngine):
         from agribound.engines.base import get_canonical_band_indices
         from agribound.io.raster import select_and_reorder_bands
 
+        if Path(output_path).exists() and Path(output_path).stat().st_size > 0:
+            logger.info("Using cached DA (FTW) output: %s", output_path)
+            gdf = gpd.read_file(output_path)
+            if len(gdf) > 0:
+                logger.info("Delineated %d field boundaries (FTW DA, cached)", len(gdf))
+                return gdf
+            logger.warning("Cached DA output is empty, re-running inference")
+
         rgb_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
         rgb_raster = str(cache_dir / "da_ftw_rgb_input.tif")
-        select_and_reorder_bands(raster_path, rgb_raster, rgb_indices)
+        if not Path(rgb_raster).exists():
+            select_and_reorder_bands(raster_path, rgb_raster, rgb_indices)
 
         logger.info(
             "Running Delineate-Anything via FTW (model=%s, mps=%s)",
@@ -325,6 +334,12 @@ class DelineateAnythingEngine(DelineationEngine):
         temp_dir = work_dir / "temp"
         temp_dir.mkdir(parents=True, exist_ok=True)
         output_path = work_dir / "output.gpkg"
+
+        if output_path.exists():
+            logger.info("Using cached DA standalone output: %s", output_path)
+            gdf = gpd.read_file(output_path)
+            logger.info("Delineated %d field boundaries (cached)", len(gdf))
+            return gdf
 
         da_config = _deep_update(
             _DEFAULT_CONFIG,
