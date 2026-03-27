@@ -65,6 +65,8 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 10 | `10_local_tif_quickstart.py` | User-provided | Local GeoTIFF | delineate-anything | ~2--5 min | Minimal 5-line quickstart using a local file. No GEE required. Edit `LOCAL_TIF` and `STUDY_AREA` paths before running. |
 | 11 | `11_mississippi_alluvial_plain_spot.py` | Mississippi Alluvial Plain, USA | SPOT 6/7 | delineate-anything | ~15--30 min | SPOT-based delineation of row-crop agriculture (2021--2023). Includes cross-year stability analysis using IoU/F1. **Restricted access** -- see note below. |
 | 12 | `12_new_mexico_ensemble_timeseries.py` | Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (ensemble) | ~3--6 h | Multi-source, multi-model ensemble (2020--2022) with per-model fine-tuning (DA, GeoAI, DINOv3, Prithvi). Grand ensemble boundaries refined by SAM2 after majority-vote merging. Best run on HPC/cloud with GPU. |
+| 13 | `13_sam2_refine_dinov3.py` | Lea County, NM, USA | Sentinel-2 | SAM2 refinement | ~5--15 min | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries (555 fields). Crops each field from the raster and refines with SAM2 box prompts. Compares before/after metrics against NMOSE reference. |
+| 14 | `14_dinov3_sam2_ensemble.py` | Lea County, NM, USA | Sentinel-2, Landsat, HLS, NAIP, SPOT | DINOv3 + SAM2 ensemble | ~1--2 h | Focused DINOv3-only ensemble across 5 satellite sources (2020--2022). Fine-tunes DINOv3 per source, merges via majority vote, then refines with SAM2. Demonstrates that a single strong architecture + multi-source diversity outperforms multi-model ensembles. |
 
 ## Notebooks
 
@@ -98,6 +100,17 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 ## SPOT Access
 
 Examples 08 and 11 use SPOT 6/7 imagery, which is restricted to select GEE users under a data-sharing agreement. This source is primarily for internal DRI use. If you receive an access error, contact the agribound author (sayantan.majumdar@dri.edu) to request field boundary processing for your study area.
+
+## Recommended Approach: DINOv3 + SAM2 (Example 14)
+
+Based on testing over Lea County, NM, the **DINOv3 + SAM2 multi-source ensemble** (example 14) produces the best results. Key findings:
+
+- **DINOv3 fine-tuned per source** produces cleaner field boundaries than other engines. The ViT backbone adapts well to each sensor's spectral characteristics with just 10--30 epochs of fine-tuning.
+- **FTW over-segments** in this region, picking up too many small polygons (roads, pivot edges, noise). FTW is designed for global generalization across 25 countries but tends to be aggressive in arid/irrigated landscapes like southeastern New Mexico.
+- **SAM2 boundary refinement** on the ensemble output produces pixel-accurate edges that closely match the NMOSE reference boundaries.
+- **Multi-source diversity** (Sentinel-2, Landsat, HLS, NAIP, SPOT) provides more meaningful ensemble diversity than running multiple model architectures on the same image.
+
+For new study areas with reference boundaries available for fine-tuning, we recommend starting with example 14 (DINOv3 + SAM2 ensemble) rather than the full multi-model ensemble (example 12).
 
 ## NMOSE Reference Data
 

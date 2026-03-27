@@ -70,8 +70,8 @@ def evaluate(
 
     # Ensure same CRS (equal-area for accurate IoU)
     ea_crs = get_equal_area_crs()
-    pred = predicted.to_crs(ea_crs).copy()
-    ref = reference.to_crs(ea_crs).copy()
+    pred = predicted.to_crs(ea_crs).copy().reset_index(drop=True)
+    ref = reference.to_crs(ea_crs).copy().reset_index(drop=True)
 
     # Build spatial index on predictions
     pred_sindex = pred.sindex

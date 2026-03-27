@@ -134,6 +134,9 @@ def _get_cached_checkpoint(engine: str, model_key: str, config: AgriboundConfig)
     if engine == "ftw":
         # FTW fine-tuning not supported — return sentinel to skip
         return "pretrained"
+    elif engine == "prithvi":
+        # Prithvi fine-tuning via terratorch not yet stable — skip
+        return "pretrained"
     elif engine == "delineate-anything":
         path = cache_dir / "checkpoints" / "yolo" / safe_key / "weights" / "best.pt"
     elif engine == "geoai":
@@ -145,7 +148,9 @@ def _get_cached_checkpoint(engine: str, model_key: str, config: AgriboundConfig)
     elif engine == "prithvi":
         path = cache_dir / "checkpoints" / "prithvi" / f"{safe_key}.ckpt"
     elif engine == "dinov3":
-        dinov3_dir = cache_dir / "checkpoints" / "dinov3"
+        # Isolate checkpoints per source so each sensor gets its own fine-tuning
+        source_tag = config.source.replace("-", "_")
+        dinov3_dir = cache_dir / "checkpoints" / "dinov3" / source_tag
         if dinov3_dir.exists():
             ckpt_files = sorted(dinov3_dir.glob("**/*.ckpt"), key=lambda p: p.stat().st_mtime)
             # Prefer best checkpoint over last.ckpt
@@ -652,7 +657,8 @@ def _finetune_dinov3(train_dir: Path, config: AgriboundConfig) -> str:
             "Install with: pip install agribound[geoai]"
         ) from None
 
-    checkpoint_dir = config.get_working_dir() / "checkpoints" / "dinov3"
+    source_tag = config.source.replace("-", "_")
+    checkpoint_dir = config.get_working_dir() / "checkpoints" / "dinov3" / source_tag
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     model_name = config.engine_params.get("dinov3_model", "large")

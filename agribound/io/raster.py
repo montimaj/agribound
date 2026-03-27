@@ -270,12 +270,19 @@ def select_and_reorder_bands(
     str
         Path to the output raster.
     """
+    import numpy as np
+
     data, meta = read_raster(src_path, bands=band_indices)
+    # Sanitize nodata: replace inf/nan in data and use 0 if nodata is non-finite
+    nodata = meta.get("nodata")
+    if nodata is not None and not np.isfinite(nodata):
+        data = np.where(np.isfinite(data), data, 0)
+        nodata = 0
     return write_raster(
         dst_path,
         data,
         crs=meta["crs"],
         transform=meta["transform"],
-        nodata=meta.get("nodata"),
+        nodata=nodata,
         dtype=meta.get("dtype"),
     )
