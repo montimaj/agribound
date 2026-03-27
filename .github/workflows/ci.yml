@@ -56,13 +56,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+          df -h
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install all dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[all,dev]
+          pip install .[delineate-anything,ftw,geoai,dev]
       - name: Run integration tests
         run: pytest tests/integration -m "not gee and not gpu" --tb=short -q
 
