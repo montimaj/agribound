@@ -243,8 +243,7 @@ class DelineateAnythingEngine(DelineationEngine):
 
         if not Path(output_path).exists():
             raise RuntimeError(
-                "FTW instance segmentation failed: no output produced at "
-                f"{output_path}"
+                f"FTW instance segmentation failed: no output produced at {output_path}"
             )
 
         gdf = gpd.read_file(output_path)
@@ -390,8 +389,7 @@ class DelineateAnythingEngine(DelineationEngine):
         # Read output
         if not output_path.exists():
             raise RuntimeError(
-                "Delineate-Anything inference failed: no output produced at "
-                f"{output_path}"
+                f"Delineate-Anything inference failed: no output produced at {output_path}"
             )
 
         gdf = gpd.read_file(output_path)

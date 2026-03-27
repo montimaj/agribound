@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ------------------------------------------------------------------
 
+
 def _to_metric(gdf: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFrame, object]:
     """Reproject to a metric CRS if needed; return (projected_gdf, original_crs)."""
     original_crs = gdf.crs
@@ -82,6 +83,7 @@ def _smooth_polygon(geom: Polygon, iterations: int) -> Polygon:
 # ------------------------------------------------------------------
 # Public API
 # ------------------------------------------------------------------
+
 
 def smooth_polygons(
     gdf: gpd.GeoDataFrame,

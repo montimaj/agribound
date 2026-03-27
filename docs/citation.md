@@ -8,28 +8,6 @@ If you use agribound in your research, please cite:
 
 > Majumdar, S., Huntington, J., ReVelle, P., Nozari, S., Smith, R., Bromley, M., Atkin, J., & Roy, S. (2025). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data* [Software]. Zenodo. https://doi.org/10.5281/zenodo.19229666
 
-**BibTeX:**
-
-```bibtex
-@software{agribound2025,
-  author       = {Majumdar, Sayantan and
-                  Huntington, Justin and
-                  ReVelle, Peter and
-                  Nozari, Soheil and
-                  Smith, Ryan and
-                  Bromley, Matt and
-                  Atkin, Jayden and
-                  Roy, Samapriya},
-  title        = {Agribound: Unified agricultural field boundary delineation
-                  combining satellite foundation models, embeddings, and
-                  global training data},
-  year         = {2025},
-  doi          = {10.5281/zenodo.19229666},
-  url          = {https://doi.org/10.5281/zenodo.19229666},
-  license      = {Apache-2.0}
-}
-```
-
 ## References
 
 Please also cite the underlying engines and models as appropriate:

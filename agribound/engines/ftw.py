@@ -357,9 +357,7 @@ class FTWEngine(DelineationEngine):
         )
 
         if not Path(poly_path).exists():
-            raise RuntimeError(
-                f"FTW polygonization failed: output not created at {poly_path}"
-            )
+            raise RuntimeError(f"FTW polygonization failed: output not created at {poly_path}")
 
         # Read result
         gdf = gpd.read_file(poly_path)
