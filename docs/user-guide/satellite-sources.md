@@ -4,31 +4,33 @@ Agribound supports multiple satellite imagery sources for building annual compos
 
 ## Source Overview
 
-| Source | Name | Resolution | Coverage | GEE Collection | Requires GEE |
+All spectral bands are downloaded for each sensor. Engines automatically extract and reorder the bands they need via canonical band mappings (e.g., FTW expects R, G, B, NIR as bands 1--4 matching its `B04, B03, B02, B08` training order, so agribound extracts those from the full composite before passing to FTW).
+
+| Source | Key | Resolution | Bands Downloaded | GEE Collection | Notes |
 |---|---|---|---|---|---|
-| `landsat` | Landsat 8/9 | 30 m | Global, 1985--present | `LANDSAT/LC08/C02/T1_L2` + `LANDSAT/LC09/C02/T1_L2` | Yes |
-| `sentinel2` | Sentinel-2 L2A | 10 m | Global, 2017--present | `COPERNICUS/S2_SR_HARMONIZED` | Yes |
-| `hls` | Harmonized Landsat-Sentinel | 30 m | Global, 2013--present | `NASA/HLS/HLSL30/v002` + `NASA/HLS/HLSS30/v002` | Yes |
-| `naip` | NAIP | 1 m | Continental US, ~2-3 year cycle | `USDA/NAIP/DOQQ` | Yes |
-| `spot` | SPOT 6/7 | 6 m | Global (restricted), 2012--2023 | `AIRBUS/SPOT6_7` | Yes |
-| `local` | Local GeoTIFF | Varies | User-provided | N/A | No |
-| `google-embedding` | Google Satellite Embedding V1 | 10 m | Global, 2017--2025 | `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | No |
-| `tessera-embedding` | TESSERA Embeddings | 10 m | Global, 2017--2024 | N/A | No |
+| Sentinel-2 | `sentinel2` | 10 m | B1--B12, B8A (12 bands) | `COPERNICUS/S2_SR_HARMONIZED` | Default source; L2A surface reflectance |
+| Landsat | `landsat` | 30 m | SR_B2--SR_B7 (6 bands) | `LANDSAT/LC08/C02/T1_L2`, `LANDSAT/LC09/C02/T1_L2` | Long time-series; L5/7 bands harmonized to L8/9 naming |
+| HLS | `hls` | 30 m | B1--B7 (7 bands) | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
+| NAIP | `naip` | 1 m | R, G, B, N (4 bands) | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields |
+| SPOT 6/7 | `spot` | 1.5 m | R, G, B (3 bands) | Restricted -- see below | Restricted GEE collection |
+| Local GeoTIFF | `local` | Any | All bands | N/A | Bring your own imagery via `--local-tif` |
+| Google Embeddings | `google-embedding` | 10 m | 64-D embeddings | `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Pre-computed satellite embeddings |
+| TESSERA Embeddings | `tessera-embedding` | 10 m | 128-D embeddings | N/A | TESSERA foundation model embeddings |
 
 !!! note "SPOT Access"
     SPOT 6/7 imagery (`AIRBUS/SPOT6_7`) is restricted to select GEE users and is for internal DRI use only. External users who need SPOT-based field boundaries should contact the package author.
 
-## Downloaded Bands
+## Canonical Band Mappings
 
-All spectral bands are downloaded for each source. Engines automatically select the bands they need using the canonical band mapping.
+Each engine extracts the bands it needs from the full composite using these canonical mappings:
 
-| Source | All Bands | Canonical R | Canonical G | Canonical B | Canonical NIR |
-|---|---|---|---|---|---|
-| `landsat` | SR_B2, SR_B3, SR_B4, SR_B5, SR_B6, SR_B7 | SR_B4 | SR_B3 | SR_B2 | SR_B5 |
-| `sentinel2` | B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12 | B4 | B3 | B2 | B8 |
-| `hls` | B1, B2, B3, B4, B5, B6, B7 | B4 | B3 | B2 | B5 |
-| `naip` | R, G, B, N | R | G | B | N |
-| `spot` | R, G, B | R | G | B | -- |
+| Source | Canonical R | Canonical G | Canonical B | Canonical NIR |
+|---|---|---|---|---|
+| `landsat` | SR_B4 | SR_B3 | SR_B2 | SR_B5 |
+| `sentinel2` | B4 | B3 | B2 | B8 |
+| `hls` | B4 | B3 | B2 | B5 |
+| `naip` | R | G | B | N |
+| `spot` | R | G | B | -- |
 
 For `local` sources, band mapping can be overridden via the `bands` configuration parameter.
 
