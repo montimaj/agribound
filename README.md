@@ -296,7 +296,7 @@ If you are interested in having SPOT-based field boundaries processed for your s
 
 If you use agribound in your research, please cite:
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Bromley, M., Atkin, J., & Roy, S. (2025). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data* [Software]. Zenodo. https://doi.org/10.5281/zenodo.19229666
+> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Bromley, M., Atkin, J., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data* [Software]. Zenodo. https://doi.org/10.5281/zenodo.19229666
 
 
 Please also cite the underlying engines and models as appropriate:
