@@ -100,9 +100,7 @@ def fine_tune(
     elif engine == "prithvi":
         return _finetune_prithvi(train_dir, config)
     else:
-        raise NotImplementedError(
-            f"Fine-tuning not implemented for engine {engine!r}"
-        )
+        raise NotImplementedError(f"Fine-tuning not implemented for engine {engine!r}")
 
 
 def _get_model_key(engine: str, config: AgriboundConfig) -> str:
@@ -116,15 +114,11 @@ def _get_model_key(engine: str, config: AgriboundConfig) -> str:
             return da_model
         return f"DA-{model_size}"
     elif engine == "prithvi":
-        return config.engine_params.get(
-            "model_name", "Prithvi-EO-2.0-300M-TL"
-        )
+        return config.engine_params.get("model_name", "Prithvi-EO-2.0-300M-TL")
     return engine
 
 
-def _get_cached_checkpoint(
-    engine: str, model_key: str, config: AgriboundConfig
-) -> str | None:
+def _get_cached_checkpoint(engine: str, model_key: str, config: AgriboundConfig) -> str | None:
     """Return the path to a cached fine-tuned checkpoint, or None."""
     cache_dir = config.get_working_dir()
     # Sanitize model_key for filesystem
@@ -133,10 +127,7 @@ def _get_cached_checkpoint(
     if engine == "ftw":
         path = cache_dir / "checkpoints" / "ftw" / f"{safe_key}.ckpt"
     elif engine == "delineate-anything":
-        path = (
-            cache_dir / "checkpoints" / "yolo" / safe_key
-            / "weights" / "best.pt"
-        )
+        path = cache_dir / "checkpoints" / "yolo" / safe_key / "weights" / "best.pt"
     elif engine == "geoai":
         geoai_dir = cache_dir / "checkpoints" / "geoai"
         if geoai_dir.exists():
@@ -144,18 +135,14 @@ def _get_cached_checkpoint(
             return str(pth_files[0]) if pth_files else None
         return None
     elif engine == "prithvi":
-        path = (
-            cache_dir / "checkpoints" / "prithvi" / f"{safe_key}.ckpt"
-        )
+        path = cache_dir / "checkpoints" / "prithvi" / f"{safe_key}.ckpt"
     else:
         return None
 
     return str(path) if path.exists() else None
 
 
-def _prepare_training_data(
-    raster_path: str, config: AgriboundConfig, engine: str
-) -> Path:
+def _prepare_training_data(raster_path: str, config: AgriboundConfig, engine: str) -> Path:
     """Prepare training chips from raster + reference boundaries.
 
     Rasterizes polygons to segmentation masks, chips into patches,
@@ -235,9 +222,7 @@ def _prepare_training_data(
         if engine in ("delineate-anything", "geoai"):
             band_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
         elif engine in ("prithvi", "ftw"):
-            band_indices = get_canonical_band_indices(
-                config.source, ["R", "G", "B", "NIR"]
-            )
+            band_indices = get_canonical_band_indices(config.source, ["R", "G", "B", "NIR"])
         else:
             band_indices = None
     else:
@@ -303,9 +288,7 @@ def _prepare_training_data(
     return train_dir
 
 
-def _finetune_ftw(
-    train_dir: Path, config: AgriboundConfig, model_key: str
-) -> str:
+def _finetune_ftw(train_dir: Path, config: AgriboundConfig, model_key: str) -> str:
     """Fine-tune using FTW's PyTorch Lightning pipeline.
 
     Parameters
@@ -341,7 +324,8 @@ def _finetune_ftw(
 
     logger.info(
         "Fine-tuning FTW model %s for %d epochs",
-        base_model, config.fine_tune_epochs,
+        base_model,
+        config.fine_tune_epochs,
     )
 
     # Create datamodule from chipped data
@@ -374,9 +358,7 @@ def _finetune_ftw(
     return ckpt_path
 
 
-def _finetune_yolo(
-    train_dir: Path, config: AgriboundConfig, model_key: str
-) -> str:
+def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> str:
     """Fine-tune using Ultralytics YOLO.
 
     Parameters
@@ -412,9 +394,7 @@ def _finetune_yolo(
         "small": "DelineateAnything-S.pt",
     }.get(model_size, "DelineateAnything.pt")
 
-    model_path = hf_hub_download(
-        repo_id="MykolaL/DelineateAnything", filename=filename
-    )
+    model_path = hf_hub_download(repo_id="MykolaL/DelineateAnything", filename=filename)
 
     model = YOLO(model_path)
 
@@ -427,7 +407,8 @@ def _finetune_yolo(
 
     logger.info(
         "Fine-tuning YOLO (%s) for %d epochs",
-        model_key, config.fine_tune_epochs,
+        model_key,
+        config.fine_tune_epochs,
     )
     model.train(
         data=str(data_yaml),
@@ -438,9 +419,7 @@ def _finetune_yolo(
         device=config.resolve_device(),
     )
 
-    best_path = str(
-        checkpoint_dir / safe_key / "weights" / "best.pt"
-    )
+    best_path = str(checkpoint_dir / safe_key / "weights" / "best.pt")
     logger.info("YOLO fine-tuned weights saved to %s", best_path)
     return best_path
 

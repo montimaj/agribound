@@ -63,9 +63,7 @@ class EnsembleEngine(DelineationEngine):
         geopandas.GeoDataFrame
             Merged field boundary polygons.
         """
-        engine_specs = config.engine_params.get(
-            "engines", ["delineate-anything", "ftw"]
-        )
+        engine_specs = config.engine_params.get("engines", ["delineate-anything", "ftw"])
         merge_strategy = config.engine_params.get("merge_strategy", "intersection")
         vote_threshold = config.engine_params.get("vote_threshold", 0.5)
 
@@ -257,9 +255,7 @@ class EnsembleEngine(DelineationEngine):
         return gdf
 
 
-def _override_config(
-    config: AgriboundConfig, overrides: dict
-) -> AgriboundConfig:
+def _override_config(config: AgriboundConfig, overrides: dict) -> AgriboundConfig:
     """Create a copy of *config* with overridden engine_params.
 
     Parameters

@@ -605,9 +605,7 @@ class GEECompositeBuilder(CompositeBuilder):
             # NAIP: use mosaic (most recent on top)
             composite = collection.mosaic()
         else:
-            composite = _apply_composite_method(
-                collection, config.composite_method, config.source
-            )
+            composite = _apply_composite_method(collection, config.composite_method, config.source)
 
         # Clip to study area
         composite = composite.clip(geometry)

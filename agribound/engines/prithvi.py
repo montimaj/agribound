@@ -178,9 +178,7 @@ class PrithviEngine(DelineationEngine):
         from agribound.io.raster import read_raster
 
         if config.source != "local":
-            rgbn_indices = get_canonical_band_indices(
-                config.source, ["R", "G", "B", "NIR"]
-            )
+            rgbn_indices = get_canonical_band_indices(config.source, ["R", "G", "B", "NIR"])
         else:
             rgbn_indices = [1, 2, 3, 4]
 
@@ -320,9 +318,7 @@ class PrithviEngine(DelineationEngine):
                 km = KMeans(n_clusters=k, n_init=3, random_state=42)
                 labels = km.fit_predict(sample)
                 if len(np.unique(labels)) > 1:
-                    score = silhouette_score(
-                        sample, labels, sample_size=min(5000, len(sample))
-                    )
+                    score = silhouette_score(sample, labels, sample_size=min(5000, len(sample)))
                     if score > best_score:
                         best_score = score
                         best_k = k

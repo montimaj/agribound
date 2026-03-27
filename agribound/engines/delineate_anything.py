@@ -168,9 +168,7 @@ class DelineateAnythingEngine(DelineationEngine):
     # Sentinel-2 path: delegate to FTW's instance segmentation
     # ------------------------------------------------------------------
 
-    def _delineate_via_ftw(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def _delineate_via_ftw(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Run DA through FTW's instance segmentation for Sentinel-2.
 
         FTW wraps DelineateAnything with proper S2 preprocessing (/ 3000
@@ -239,9 +237,7 @@ class DelineateAnythingEngine(DelineationEngine):
             max_size=config.engine_params.get("max_size"),
             close_interiors=config.engine_params.get("close_interiors", True),
             overlap_iou_threshold=config.engine_params.get("overlap_iou_threshold", 0.3),
-            overlap_contain_threshold=config.engine_params.get(
-                "overlap_contain_threshold", 0.8
-            ),
+            overlap_contain_threshold=config.engine_params.get("overlap_contain_threshold", 0.8),
         )
 
         if Path(output_path).exists():
@@ -256,9 +252,7 @@ class DelineateAnythingEngine(DelineationEngine):
     # Non-S2 path: standalone Delineate-Anything
     # ------------------------------------------------------------------
 
-    def _delineate_standalone(
-        self, raster_path: str, config: AgriboundConfig
-    ) -> gpd.GeoDataFrame:
+    def _delineate_standalone(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
         """Run standalone Delineate-Anything for non-Sentinel-2 sensors.
 
         Uses the Delineate-Anything repository directly with sensor-agnostic

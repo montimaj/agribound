@@ -21,6 +21,7 @@ from agribound.engines.base import DelineationEngine
 
 logger = logging.getLogger(__name__)
 
+
 def list_ftw_models(include_legacy: bool = False) -> dict[str, dict]:
     """List all available FTW models from the model registry.
 
@@ -46,8 +47,7 @@ def list_ftw_models(include_legacy: bool = False) -> dict[str, dict]:
         from ftw_tools.inference.model_registry import MODEL_REGISTRY
     except ImportError:
         raise ImportError(
-            "ftw-tools is required to list FTW models. "
-            "Install with: pip install agribound[ftw]"
+            "ftw-tools is required to list FTW models. Install with: pip install agribound[ftw]"
         ) from None
 
     models = {}
@@ -115,8 +115,7 @@ class FTWEngine(DelineationEngine):
             from ftw_tools.inference.polygonize import polygonize as ftw_polygonize
         except ImportError:
             raise ImportError(
-                "ftw-tools is required for the FTW engine. "
-                "Install with: pip install agribound[ftw]"
+                "ftw-tools is required for the FTW engine. Install with: pip install agribound[ftw]"
             ) from None
 
         self.validate_input(raster_path, config)
@@ -140,9 +139,7 @@ class FTWEngine(DelineationEngine):
             from agribound.engines.base import get_canonical_band_indices
             from agribound.io.raster import select_and_reorder_bands
 
-            rgbn_indices = get_canonical_band_indices(
-                config.source, ["R", "G", "B", "NIR"]
-            )
+            rgbn_indices = get_canonical_band_indices(config.source, ["R", "G", "B", "NIR"])
             ftw_input = str(cache_dir / "ftw_rgbn_input.tif")
             select_and_reorder_bands(raster_path, ftw_input, rgbn_indices)
         else:

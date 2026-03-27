@@ -91,7 +91,7 @@ FTW_MODELS = [
 # Delineate-Anything model variants (instance segmentation).
 # When "delineate-anything" appears in SOURCE_ENGINE_MAP, both are run.
 DA_MODELS = [
-    "DelineateAnything",    # Full model (more accurate, slower)
+    "DelineateAnything",  # Full model (more accurate, slower)
     "DelineateAnything-S",  # Small model (faster, less accurate)
 ]
 
@@ -157,9 +157,7 @@ def create_county_study_area(shapefile_path, county_code):
     return str(out_path), county_gdf, str(ref_path)
 
 
-def run_delineation(
-    source, engine, year, study_area, gee_project, model=None, ref_path=None
-):
+def run_delineation(source, engine, year, study_area, gee_project, model=None, ref_path=None):
     """Run a single source–engine delineation, returning (GeoDataFrame, path).
 
     Parameters
@@ -281,8 +279,13 @@ def main():
                         tag = f"{source}/ftw/{ftw_model}"
                         print(f"  {tag}: starting...", flush=True)
                         gdf, _ = run_delineation(
-                            source, engine, year, study_area, gee_project,
-                            model=ftw_model, ref_path=ref_path,
+                            source,
+                            engine,
+                            year,
+                            study_area,
+                            gee_project,
+                            model=ftw_model,
+                            ref_path=ref_path,
                         )
                         all_results[year][tag] = gdf
                         print(f"  {tag}: {len(gdf)} fields")
@@ -292,8 +295,13 @@ def main():
                         tag = f"{source}/da/{da_model}"
                         print(f"  {tag}: starting...", flush=True)
                         gdf, _ = run_delineation(
-                            source, engine, year, study_area, gee_project,
-                            model=da_model, ref_path=ref_path,
+                            source,
+                            engine,
+                            year,
+                            study_area,
+                            gee_project,
+                            model=da_model,
+                            ref_path=ref_path,
                         )
                         all_results[year][tag] = gdf
                         print(f"  {tag}: {len(gdf)} fields")
@@ -301,7 +309,11 @@ def main():
                     tag = f"{source}/{engine}"
                     print(f"  {tag}: starting...", flush=True)
                     gdf, _ = run_delineation(
-                        source, engine, year, study_area, gee_project,
+                        source,
+                        engine,
+                        year,
+                        study_area,
+                        gee_project,
                         ref_path=ref_path,
                     )
                     all_results[year][tag] = gdf
