@@ -280,6 +280,12 @@ def main():
                 except Exception as exc:
                     print(f"  {year}: SAM2 failed: {exc}")
 
+            # Smooth and simplify final boundaries
+            from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
+
+            gdf = smooth_polygons(gdf, iterations=3)
+            gdf = simplify_polygons(gdf, tolerance=2.0)
+
             # Reproject and save
             if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
                 gdf = gdf.to_crs(OUTPUT_CRS)

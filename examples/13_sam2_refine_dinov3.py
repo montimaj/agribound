@@ -36,7 +36,7 @@ logging.getLogger("agribound").setLevel(logging.INFO)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/lea_county_ensemble")
-INPUT_GPKG = OUTPUT_DIR / "fields_presam_sentinel2_dinov3_2020.gpkg"
+INPUT_GPKG = OUTPUT_DIR / "fields_sentinel2_dinov3_2020.gpkg"
 RASTER_PATH = OUTPUT_DIR / ".agribound_cache" / "sentinel2_2020_composite.tif"
 OUTPUT_GPKG = OUTPUT_DIR / "fields_sam2_sentinel2_dinov3_2020.gpkg"
 OUTPUT_CRS = "EPSG:26913"  # Match NMOSE reference CRS (NAD83 / UTM zone 13N)
@@ -108,6 +108,13 @@ def main():
     refined = refined[refined.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
     refined = refined.reset_index(drop=True)
     print(f"{len(gdf) - len(refined)} fields removed due to invalid geometry")
+
+    # Smooth and simplify final boundaries
+    from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
+
+    refined = smooth_polygons(refined, iterations=3)
+    refined = simplify_polygons(refined, tolerance=2.0)
+    print(f"Smoothed and simplified to {len(refined)} fields")
 
     # Reproject to match NMOSE reference CRS
     if refined.crs is not None and str(refined.crs) != OUTPUT_CRS:
