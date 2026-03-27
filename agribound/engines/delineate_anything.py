@@ -182,8 +182,9 @@ class DelineateAnythingEngine(DelineationEngine):
             from ftw_tools.inference.inference import run_instance_segmentation
         except ImportError:
             raise ImportError(
-                "ftw-tools is required for Sentinel-2 instance segmentation. "
-                "Install with: pip install agribound[ftw]"
+                "ftw-tools dev version is required for Sentinel-2 instance "
+                "segmentation. Install from the ftw-baselines repo:\n"
+                "  pip install -e path/to/ftw-baselines"
             ) from None
 
         da_model = config.engine_params.get("da_model", "DelineateAnything")

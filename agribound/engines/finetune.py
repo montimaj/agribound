@@ -307,8 +307,13 @@ def _finetune_ftw(train_dir: Path, config: AgriboundConfig, model_key: str) -> s
     """
     try:
         import lightning
-        from ftw_tools.training.datamodules import FTWDataModule
-        from ftw_tools.training.trainers import CustomSemanticSegmentationTask
+
+        try:
+            from ftw_tools.training.datamodules import FTWDataModule
+            from ftw_tools.training.trainers import CustomSemanticSegmentationTask
+        except ImportError:
+            from ftw.datamodules import FTWDataModule
+            from ftw.trainers import CustomSemanticSegmentationTask
     except ImportError:
         raise ImportError(
             "ftw-tools and lightning are required for FTW fine-tuning. "

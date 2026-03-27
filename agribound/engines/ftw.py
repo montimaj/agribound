@@ -44,7 +44,10 @@ def list_ftw_models(include_legacy: bool = False) -> dict[str, dict]:
     ...     print(f"{name}: {info['title']}")
     """
     try:
-        from ftw_tools.inference.model_registry import MODEL_REGISTRY
+        try:
+            from ftw_tools.inference.model_registry import MODEL_REGISTRY
+        except ImportError:
+            from ftw_cli.model import MODEL_REGISTRY
     except ImportError:
         raise ImportError(
             "ftw-tools is required to list FTW models. Install with: pip install agribound[ftw]"
@@ -111,8 +114,12 @@ class FTWEngine(DelineationEngine):
             Field boundary polygons.
         """
         try:
-            from ftw_tools.inference.inference import run as ftw_run
-            from ftw_tools.inference.polygonize import polygonize as ftw_polygonize
+            try:
+                from ftw_tools.inference.inference import run as ftw_run
+                from ftw_tools.postprocess.polygonize import polygonize as ftw_polygonize
+            except ImportError:
+                from ftw_cli.inference import run as ftw_run
+                from ftw_cli.polygonize import polygonize as ftw_polygonize
         except ImportError:
             raise ImportError(
                 "ftw-tools is required for the FTW engine. Install with: pip install agribound[ftw]"

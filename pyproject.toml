@@ -76,7 +76,10 @@ ftw = [
     "torchgeo>=0.6",
     "segmentation-models-pytorch>=0.3",
     "lightning>=2.1",
-    "ftw-tools @ git+https://github.com/fieldsoftheworld/ftw-baselines.git",
+    # PyPI ftw-tools (v1.x) provides semantic segmentation only.
+    # For instance segmentation (Delineate-Anything via FTW), install the
+    # dev version: pip install -e path/to/ftw-baselines
+    "ftw-tools>=1.4",
 ]
 geoai = [
     "geoai-py>=0.30",
