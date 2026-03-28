@@ -7,6 +7,7 @@ without requiring GEE authentication (which is tested in integration tests).
 from __future__ import annotations
 
 import geopandas as gpd
+import pytest
 from shapely.geometry import box
 
 from agribound.config import AgriboundConfig
@@ -18,17 +19,14 @@ class TestLulcDatasetSelection:
     def _make_config(self, year: int, **kwargs) -> AgriboundConfig:
         return AgriboundConfig(
             study_area="test.geojson",
+            source="local",
+            local_tif_path="test.tif",
             year=year,
             output_path="test.gpkg",
             lulc_filter=True,
             lulc_crop_threshold=0.3,
             **kwargs,
         )
-
-    def _make_gdf(self, lon: float, lat: float) -> gpd.GeoDataFrame:
-        """Create a single-polygon GeoDataFrame at given lon/lat."""
-        poly = box(lon - 0.1, lat - 0.1, lon + 0.1, lat + 0.1)
-        return gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
 
     def test_conus_detection(self):
         """Study area in CONUS should be detected correctly."""
@@ -55,6 +53,8 @@ class TestLulcDatasetSelection:
         """Default config should have LULC filter enabled."""
         config = AgriboundConfig(
             study_area="test.geojson",
+            source="local",
+            local_tif_path="test.tif",
             output_path="test.gpkg",
         )
         assert config.lulc_filter is True
@@ -64,6 +64,8 @@ class TestLulcDatasetSelection:
         """LULC filter can be disabled."""
         config = AgriboundConfig(
             study_area="test.geojson",
+            source="local",
+            local_tif_path="test.tif",
             output_path="test.gpkg",
             lulc_filter=False,
         )
@@ -73,6 +75,8 @@ class TestLulcDatasetSelection:
         """Custom threshold is preserved."""
         config = AgriboundConfig(
             study_area="test.geojson",
+            source="local",
+            local_tif_path="test.tif",
             output_path="test.gpkg",
             lulc_crop_threshold=0.5,
         )
@@ -101,13 +105,12 @@ class TestLulcDatasetSelection:
 class TestGdfToFc:
     """Test the GeoDataFrame to FeatureCollection converter."""
 
+    @pytest.mark.gee
     def test_indices_are_sequential(self):
         """Feature indices should be 0-based and sequential."""
         try:
             import ee  # noqa: F401
         except ImportError:
-            import pytest
-
             pytest.skip("earthengine-api not installed")
 
         from agribound.postprocess.lulc_filter import _gdf_to_fc
@@ -115,7 +118,6 @@ class TestGdfToFc:
         polys = [box(i, i, i + 1, i + 1) for i in range(5)]
         gdf = gpd.GeoDataFrame(geometry=polys, crs="EPSG:4326")
 
-        # This will fail if ee is not initialized, but tests the logic
         try:
             fc = _gdf_to_fc(gdf)
             info = fc.getInfo()
