@@ -2,7 +2,8 @@
 14 — DINOv3 + SAM2 Multi-Source Ensemble (Lea County, NM)
 
 Focused ensemble using only DINOv3 (fine-tuned) across multiple satellite
-sources, with SAM2 boundary refinement on the final ensemble output.
+sources, with per-source SAM2 boundary refinement using each sensor's
+native raster.
 
 DINOv3's powerful ViT backbone adapts well to each sensor's characteristics
 via fine-tuning, and SAM2 produces pixel-accurate boundaries.  Running the
@@ -14,11 +15,11 @@ Pipeline per source:
     1. Download composite from GEE
     2. Fine-tune DINOv3 on NMOSE reference boundaries
     3. Run DINOv3 inference → field polygons
-    4. (Repeat for each source)
+    4. SAM2 boundary refinement (per-source, using native raster)
+    5. (Repeat for each source)
 
 Then:
-    5. Grand ensemble: majority-vote merge across all sources
-    6. SAM2 boundary refinement on the ensemble output
+    6. Grand ensemble: majority-vote merge across all sources
     7. Evaluate against NMOSE reference
 
 Estimated runtime: ~1–2 hours (5 sources × fine-tuning + inference, GPU
@@ -66,7 +67,7 @@ BATCH_SIZE = 8
 YEARS = [2020, 2021, 2022]
 VOTE_THRESHOLD = 0.3  # Fraction of sources that must agree
 
-# SAM2 refinement on ensemble output
+# SAM2 refinement per source (each source refined against its own raster)
 SAM_REFINE = True
 SAM_MODEL = "large"  # Per-field cropping makes large model feasible
 SAM_BATCH_SIZE = 100  # Log interval
@@ -126,7 +127,7 @@ def create_study_area(shapefile_path, county_code, output_dir):
 
 
 def run_dinov3(source, year, study_area, gee_project, ref_path):
-    """Run DINOv3 fine-tuning + inference for a single source/year."""
+    """Run DINOv3 fine-tuning + inference + SAM2 refinement for a single source/year."""
     output_path = OUTPUT_DIR / f"fields_dinov3_{source}_{year}.gpkg"
 
     if output_path.exists():
@@ -164,8 +165,46 @@ def run_dinov3(source, year, study_area, gee_project, ref_path):
     # Reproject to match NMOSE reference CRS
     if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
         gdf = gdf.to_crs(OUTPUT_CRS)
-        gdf.to_file(output_path, driver="GPKG", layer="fields")
 
+    # Save pre-SAM result
+    pre_sam_path = OUTPUT_DIR / f"fields_dinov3_{source}_{year}_pre_sam.gpkg"
+    gdf.to_file(pre_sam_path, driver="GPKG", layer="fields")
+
+    # SAM2 refinement using this source's own raster
+    if SAM_REFINE:
+        try:
+            from agribound.config import AgriboundConfig
+            from agribound.engines.samgeo_engine import refine_boundaries
+
+            raster_cache = OUTPUT_DIR / ".agribound_cache"
+            raster_candidates = sorted(raster_cache.glob(f"*{source}*{year}*.tif"))
+            if raster_candidates:
+                print(f"    SAM2 refining {len(gdf)} fields with {source} raster...")
+                sam_config = AgriboundConfig(
+                    source=source,
+                    engine="dinov3",
+                    year=year,
+                    study_area=study_area,
+                    output_path=str(output_path),
+                    engine_params={
+                        "sam_model": SAM_MODEL,
+                        "sam_batch_size": SAM_BATCH_SIZE,
+                    },
+                    device="auto",
+                )
+                gdf = refine_boundaries(gdf, str(raster_candidates[0]), sam_config)
+
+                from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
+
+                gdf = smooth_polygons(gdf, iterations=3)
+                gdf = simplify_polygons(gdf, tolerance=2.0)
+                print(f"    SAM2 refined → {len(gdf)} fields")
+            else:
+                print(f"    No raster found for SAM2 ({source}), skipping")
+        except Exception as exc:
+            print(f"    SAM2 failed for {source}: {exc}")
+
+    gdf.to_file(output_path, driver="GPKG", layer="fields")
     return gdf, output_path
 
 
@@ -219,7 +258,7 @@ def main():
     # Phase 2: Grand ensemble + SAM2 refinement
     # ================================================================
     print(f"\n{'=' * 70}")
-    print(f"Phase 2: Grand ensemble (vote threshold={VOTE_THRESHOLD}) + SAM2")
+    print(f"Phase 2: Grand ensemble (vote threshold={VOTE_THRESHOLD})")
     print(f"{'=' * 70}")
 
     from agribound.engines.ensemble import EnsembleEngine
@@ -249,59 +288,7 @@ def main():
             gdf = filter_polygons(gdf, min_area_m2=2500)
             print(f"{len(gdf)} fields")
 
-            # Save pre-SAM ensemble for debugging
-            pre_sam_path = OUTPUT_DIR / f"fields_ensemble_dinov3_{year}_pre_sam.gpkg"
-            pre_sam_gdf = gdf.copy()
-            if pre_sam_gdf.crs is not None and str(pre_sam_gdf.crs) != OUTPUT_CRS:
-                pre_sam_gdf = pre_sam_gdf.to_crs(OUTPUT_CRS)
-            pre_sam_gdf.to_file(pre_sam_path, driver="GPKG", layer="fields")
-            print(f"  {year}: saved pre-SAM ensemble to {pre_sam_path}")
-
-            # SAM2 boundary refinement — use the source-specific raster
-            if SAM_REFINE:
-                print(f"  {year}: refining {len(gdf)} boundaries with SAM2...", flush=True)
-                try:
-                    from agribound.config import AgriboundConfig
-                    from agribound.engines.samgeo_engine import refine_boundaries
-
-                    raster_cache = OUTPUT_DIR / ".agribound_cache"
-                    # Find the best available source raster from ensemble contributors
-                    sam_raster = None
-                    sam_source = None
-                    for src_name in year_results:
-                        candidates = sorted(raster_cache.glob(f"*{src_name}*{year}*.tif"))
-                        if candidates:
-                            sam_raster = str(candidates[0])
-                            sam_source = src_name
-                            break
-                    if sam_raster is None:
-                        candidates = sorted(raster_cache.glob(f"*{year}*.tif"))
-                        if candidates:
-                            sam_raster = str(candidates[0])
-                            sam_source = "sentinel2"
-
-                    if sam_raster:
-                        print(f"  {year}: SAM2 using {sam_source} raster: {sam_raster}")
-                        sam_config = AgriboundConfig(
-                            source=sam_source,
-                            engine="dinov3",
-                            year=year,
-                            study_area=study_area,
-                            output_path=str(output_path),
-                            engine_params={
-                                "sam_model": SAM_MODEL,
-                                "sam_batch_size": SAM_BATCH_SIZE,
-                            },
-                            device="auto",
-                        )
-                        gdf = refine_boundaries(gdf, sam_raster, sam_config)
-                        print(f"  {year}: SAM2 refined {len(gdf)} boundaries")
-                    else:
-                        print(f"  {year}: no raster found for SAM2, skipping")
-                except Exception as exc:
-                    print(f"  {year}: SAM2 failed: {exc}")
-
-            # Smooth and simplify final boundaries
+            # Smooth and simplify ensemble boundaries
             from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
 
             gdf = smooth_polygons(gdf, iterations=3)

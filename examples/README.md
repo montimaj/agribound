@@ -66,7 +66,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 11 | `11_mississippi_alluvial_plain_spot.py` | Mississippi Alluvial Plain, USA | SPOT 6/7 | delineate-anything | ~15--30 min | SPOT-based delineation of row-crop agriculture (2021--2023). Includes cross-year stability analysis using IoU/F1. **Restricted access** -- see note below. |
 | 12 | `12_new_mexico_ensemble_timeseries.py` | Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (ensemble) | ~3--6 h | Multi-source, multi-model ensemble (2020--2022) with per-model fine-tuning (DA, GeoAI, DINOv3, Prithvi). Grand ensemble boundaries refined by SAM2 after majority-vote merging. Best run on HPC/cloud with GPU. |
 | 13 | `13_sam2_refine_dinov3.py` | Lea County, NM, USA | Sentinel-2 | SAM2 refinement | ~5--15 min | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries (555 fields). Crops each field from the raster and refines with SAM2 box prompts. Compares before/after metrics against NMOSE reference. |
-| 14 | `14_dinov3_sam2_ensemble.py` | Lea County, NM, USA | Sentinel-2, Landsat, HLS, NAIP, SPOT | DINOv3 + SAM2 ensemble | ~1--2 h | Focused DINOv3-only ensemble across 5 satellite sources (2020--2022). Fine-tunes DINOv3 per source, merges via majority vote, then refines with SAM2. Demonstrates that a single strong architecture + multi-source diversity outperforms multi-model ensembles. |
+| 14 | `14_dinov3_sam2_ensemble.py` | Lea County, NM, USA | Sentinel-2, Landsat, HLS, NAIP, SPOT | DINOv3 + SAM2 ensemble | ~1--2 h | Focused DINOv3-only ensemble across 5 satellite sources (2020--2022). Fine-tunes DINOv3 per source, refines each source's boundaries with SAM2 using its native raster, then merges via majority vote. Saves pre-SAM outputs for comparison. Demonstrates that a single strong architecture + multi-source diversity outperforms multi-model ensembles. |
 
 ## Notebooks
 
@@ -93,7 +93,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 - GEE composite generation adds ~2--5 minutes per year per source.
 - CPU-only runs (example 05, embedding engine) are 2--5x slower for inference but have no GPU requirement.
 - Fine-tuning (examples 01, 12) takes ~30 minutes per model on an Apple M2 Max (MPS). In example 12, DA (2 variants) and GeoAI/Prithvi are fine-tuned on NMOSE reference boundaries (~1.5 hours total). FTW uses pre-trained weights directly (fine-tuning not yet supported — FTW requires paired temporal windows). Fine-tuned checkpoints are cached and reused across years.
-- SAM2 boundary refinement (example 12) runs once on the final grand ensemble output per year, not per-engine. With the `tiny` model and ~50 fields per batch, refinement takes ~2--5 minutes per year depending on field count.
+- SAM2 boundary refinement (example 12) runs once on the final grand ensemble output per year. Example 14 runs SAM2 per source using each sensor's native raster for accurate per-field segmentation. With the `large` model and per-field cropping, refinement takes ~2--5 minutes per source per year depending on field count.
 - **Apple Silicon (MPS):** The GeoAI engine (Mask R-CNN) crashes on MPS due to Metal command buffer errors. Agribound automatically falls back to CPU for GeoAI training and inference. All other engines (FTW, Delineate-Anything, Prithvi) work correctly on MPS.
 - The 40-year New Mexico script (01) is best run as an overnight batch job or on HPC. The notebook version runs only 2023--2025.
 
@@ -107,7 +107,7 @@ Based on testing over Lea County, NM, the **DINOv3 + SAM2 multi-source ensemble*
 
 - **DINOv3 fine-tuned per source** produces cleaner field boundaries than other engines. The ViT backbone adapts well to each sensor's spectral characteristics with just 10--30 epochs of fine-tuning.
 - **FTW over-segments** in this region, picking up too many small polygons (roads, pivot edges, noise). FTW is designed for global generalization across 25 countries but tends to be aggressive in arid/irrigated landscapes like southeastern New Mexico.
-- **SAM2 boundary refinement** on the ensemble output produces pixel-accurate edges that closely match the NMOSE reference boundaries.
+- **Per-source SAM2 boundary refinement** produces pixel-accurate edges using each sensor's native raster at its own resolution, avoiding resolution mismatches from refining against a single raster. Pre-SAM outputs are saved for comparison.
 - **Multi-source diversity** (Sentinel-2, Landsat, HLS, NAIP, SPOT) provides more meaningful ensemble diversity than running multiple model architectures on the same image.
 
 For new study areas with reference boundaries available for fine-tuning, we recommend starting with example 14 (DINOv3 + SAM2 ensemble) rather than the full multi-model ensemble (example 12).

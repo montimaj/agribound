@@ -127,6 +127,11 @@ def refine_boundaries(
         automatic=False,
     )
 
+    # Suppress noisy per-field "image embeddings" messages from SAM2/samgeo
+    _root_logger = logging.getLogger()
+    _prev_root_level = _root_logger.level
+    _root_logger.setLevel(logging.WARNING)
+
     # Process each field individually with cropped windows
     log_interval = config.engine_params.get("sam_batch_size", 100)
     result = gdf.copy()
@@ -163,6 +168,9 @@ def refine_boundaries(
             n_failed += 1
 
     src.close()
+
+    # Restore root logger level
+    _root_logger.setLevel(_prev_root_level)
 
     # Clean up invalid/empty geometries
     result = result[~result.geometry.is_empty & result.geometry.is_valid].reset_index(drop=True)
