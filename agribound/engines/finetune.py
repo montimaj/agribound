@@ -720,7 +720,7 @@ def _finetune_dinov3(train_dir: Path, config: AgriboundConfig) -> str:
         use_lora=config.engine_params.get("use_lora", False),
         lora_rank=config.engine_params.get("lora_rank", 4),
         num_workers=config.n_workers,
-        accelerator="cpu" if device == "mps" else "auto",
+        accelerator="auto",
         devices="auto",
     )
 
