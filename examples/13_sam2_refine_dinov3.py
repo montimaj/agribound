@@ -58,6 +58,20 @@ def parse_args():
         help="SAM2 model variant.",
     )
     parser.add_argument("--batch-size", type=int, default=SAM_BATCH_SIZE, help="SAM2 batch size.")
+    parser.add_argument(
+        "--smooth-only",
+        action="store_true",
+        help="Skip SAM2, load existing output, and re-apply smoothing.",
+    )
+    parser.add_argument(
+        "--smooth-iterations", type=int, default=3, help="Chaikin smoothing iterations (default 3)."
+    )
+    parser.add_argument(
+        "--simplify-tolerance",
+        type=float,
+        default=2.0,
+        help="RDP simplification tolerance in meters (default 2.0).",
+    )
     return parser.parse_args()
 
 
@@ -78,54 +92,86 @@ def main():
     print(f"Loaded {len(gdf)} field boundaries from {input_path}")
     print(f"CRS: {gdf.crs}")
 
-    # Configure SAM2 refinement
-    from agribound.config import AgriboundConfig
-    from agribound.engines.samgeo_engine import refine_boundaries
+    # --smooth-only: reload existing output and re-apply smoothing
+    if args.smooth_only:
+        if not output_path.exists():
+            raise FileNotFoundError(f"--smooth-only requires existing output: {output_path}")
+        print(f"\nLoading existing output for re-smoothing: {output_path}")
+        refined = gpd.read_file(output_path)
+        print(f"Loaded {len(refined)} boundaries")
 
-    config = AgriboundConfig(
-        source="sentinel2",
-        engine="dinov3",
-        year=2020,
-        study_area="",
-        output_path=str(output_path),
-        engine_params={
-            "sam_model": args.sam_model,
-            "sam_batch_size": args.batch_size,
-        },
-        device="auto",
-    )
+        from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
 
-    # Run SAM2 refinement
-    print(f"\nRunning SAM2 refinement (model={args.sam_model}, batch_size={args.batch_size})")
-    tic = time.time()
-    refined = refine_boundaries(gdf, str(raster_path), config)
-    elapsed = time.time() - tic
-    print(f"SAM2 refined {len(refined)} boundaries in {elapsed:.1f}s")
+        refined = smooth_polygons(refined, iterations=args.smooth_iterations)
+        refined = simplify_polygons(refined, tolerance=args.simplify_tolerance)
+        print(
+            f"Re-smoothed: {len(refined)} fields "
+            f"(iterations={args.smooth_iterations}, tolerance={args.simplify_tolerance})"
+        )
 
-    # Clean up invalid/empty geometries from SAM refinement
-    refined = refined[~refined.geometry.is_empty].copy()
-    refined = refined[refined.geometry.is_valid].copy()
-    refined = refined[refined.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
-    refined = refined.reset_index(drop=True)
-    print(f"{len(gdf) - len(refined)} fields removed due to invalid geometry")
+        if refined.crs is not None and str(refined.crs) != OUTPUT_CRS:
+            refined = refined.to_crs(OUTPUT_CRS)
+        if output_path.exists():
+            output_path.unlink()
+        refined.to_file(output_path, driver="GPKG", layer="fields")
+        print(f"Saved to {output_path}")
 
-    # Smooth and simplify final boundaries
-    from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
+    elif output_path.exists():
+        print(f"\nOutput already exists: {output_path}")
+        refined = gpd.read_file(output_path)
+        print(f"Loaded {len(refined)} refined boundaries")
+    else:
+        # Configure SAM2 refinement
+        from agribound.config import AgriboundConfig
+        from agribound.engines.samgeo_engine import refine_boundaries
 
-    refined = smooth_polygons(refined, iterations=3)
-    refined = simplify_polygons(refined, tolerance=2.0)
-    print(f"Smoothed and simplified to {len(refined)} fields")
+        config = AgriboundConfig(
+            source="sentinel2",
+            engine="dinov3",
+            year=2020,
+            study_area="",
+            output_path=str(output_path),
+            engine_params={
+                "sam_model": args.sam_model,
+                "sam_batch_size": args.batch_size,
+            },
+            device="auto",
+        )
 
-    # Reproject to match NMOSE reference CRS
-    if refined.crs is not None and str(refined.crs) != OUTPUT_CRS:
-        refined = refined.to_crs(OUTPUT_CRS)
+        # Run SAM2 refinement
+        print(f"\nRunning SAM2 refinement (model={args.sam_model}, batch_size={args.batch_size})")
+        tic = time.time()
+        refined = refine_boundaries(gdf, str(raster_path), config)
+        elapsed = time.time() - tic
+        print(f"SAM2 refined {len(refined)} boundaries in {elapsed:.1f}s")
 
-    # Save
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if output_path.exists():
-        output_path.unlink()
-    refined.to_file(output_path, driver="GPKG", layer="fields")
-    print(f"Saved to {output_path}")
+        # Clean up invalid/empty geometries from SAM refinement
+        refined = refined[~refined.geometry.is_empty].copy()
+        refined = refined[refined.geometry.is_valid].copy()
+        refined = refined[refined.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
+        refined = refined.reset_index(drop=True)
+        print(f"{len(gdf) - len(refined)} fields removed due to invalid geometry")
+
+        # Smooth and simplify final boundaries
+        from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
+
+        refined = smooth_polygons(refined, iterations=args.smooth_iterations)
+        refined = simplify_polygons(refined, tolerance=args.simplify_tolerance)
+        print(
+            f"Smoothed and simplified to {len(refined)} fields "
+            f"(iterations={args.smooth_iterations}, tolerance={args.simplify_tolerance})"
+        )
+
+        # Reproject to match NMOSE reference CRS
+        if refined.crs is not None and str(refined.crs) != OUTPUT_CRS:
+            refined = refined.to_crs(OUTPUT_CRS)
+
+        # Save
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if output_path.exists():
+            output_path.unlink()
+        refined.to_file(output_path, driver="GPKG", layer="fields")
+        print(f"Saved to {output_path}")
 
     # Compare before/after
     print(f"\n{'Metric':<20} {'Before':>10} {'After':>10}")
