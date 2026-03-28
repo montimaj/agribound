@@ -671,8 +671,6 @@ def _finetune_dinov3(train_dir: Path, config: AgriboundConfig) -> str:
         "large": "dinov3_vitl16",
     }.get(model_name, model_name)
 
-    device = config.resolve_device()
-
     # Collect image and mask paths
     images_dir = train_dir / "images"
     masks_dir = train_dir / "masks"
