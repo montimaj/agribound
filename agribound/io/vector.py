@@ -191,6 +191,11 @@ def _read_gee_asset(asset_id: str) -> gpd.GeoDataFrame:
             "Install with: pip install agribound[gee]"
         ) from None
 
+    from agribound.auth import check_gee_initialized, setup_gee
+
+    if not check_gee_initialized():
+        setup_gee()
+
     fc = ee.FeatureCollection(asset_id)
     features = fc.getInfo()["features"]
     geometries = [shape(f["geometry"]) for f in features]

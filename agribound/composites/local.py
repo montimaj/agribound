@@ -118,7 +118,7 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
         cache_dir = config.get_working_dir()
 
         if config.source == "google-embedding":
-            return self._download_google_embedding(bbox, config.year, cache_dir)
+            return self._download_google_embedding(bbox, config.year, cache_dir, config.gee_project)
         elif config.source == "tessera-embedding":
             return self._download_tessera_embedding(bbox, config.year, cache_dir)
         else:
@@ -129,8 +129,13 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
         bbox: tuple[float, float, float, float],
         year: int,
         output_dir: Path,
+        gee_project: str | None = None,
     ) -> str:
         """Download Google Satellite Embeddings.
+
+        Tries the ``geoai`` direct download first; falls back to exporting
+        from the GEE ImageCollection ``GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL``
+        if the direct download fails (e.g. HTTP 403).
 
         Parameters
         ----------
@@ -140,32 +145,95 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
             Target year (2018-2024).
         output_dir : Path
             Directory for downloaded files.
+        gee_project : str or None
+            GEE project ID (used for GEE fallback).
 
         Returns
         -------
         str
             Path to the embedding GeoTIFF.
         """
+        out_path = output_dir / f"google_embedding_{year}.tif"
+        if out_path.exists():
+            logger.info("Using cached Google embedding: %s", out_path)
+            return str(out_path)
+
+        # Try geoai direct download first
         try:
             from geoai import download_google_satellite_embedding
+
+            logger.info("Downloading Google Satellite Embeddings (year=%d, bbox=%s)", year, bbox)
+            paths = download_google_satellite_embedding(
+                bbox=bbox,
+                output_dir=str(output_dir),
+                years=year,
+                dequantize=True,
+            )
+            if paths:
+                return paths[0]
+        except Exception as exc:
+            logger.warning("geoai direct download failed: %s. Falling back to GEE export.", exc)
+
+        # Fallback: export from GEE ImageCollection
+        return self._export_google_embedding_gee(bbox, year, out_path, gee_project)
+
+    def _export_google_embedding_gee(
+        self,
+        bbox: tuple[float, float, float, float],
+        year: int,
+        out_path: Path,
+        gee_project: str | None = None,
+    ) -> str:
+        """Export Google Satellite Embeddings from GEE.
+
+        The ``GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL`` ImageCollection has
+        64 embedding bands at 10 m resolution.  For large study areas the
+        download is split into tiles and merged afterwards to stay within
+        GEE download limits.
+        """
+        try:
+            import ee
         except ImportError:
             raise ImportError(
-                "geoai-py is required for Google Satellite Embedding downloads. "
-                "Install with: pip install agribound[geoai]"
+                "earthengine-api is required for GEE-based embedding export. "
+                "Install with: pip install agribound[gee]"
             ) from None
 
-        logger.info("Downloading Google Satellite Embeddings (year=%d, bbox=%s)", year, bbox)
-        paths = download_google_satellite_embedding(
-            bbox=bbox,
-            output_dir=str(output_dir),
-            years=year,
-            dequantize=True,
-        )
-        if not paths:
-            raise RuntimeError(
-                f"No Google Satellite Embedding data found for year={year}, bbox={bbox}"
+        from agribound.auth import check_gee_initialized, setup_gee
+
+        if not check_gee_initialized():
+            setup_gee(project=gee_project)
+
+        logger.info("Exporting Google Satellite Embeddings from GEE (year=%d)", year)
+
+        region = ee.Geometry.BBox(*bbox)
+        ic = ee.ImageCollection("GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL")
+        img = ic.filter(ee.Filter.calendarRange(year, year, "year")).mosaic().clip(region)
+
+        # Export via geedim which handles tiling automatically
+        try:
+            import geedim as gd
+
+            gd_img = gd.MaskedImage(img)
+            gd_img.download(str(out_path), region=region, crs="EPSG:4326", scale=10)
+        except ImportError:
+            import urllib.request
+
+            url = img.getDownloadURL(
+                {
+                    "region": region,
+                    "scale": 10,
+                    "crs": "EPSG:4326",
+                    "format": "GEO_TIFF",
+                }
             )
-        return paths[0]
+            urllib.request.urlretrieve(url, str(out_path))
+
+        if not out_path.exists():
+            raise RuntimeError(f"GEE export failed: no file at {out_path}")
+
+        logger.info("Google embedding exported: %s", out_path)
+        return str(out_path)
 
     def _download_tessera_embedding(
         self,

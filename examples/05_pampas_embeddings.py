@@ -1,13 +1,13 @@
 """
-05 — Rio de la Plata / Guarani Region, Google/TESSERA Embeddings (CPU-only)
+05 — Argentine Pampas, Google/TESSERA Embeddings (CPU-only)
 
-Delineates agricultural fields in the Rio de la Plata basin (spanning parts of
-Argentina, Brazil, Paraguay, and Uruguay) using pre-computed satellite
-embeddings (Google 64-D and TESSERA 128-D) with unsupervised K-means
-clustering. No GPU required.
+Delineates agricultural fields in a subset of the Argentine Pampas (within the
+Rio de la Plata basin) using pre-computed satellite embeddings (Google 64-D and
+TESSERA 128-D) with unsupervised K-means clustering. No GPU required.
 
-The study area is loaded directly from a GEE vector asset rather than a local
-file, demonstrating agribound's GEE asset input support.
+The study area is a ~50 km bbox over the Pampas agricultural heartland near
+Pergamino, Buenos Aires Province — small enough for practical embedding
+downloads (~1–2 GB) while still covering large-scale cropping.
 
 Estimated runtime: ~10–20 minutes (5 years, CPU only).
 
@@ -17,16 +17,41 @@ Prerequisites:
 """
 
 import argparse
+import warnings
 from pathlib import Path
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="geedim")
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="geedim")
 
 import agribound
 
 # --- Configuration ---
-OUTPUT_DIR = Path("outputs/riodelaplata")
+OUTPUT_DIR = Path("outputs/pampas")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Study area as a GEE vector asset (no local file needed)
-STUDY_AREA = "projects/ssebop-471916/assets/riodelaplata_guarani"
+# Study area: ~50 km bbox over the Argentine Pampas near Pergamino, Buenos Aires
+# Covers intensive soybean/corn/wheat cropping in the Pampas agricultural heartland
+STUDY_AREA_BBOX = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-60.8, -34.0],
+                        [-60.3, -34.0],
+                        [-60.3, -33.5],
+                        [-60.8, -33.5],
+                        [-60.8, -34.0],
+                    ]
+                ],
+            },
+            "properties": {"name": "Pampas (Pergamino, Buenos Aires)"},
+        }
+    ],
+}
 
 YEARS = range(2020, 2025)
 
@@ -37,16 +62,23 @@ SAM_REFINE = True
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Rio de la Plata embedding-based field boundary delineation."
+        description="Argentine Pampas embedding-based field boundary delineation."
     )
     parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 
 def main():
-    """Run embedding-based field delineation for the Rio de la Plata region."""
+    """Run embedding-based field delineation for the Argentine Pampas."""
     args = parse_args()
     gee_project = args.gee_project
+
+    # Write study area bbox to GeoJSON
+    import json
+
+    study_area_path = str(OUTPUT_DIR / "study_area.geojson")
+    with open(study_area_path, "w") as f:
+        json.dump(STUDY_AREA_BBOX, f)
 
     all_results = {}
 
@@ -60,7 +92,7 @@ def main():
         output_path = OUTPUT_DIR / f"fields_google_{year}.gpkg"
 
         gdf = agribound.delineate(
-            study_area=STUDY_AREA,
+            study_area=study_area_path,
             source="google-embedding",
             year=year,
             engine="embedding",
@@ -83,7 +115,7 @@ def main():
         output_path = OUTPUT_DIR / f"fields_tessera_{year}.gpkg"
 
         gdf = agribound.delineate(
-            study_area=STUDY_AREA,
+            study_area=study_area_path,
             source="tessera-embedding",
             year=year,
             engine="embedding",

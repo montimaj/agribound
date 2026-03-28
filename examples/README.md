@@ -57,7 +57,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 02 | `02_india_ganges_sentinel2.py` | Ganges Plain, India | Sentinel-2 | ftw | ~30--60 min | Smallholder field delineation using FTW's country-specific model for India. Runs 2020--2024. |
 | 03 | `03_australia_murray_darling_hls.py` | Murray-Darling Basin, Australia | HLS | prithvi | ~45--90 min | Large-scale irrigated agriculture using the Prithvi foundation model in embedding mode. Runs 2022--2024. |
 | 04 | `04_france_beauce_sentinel2.py` | Beauce, France | Sentinel-2 | geoai | ~15--30 min | European large-field agriculture using geoai's Mask R-CNN. Single year (2023). |
-| 05 | `05_riodelaplata_embeddings.py` | Rio de la Plata, South America | Google + TESSERA | embedding | ~10--20 min | CPU-only unsupervised clustering from pre-computed satellite embeddings. Uses a GEE vector asset as study area input. Compares Google vs TESSERA embeddings for 2020--2024. |
+| 05 | `05_pampas_embeddings.py` | Argentine Pampas (Pergamino) | Google + TESSERA | embedding | ~10--20 min | CPU-only unsupervised clustering from pre-computed satellite embeddings (64-D Google, 128-D TESSERA). ~50 km bbox over the Pampas agricultural heartland. Compares Google vs TESSERA embeddings for 2020--2024. |
 | 06 | `06_kenya_smallholder_ftw.py` | Central Kenya | Sentinel-2 | ftw | ~10--20 min | Demonstrates `min_field_area` tuning for smallholder agriculture. Compares results at 100, 500, 1000, and 2500 m2 thresholds. |
 | 07 | `07_usa_naip_high_res.py` | Central Valley, California, USA | NAIP | delineate-anything | ~20--40 min | 1 m resolution field extraction from NAIP imagery. Large commercial fields. |
 | 08 | `08_china_north_plain_spot.py` | North China Plain | SPOT 6/7 | delineate-anything | ~15--30 min | 6 m resolution SPOT imagery. **Restricted access** -- see note below. |
@@ -78,7 +78,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 | 02 | [`02_india_ganges_sentinel2.ipynb`](notebooks/02_india_ganges_sentinel2.ipynb) | India Ganges Plain smallholder fields (FTW) | Same scope as script |
 | 03 | [`03_australia_murray_darling_hls.ipynb`](notebooks/03_australia_murray_darling_hls.ipynb) | Australia Murray-Darling Basin (Prithvi + HLS) | Same scope as script |
 | 04 | [`04_france_beauce_sentinel2.ipynb`](notebooks/04_france_beauce_sentinel2.ipynb) | France Beauce region (GeoAI Mask R-CNN) | Same scope as script |
-| 05 | [`05_riodelaplata_embeddings.ipynb`](notebooks/05_riodelaplata_embeddings.ipynb) | Rio de la Plata embeddings (CPU-only, Google + TESSERA) | Same scope as script |
+| 05 | [`05_pampas_embeddings.ipynb`](notebooks/05_pampas_embeddings.ipynb) | Rio de la Plata embeddings (CPU-only, Google + TESSERA) | Same scope as script |
 | 06 | [`06_kenya_smallholder_ftw.ipynb`](notebooks/06_kenya_smallholder_ftw.ipynb) | Kenya smallholder `min_area` tuning (FTW) | Same scope as script |
 | 07 | [`07_usa_naip_high_res.ipynb`](notebooks/07_usa_naip_high_res.ipynb) | USA Central Valley NAIP 1 m (Delineate-Anything) | Same scope as script |
 | 08 | [`08_china_north_plain_spot.ipynb`](notebooks/08_china_north_plain_spot.ipynb) | China North Plain SPOT 6/7 (**restricted**) | Same scope as script |
