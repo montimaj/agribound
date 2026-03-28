@@ -94,9 +94,7 @@ def download_dynamic_world_crop_prob(
             warnings.filterwarnings("ignore", category=FutureWarning)
             warnings.filterwarnings("ignore", category=RuntimeWarning)
             gd_img = gd.MaskedImage(dw)
-            gd_img.download(
-                str(output_path), region=region, crs="EPSG:4326", scale=scale
-            )
+            gd_img.download(str(output_path), region=region, crs="EPSG:4326", scale=scale)
     except ImportError:
         import urllib.request
 
@@ -111,9 +109,7 @@ def download_dynamic_world_crop_prob(
         urllib.request.urlretrieve(url, str(output_path))
 
     if not output_path.exists():
-        raise RuntimeError(
-            f"Dynamic World download failed: no file at {output_path}"
-        )
+        raise RuntimeError(f"Dynamic World download failed: no file at {output_path}")
 
     logger.info("Dynamic World crop probability saved: %s", output_path)
     return str(output_path)

@@ -41,13 +41,15 @@ class TestLulcDatasetSelection:
 
         # Hawaii (not CONUS)
         lon, lat = -155.5, 19.9
-        assert not (_CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2]
-                    and _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3])
+        assert not (
+            _CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2] and _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3]
+        )
 
         # Argentina (not CONUS)
         lon, lat = -60.0, -34.0
-        assert not (_CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2]
-                    and _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3])
+        assert not (
+            _CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2] and _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3]
+        )
 
     def test_config_defaults(self):
         """Default config should have LULC filter enabled."""
@@ -105,6 +107,7 @@ class TestGdfToFc:
             import ee  # noqa: F401
         except ImportError:
             import pytest
+
             pytest.skip("earthengine-api not installed")
 
         from agribound.postprocess.lulc_filter import _gdf_to_fc

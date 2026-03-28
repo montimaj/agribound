@@ -93,9 +93,7 @@ SAM_BATCH_SIZE = 100
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Semi-supervised DINOv3 field delineation."
-    )
+    parser = argparse.ArgumentParser(description="Semi-supervised DINOv3 field delineation.")
     parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
@@ -160,8 +158,7 @@ def main():
     pseudo_gdf = filter_by_lulc(all_clusters_gdf, filter_config)
 
     print(
-        f"  Crop pseudo-labels: {len(pseudo_gdf)} polygons "
-        f"(filtered from {len(all_clusters_gdf)})"
+        f"  Crop pseudo-labels: {len(pseudo_gdf)} polygons (filtered from {len(all_clusters_gdf)})"
     )
 
     # Save crop-filtered pseudo-labels as reference boundaries
@@ -220,9 +217,7 @@ def main():
             from agribound.engines.samgeo_engine import refine_boundaries
 
             raster_cache = OUTPUT_DIR / ".agribound_cache"
-            raster_candidates = sorted(
-                raster_cache.glob(f"*sentinel2*{YEAR}*.tif")
-            )
+            raster_candidates = sorted(raster_cache.glob(f"*sentinel2*{YEAR}*.tif"))
 
             if raster_candidates:
                 print(f"  Refining {len(dinov3_gdf)} fields with SAM2...")
@@ -238,9 +233,7 @@ def main():
                     },
                     device="auto",
                 )
-                dinov3_gdf = refine_boundaries(
-                    dinov3_gdf, str(raster_candidates[0]), sam_config
-                )
+                dinov3_gdf = refine_boundaries(dinov3_gdf, str(raster_candidates[0]), sam_config)
 
                 from agribound.postprocess.simplify import (
                     simplify_polygons,
@@ -277,11 +270,7 @@ def main():
         ("Crop-filtered pseudo-labels", pseudo_gdf),
         ("DINOv3 + SAM2", dinov3_gdf),
     ]:
-        area = (
-            gdf["metrics:area"].sum() / 10000
-            if "metrics:area" in gdf.columns
-            else 0
-        )
+        area = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
         print(f"  {label:<35} {len(gdf):>8} {area:>12,.1f}")
 
     # Visualization

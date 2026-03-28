@@ -86,16 +86,11 @@ def filter_by_lulc(
     threshold = config.lulc_crop_threshold
 
     # Determine study area centroid to pick the right dataset
-    gdf_4326 = (
-        gdf.to_crs(epsg=4326) if gdf.crs and not gdf.crs.is_geographic else gdf
-    )
+    gdf_4326 = gdf.to_crs(epsg=4326) if gdf.crs and not gdf.crs.is_geographic else gdf
     centroid = gdf_4326.union_all().centroid
     lon, lat = centroid.x, centroid.y
 
-    is_conus = (
-        _CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2]
-        and _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3]
-    )
+    is_conus = _CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2] and _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3]
     year = config.year
 
     if is_conus:
@@ -132,18 +127,18 @@ def _get_nearest_year(
     import ee
 
     try:
-        available_years = sorted(set(
-            ic.aggregate_array("system:time_start")
-            .map(lambda t: ee.Date(t).get("year"))
-            .distinct()
-            .getInfo()
-        ))
+        available_years = sorted(
+            set(
+                ic.aggregate_array("system:time_start")
+                .map(lambda t: ee.Date(t).get("year"))
+                .distinct()
+                .getInfo()
+            )
+        )
         if available_years:
             nearest = min(available_years, key=lambda y: abs(y - year))
             if nearest != year:
-                logger.info(
-                    "LULC: requested year %d, using nearest %d", year, nearest
-                )
+                logger.info("LULC: requested year %d, using nearest %d", year, nearest)
             return nearest
     except Exception as exc:
         logger.debug("Failed to query available years: %s", exc)
@@ -165,15 +160,10 @@ def _filter_nlcd(
     """Filter using NLCD — server-side crop fraction via reduceRegions."""
     import ee
 
-    ic = ee.ImageCollection(
-        "projects/sat-io/open-datasets/USGS/ANNUAL_NLCD/LANDCOVER"
-    )
+    ic = ee.ImageCollection("projects/sat-io/open-datasets/USGS/ANNUAL_NLCD/LANDCOVER")
     nlcd_year = _get_nearest_year(ic, year, fallback_range=(1985, 2024))
 
-    img = (
-        ic.filter(ee.Filter.calendarRange(nlcd_year, nlcd_year, "year"))
-        .first()
-    )
+    img = ic.filter(ee.Filter.calendarRange(nlcd_year, nlcd_year, "year")).first()
 
     # Create binary crop mask: 1 where class is 81 or 82, else 0
     crop_mask = img.eq(81).Or(img.eq(82)).rename("crop")
@@ -195,14 +185,13 @@ def _filter_dynamic_world(
 
     bounds = gdf_4326.total_bounds
     region = ee.Geometry.BBox(
-        float(bounds[0]), float(bounds[1]),
-        float(bounds[2]), float(bounds[3]),
+        float(bounds[0]),
+        float(bounds[1]),
+        float(bounds[2]),
+        float(bounds[3]),
     )
 
-    dw_ic = (
-        ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1")
-        .filterBounds(region)
-    )
+    dw_ic = ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1").filterBounds(region)
     dw_year = _get_nearest_year(dw_ic, year, fallback_range=(2015, 2030))
 
     # Median annual crop probability
@@ -228,16 +217,10 @@ def _filter_c3s(
     """Filter using C3S Land Cover — server-side crop fraction."""
     import ee
 
-    ic = ee.ImageCollection(
-        "projects/sat-io/open-datasets/ESA/C3S-LC-L4-LCCS"
-    )
+    ic = ee.ImageCollection("projects/sat-io/open-datasets/ESA/C3S-LC-L4-LCCS")
     c3s_year = _get_nearest_year(ic, year, fallback_range=(1992, 2022))
 
-    img = (
-        ic.filter(ee.Filter.calendarRange(c3s_year, c3s_year, "year"))
-        .first()
-        .select("b1")
-    )
+    img = ic.filter(ee.Filter.calendarRange(c3s_year, c3s_year, "year")).first().select("b1")
 
     # Binary crop mask: classes 10, 20, 30
     crop_mask = img.eq(10).Or(img.eq(20)).Or(img.eq(30)).rename("crop")
@@ -291,9 +274,7 @@ def _reduce_and_filter(
         batch = gdf_4326.iloc[start:end]
 
         if batch_idx > 0 and batch_idx % 5 == 0:
-            logger.info(
-                "LULC filter: processing batch %d/%d", batch_idx + 1, n_batches
-            )
+            logger.info("LULC filter: processing batch %d/%d", batch_idx + 1, n_batches)
 
         fc = _gdf_to_fc(batch)
 
@@ -312,9 +293,7 @@ def _reduce_and_filter(
             crop_values[global_idx] = mean_val if mean_val is not None else 0.0
 
     # Add crop fraction column to all polygons, then filter
-    gdf["lulc:crop_fraction"] = [
-        crop_values.get(i, 0.0) for i in range(len(gdf))
-    ]
+    gdf["lulc:crop_fraction"] = [crop_values.get(i, 0.0) for i in range(len(gdf))]
     result = gdf[gdf["lulc:crop_fraction"] >= threshold].reset_index(drop=True)
     logger.info(
         "LULC filter: %d → %d polygons (threshold=%.2f)",
