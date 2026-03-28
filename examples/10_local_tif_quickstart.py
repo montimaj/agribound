@@ -34,6 +34,7 @@ def main():
         engine="delineate-anything",
         local_tif_path=LOCAL_TIF,
         output_path=str(output_path),
+        lulc_filter=False,  # No GEE access for local files
         engine_params={"sam_refine": SAM_REFINE},
     )
 

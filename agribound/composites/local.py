@@ -212,10 +212,15 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
 
         # Export via geedim which handles tiling automatically
         try:
+            import warnings
+
             import geedim as gd
 
-            gd_img = gd.MaskedImage(img)
-            gd_img.download(str(out_path), region=region, crs="EPSG:4326", scale=10)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                gd_img = gd.MaskedImage(img)
+                gd_img.download(str(out_path), region=region, crs="EPSG:4326", scale=10)
         except ImportError:
             import urllib.request
 

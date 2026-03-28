@@ -1,0 +1,14 @@
+include LICENSE
+include README.md
+include CITATION.cff
+include CONTRIBUTING.md
+include pyproject.toml
+
+recursive-include agribound *.py
+
+exclude paper/*
+exclude outputs/*
+prune paper
+prune outputs
+prune examples/notebooks
+prune .github

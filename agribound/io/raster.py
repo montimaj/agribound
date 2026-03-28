@@ -191,6 +191,7 @@ def write_raster(
         tiled=True,
         blockxsize=256,
         blockysize=256,
+        BIGTIFF="YES",
     ) as dst:
         dst.write(data)
 
@@ -241,6 +242,7 @@ def clip_raster_to_geometry(
                 "width": out_image.shape[2],
                 "transform": out_transform,
                 "compress": "lzw",
+                "BIGTIFF": "YES",
             }
         )
         with rasterio.open(dst_path, "w", **out_meta) as dst:

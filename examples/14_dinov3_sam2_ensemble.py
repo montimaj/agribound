@@ -127,18 +127,31 @@ def create_study_area(shapefile_path, county_code, output_dir):
 
 
 def run_dinov3(source, year, study_area, gee_project, ref_path):
-    """Run DINOv3 fine-tuning + inference + SAM2 refinement for a single source/year."""
+    """Run DINOv3 fine-tuning + inference (with LULC filter) + SAM2 refinement.
+
+    The pipeline's built-in LULC filter removes non-agricultural polygons
+    automatically.  SAM2 then refines only the crop field boundaries.
+
+    Saves two GPKGs per source/year:
+      1. *_lulc.gpkg  — LULC-filtered model output (pre-SAM)
+      2. *.gpkg       — final (after SAM2 refinement)
+    """
     output_path = OUTPUT_DIR / f"fields_dinov3_{source}_{year}.gpkg"
+    lulc_path = OUTPUT_DIR / f"fields_dinov3_{source}_{year}_lulc.gpkg"
 
     if output_path.exists():
         return gpd.read_file(output_path), output_path
+
+    # Use a temp path for the pipeline so it doesn't write to final output_path.
+    # The final file is only written after all steps (including SAM2) complete.
+    pipeline_path = OUTPUT_DIR / f"fields_dinov3_{source}_{year}_pipeline.gpkg"
 
     kwargs = dict(
         study_area=study_area,
         source=source,
         year=year,
         engine="dinov3",
-        output_path=str(output_path),
+        output_path=str(pipeline_path),
         gee_project=gee_project,
         min_area=2500,
         simplify=2.0,
@@ -160,15 +173,16 @@ def run_dinov3(source, year, study_area, gee_project, ref_path):
     elif source == "naip":
         kwargs["min_area"] = 5000
 
+    # Pipeline runs: delineation → post-process → LULC filter → export to temp
     gdf = agribound.delineate(**kwargs)
 
     # Reproject to match NMOSE reference CRS
     if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
         gdf = gdf.to_crs(OUTPUT_CRS)
 
-    # Save pre-SAM result
-    pre_sam_path = OUTPUT_DIR / f"fields_dinov3_{source}_{year}_pre_sam.gpkg"
-    gdf.to_file(pre_sam_path, driver="GPKG", layer="fields")
+    # Save LULC-filtered, pre-SAM result
+    gdf.to_file(lulc_path, driver="GPKG", layer="fields")
+    print(f"    LULC-filtered: {len(gdf)} fields → {lulc_path.name}")
 
     # SAM2 refinement using this source's own raster
     if SAM_REFINE:
@@ -204,7 +218,13 @@ def run_dinov3(source, year, study_area, gee_project, ref_path):
         except Exception as exc:
             print(f"    SAM2 failed for {source}: {exc}")
 
+    # Write final output only after all steps complete
     gdf.to_file(output_path, driver="GPKG", layer="fields")
+
+    # Clean up pipeline temp file
+    if pipeline_path.exists():
+        pipeline_path.unlink()
+
     return gdf, output_path
 
 

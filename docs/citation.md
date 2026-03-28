@@ -6,7 +6,7 @@ If you use agribound in your research, please cite:
 
 **APA:**
 
-> Majumdar, S., Huntington, J., ReVelle, P., Nozari, S., Smith, R., Bromley, M., Atkin, J., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data* [Software]. Zenodo. https://doi.org/10.5281/zenodo.19229666
+> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data* [Software]. Zenodo. https://doi.org/10.5281/zenodo.19229666
 
 ## References
 
@@ -34,7 +34,7 @@ Szwarcman, D., Roy, S., Fraccaro, P., et al. (2024). Prithvi-EO-2.0: A versatile
 
 ### TESSERA
 
-Feng, Z. et al. (2025). TESSERA: Temporal embeddings of surface spectra for Earth representation and analysis. *arXiv preprint arXiv:2506.20380*. [https://arxiv.org/abs/2506.20380](https://arxiv.org/abs/2506.20380)
+Feng, Z., Atzberger, C., Jaffer, S., Knezevic, J., Sormunen, S., Young, R., Lisaius, M. C., Immitzer, M., Jackson, T., Ball, J., Coomes, D. A., Madhavapeddy, A., Blake, A., & Keshav, S. (2025). TESSERA: Temporal embeddings of surface spectra for Earth representation and analysis. *arXiv preprint arXiv:2506.20380*. [https://arxiv.org/abs/2506.20380](https://arxiv.org/abs/2506.20380)
 
 ### geemap
 
@@ -53,6 +53,14 @@ Ravi, N., Gabeur, V., Hu, Y.-T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R
 ### Google Satellite Embeddings (AlphaEarth)
 
 Brown, C. F., Kazmierski, M. R., Pasquarella, V. J., Rucklidge, W. J., Samsikova, M., Zhang, C., Shelhamer, E., Lahera, E., Wiles, O., Ilyushchenko, S., Gorelick, N., Zhang, L. L., Alj, S., Schechter, E., Askay, S., Guinan, O., Moore, R., Boukouvalas, A., & Kohli, P. (2025). AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data. *arXiv preprint arXiv:2507.22291*. [https://doi.org/10.48550/arXiv.2507.22291](https://doi.org/10.48550/arXiv.2507.22291)
+
+### Google Earth Engine
+
+Gorelick, N., Hancher, M., Dixon, M., Ilyushchenko, S., Thau, D., & Moore, R. (2017). Google Earth Engine: Planetary-scale geospatial analysis for everyone. *Remote Sensing of Environment*, 202, 18–27. [https://doi.org/10.1016/j.rse.2017.06.031](https://doi.org/10.1016/j.rse.2017.06.031)
+
+### Awesome GEE Community Catalog
+
+Roy, S., Majumdar, S., & Swetnam, T. (2025). samapriya/awesome-gee-community-datasets: Community Catalog (3.9.0). Zenodo. [https://doi.org/10.5281/zenodo.17641528](https://doi.org/10.5281/zenodo.17641528)
 
 ---
 

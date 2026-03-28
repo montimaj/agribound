@@ -57,7 +57,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 02 | `02_india_ganges_sentinel2.py` | Ganges Plain, India | Sentinel-2 | ftw | ~30--60 min | Smallholder field delineation using FTW's country-specific model for India. Runs 2020--2024. |
 | 03 | `03_australia_murray_darling_hls.py` | Murray-Darling Basin, Australia | HLS | prithvi | ~45--90 min | Large-scale irrigated agriculture using the Prithvi foundation model in embedding mode. Runs 2022--2024. |
 | 04 | `04_france_beauce_sentinel2.py` | Beauce, France | Sentinel-2 | geoai | ~15--30 min | European large-field agriculture using geoai's Mask R-CNN. Single year (2023). |
-| 05 | `05_pampas_embeddings.py` | Argentine Pampas (Pergamino) | Google + TESSERA | embedding | ~10--20 min | CPU-only unsupervised clustering from pre-computed satellite embeddings (64-D Google, 128-D TESSERA). ~50 km bbox over the Pampas agricultural heartland. Compares Google vs TESSERA embeddings for 2020--2024. |
+| 05 | `05_pampas_embeddings.py` | Argentine Pampas (Pergamino) | Google + TESSERA | embedding | ~5--10 min | CPU-only unsupervised clustering from pre-computed satellite embeddings (64-D Google, 128-D TESSERA). ~50 km bbox over the Pampas agricultural heartland (2020). |
 | 06 | `06_kenya_smallholder_ftw.py` | Central Kenya | Sentinel-2 | ftw | ~10--20 min | Demonstrates `min_field_area` tuning for smallholder agriculture. Compares results at 100, 500, 1000, and 2500 m2 thresholds. |
 | 07 | `07_usa_naip_high_res.py` | Central Valley, California, USA | NAIP | delineate-anything | ~20--40 min | 1 m resolution field extraction from NAIP imagery. Large commercial fields. |
 | 08 | `08_china_north_plain_spot.py` | North China Plain | SPOT 6/7 | delineate-anything | ~15--30 min | 6 m resolution SPOT imagery. **Restricted access** -- see note below. |
@@ -67,6 +67,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 12 | `12_new_mexico_ensemble_timeseries.py` | Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (ensemble) | ~3--6 h | Multi-source, multi-model ensemble (2020--2022) with per-model fine-tuning (DA, GeoAI, DINOv3, Prithvi). Grand ensemble boundaries refined by SAM2 after majority-vote merging. Best run on HPC/cloud with GPU. |
 | 13 | `13_sam2_refine_dinov3.py` | Lea County, NM, USA | Sentinel-2 | SAM2 refinement | ~5--15 min | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries (555 fields). Crops each field from the raster and refines with SAM2 box prompts. Compares before/after metrics against NMOSE reference. |
 | 14 | `14_dinov3_sam2_ensemble.py` | Lea County, NM, USA | Sentinel-2, Landsat, HLS, NAIP, SPOT | DINOv3 + SAM2 ensemble | ~1--2 h | Focused DINOv3-only ensemble across 5 satellite sources (2020--2022). Fine-tunes DINOv3 per source, refines each source's boundaries with SAM2 using its native raster, then merges via majority vote. Saves pre-SAM outputs for comparison. Demonstrates that a single strong architecture + multi-source diversity outperforms multi-model ensembles. |
+| 15 | `15_pampas_semi_supervised.py` | Pampas (Pergamino), Argentina | Google embeddings + Dynamic World + Sentinel-2 | DINOv3 + SAM2 (semi-supervised) | ~30--60 min | Fully automated pipeline requiring **no reference boundaries**. Clusters Google embeddings, filters to crop-only polygons using Dynamic World crop probability, fine-tunes DINOv3 on Sentinel-2 using crop pseudo-labels, then refines with SAM2. ~10 km bbox (2020), GPU recommended. |
 
 ## Notebooks
 
@@ -78,7 +79,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 | 02 | [`02_india_ganges_sentinel2.ipynb`](notebooks/02_india_ganges_sentinel2.ipynb) | India Ganges Plain smallholder fields (FTW) | Same scope as script |
 | 03 | [`03_australia_murray_darling_hls.ipynb`](notebooks/03_australia_murray_darling_hls.ipynb) | Australia Murray-Darling Basin (Prithvi + HLS) | Same scope as script |
 | 04 | [`04_france_beauce_sentinel2.ipynb`](notebooks/04_france_beauce_sentinel2.ipynb) | France Beauce region (GeoAI Mask R-CNN) | Same scope as script |
-| 05 | [`05_pampas_embeddings.ipynb`](notebooks/05_pampas_embeddings.ipynb) | Rio de la Plata embeddings (CPU-only, Google + TESSERA) | Same scope as script |
+| 05 | [`05_pampas_embeddings.ipynb`](notebooks/05_pampas_embeddings.ipynb) | Pampas embeddings (CPU-only, Google + TESSERA) | Same scope as script |
 | 06 | [`06_kenya_smallholder_ftw.ipynb`](notebooks/06_kenya_smallholder_ftw.ipynb) | Kenya smallholder `min_area` tuning (FTW) | Same scope as script |
 | 07 | [`07_usa_naip_high_res.ipynb`](notebooks/07_usa_naip_high_res.ipynb) | USA Central Valley NAIP 1 m (Delineate-Anything) | Same scope as script |
 | 08 | [`08_china_north_plain_spot.ipynb`](notebooks/08_china_north_plain_spot.ipynb) | China North Plain SPOT 6/7 (**restricted**) | Same scope as script |
@@ -86,6 +87,9 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 | 10 | [`10_local_tif_quickstart.ipynb`](notebooks/10_local_tif_quickstart.ipynb) | Local GeoTIFF quickstart (no GEE) | Same scope as script |
 | 11 | [`11_mississippi_alluvial_plain_spot.ipynb`](notebooks/11_mississippi_alluvial_plain_spot.ipynb) | Mississippi Alluvial Plain SPOT 6/7 (**restricted**) | Same scope as script |
 | 12 | [`12_new_mexico_ensemble_timeseries.ipynb`](notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Lea County multi-source grand ensemble (2020--2022) | Same scope as script |
+| 13 | [`13_sam2_refine_dinov3.ipynb`](notebooks/13_sam2_refine_dinov3.ipynb) | SAM2 boundary refinement on DINOv3 output | Same scope as script |
+| 14 | [`14_dinov3_sam2_ensemble.ipynb`](notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source ensemble (Lea County) | Runs single year (2022) instead of 2020--2022 |
+| 15 | [`15_pampas_semi_supervised.ipynb`](notebooks/15_pampas_semi_supervised.ipynb) | Semi-supervised DINOv3 (Pampas, no reference data) | Same scope as script |
 
 ## Runtime Notes
 
@@ -96,6 +100,27 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 - SAM2 boundary refinement (example 12) runs once on the final grand ensemble output per year. Example 14 runs SAM2 per source using each sensor's native raster for accurate per-field segmentation. With the `large` model and per-field cropping, refinement takes ~2--5 minutes per source per year depending on field count.
 - **Apple Silicon (MPS):** The GeoAI engine (Mask R-CNN) crashes on MPS due to Metal command buffer errors. Agribound automatically falls back to CPU for GeoAI training and inference. All other engines (FTW, Delineate-Anything, Prithvi) work correctly on MPS.
 - The 40-year New Mexico script (01) is best run as an overnight batch job or on HPC. The notebook version runs only 2023--2025.
+
+## LULC Crop Filtering
+
+Agribound automatically filters detected field boundaries to agricultural areas using land-use/land-cover (LULC) data. This is **enabled by default** (`lulc_filter=True`) and removes non-agricultural polygons (roads, water, forest, urban areas, etc.) from the output.
+
+The appropriate LULC dataset is selected automatically based on the study area location and target year:
+
+| Region | Dataset | Years | Resolution | Crop Classes |
+|--------|---------|-------|------------|-------------|
+| CONUS | USGS Annual NLCD | 1985–2024 (nearest year) | 30 m | 81 (Pasture/Hay), 82 (Cultivated Crops) |
+| Global, ≥2015 | Google Dynamic World | 2015–present (nearest year) | 10 m | `crops` probability band |
+| Global, <2015 | Copernicus C3S Land Cover | 1992–2022 (nearest year) | 300 m | 10, 20, 30 (Cropland classes) |
+
+**Configuration:**
+- `lulc_filter=True` (default) — enable crop filtering
+- `lulc_filter=False` — disable (used for local files without GEE, or unsupervised embedding clusters)
+- `lulc_crop_threshold=0.3` (default) — minimum fraction of crop pixels to keep a polygon
+
+**Disabled by default for:**
+- Example 05 (unsupervised embedding clusters — no semantic meaning)
+- Example 10 (local GeoTIFF — no GEE access)
 
 ## SPOT Access
 

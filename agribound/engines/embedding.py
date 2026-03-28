@@ -127,6 +127,18 @@ class EmbeddingEngine(DelineationEngine):
 
         gdf = polygonize_mask(cluster_path, min_area_m2=config.min_field_area_m2)
         logger.info("Embedding clustering delineated %d field boundaries", len(gdf))
+
+        # Optional SAM2 refinement using first 3 bands as pseudo-RGB
+        if config.engine_params.get("sam_refine", False) and len(gdf) > 0:
+            try:
+                from agribound.engines.samgeo_engine import refine_boundaries
+
+                logger.info("Refining %d boundaries with SAM2 (bands 1-3 as RGB)", len(gdf))
+                gdf = refine_boundaries(gdf, raster_path, config)
+                logger.info("SAM2 refined to %d boundaries", len(gdf))
+            except Exception as exc:
+                logger.warning("SAM2 refinement failed, using unrefined boundaries: %s", exc)
+
         return gdf
 
     def _cluster(

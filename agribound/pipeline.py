@@ -155,12 +155,23 @@ def delineate(
     logger.info("Step 4: Post-processing (%d polygons)", len(gdf))
     gdf = _postprocess(gdf, config)
 
-    # Step 5: Add metadata columns
+    # Step 5: LULC-based crop filtering
+    if config.lulc_filter and len(gdf) > 0:
+        logger.info("Step 5: LULC crop filtering (%d polygons)", len(gdf))
+        try:
+            from agribound.postprocess.lulc_filter import filter_by_lulc
+
+            gdf = filter_by_lulc(gdf, config)
+            logger.info("LULC filter kept %d polygons", len(gdf))
+        except Exception as exc:
+            logger.warning("LULC filtering failed, skipping: %s", exc)
+
+    # Step 6: Add metadata columns
     gdf = _add_metadata(gdf, config)
 
-    # Step 6: Evaluate against reference (if provided and not fine-tuning)
+    # Step 7: Evaluate against reference (if provided and not fine-tuning)
     if config.reference_boundaries and not config.fine_tune:
-        logger.info("Step 5: Evaluating against reference boundaries")
+        logger.info("Step 7: Evaluating against reference boundaries")
         from agribound.evaluate import evaluate
         from agribound.io.vector import read_vector
 
@@ -170,8 +181,8 @@ def delineate(
         # Store metrics as GeoDataFrame attribute
         gdf.attrs["evaluation_metrics"] = metrics
 
-    # Step 7: Export
-    logger.info("Step 6: Exporting to %s", config.output_path)
+    # Step 8: Export
+    logger.info("Step 8: Exporting to %s", config.output_path)
     from agribound.io.vector import write_vector
 
     write_vector(gdf, config.output_path, format=config.output_format)

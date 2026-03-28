@@ -100,10 +100,10 @@ def refine_boundaries(
         from agribound.engines.base import get_canonical_band_indices
         from agribound.io.raster import select_and_reorder_bands
 
-        if config.source != "local":
-            rgb_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
-        else:
+        if config.source in ("local", "google-embedding", "tessera-embedding"):
             rgb_indices = [1, 2, 3]
+        else:
+            rgb_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
         select_and_reorder_bands(raster_path, rgb_raster, rgb_indices)
 
     # Open raster for windowed reads

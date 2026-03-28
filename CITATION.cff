@@ -1,0 +1,62 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data"
+type: software
+license: Apache-2.0
+url: "https://github.com/montimaj/agribound"
+repository-code: "https://github.com/montimaj/agribound"
+doi: "10.5281/zenodo.19229666"
+version: "0.1.0"
+date-released: "2026-03-28"
+authors:
+  - family-names: Majumdar
+    given-names: Sayantan
+    affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
+    orcid: "https://orcid.org/0000-0002-1037-0481"
+  - family-names: Huntington
+    given-names: Justin L.
+    affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
+    orcid: "https://orcid.org/0009-0008-2006-2969"
+  - family-names: ReVelle
+    given-names: Peter
+    affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
+    orcid: "https://orcid.org/0000-0001-8266-3753"
+  - family-names: Nozari
+    given-names: Soheil
+    affiliation: "Department of Civil and Environmental Engineering, Colorado State University, Fort Collins, CO, USA"
+    orcid: "https://orcid.org/0000-0002-0098-5837"
+  - family-names: Smith
+    given-names: Ryan G.
+    affiliation: "Department of Civil and Environmental Engineering, Colorado State University, Fort Collins, CO, USA"
+    orcid: "https://orcid.org/0000-0002-3747-6868"
+  - family-names: Hasan
+    given-names: M. F.
+    affiliation: "Department of Civil and Environmental Engineering, Colorado State University, Fort Collins, CO, USA"
+    orcid: "https://orcid.org/0000-0002-9520-983X"
+  - family-names: Bromley
+    given-names: Matt
+    affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
+    orcid: "https://orcid.org/0000-0002-2169-3307"
+  - family-names: Atkin
+    given-names: Jayden
+    affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
+  - family-names: Jensen
+    given-names: Eric R.
+    affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
+    orcid: "https://orcid.org/0000-0003-4208-5041"
+  - family-names: Ketchum
+    given-names: David
+    affiliation: "Montana Climate Office, W.A. Franke College of Forestry and Conservation, University of Montana, Missoula, Montana, USA"
+    orcid: "https://orcid.org/0000-0003-0871-9055"
+  - family-names: Roy
+    given-names: Samapriya
+    affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
+keywords:
+  - field boundaries
+  - agriculture
+  - remote sensing
+  - deep learning
+  - satellite imagery
+  - Google Earth Engine
+  - land use land cover
+  - semantic segmentation

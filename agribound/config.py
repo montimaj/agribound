@@ -148,6 +148,8 @@ class AgriboundConfig:
     # Post-processing ----------------------------------------------------------
     min_field_area_m2: float = 2500.0
     simplify_tolerance: float = 2.0
+    lulc_filter: bool = True
+    lulc_crop_threshold: float = 0.3
 
     # Compute ------------------------------------------------------------------
     device: str = "auto"

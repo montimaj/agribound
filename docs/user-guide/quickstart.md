@@ -38,7 +38,11 @@ The pipeline will:
 1. Build a cloud-free annual composite from Sentinel-2 imagery via GEE.
 2. Run the Delineate-Anything model to extract field boundaries.
 3. Post-process polygons (merge overlapping tiles, filter small areas, simplify).
-4. Export results to `fields_sentinel2_2024.gpkg`.
+4. **LULC crop filter** — automatically remove non-agricultural polygons (roads, water, forest, urban) using the best available land cover dataset for your region.
+5. Export results to `fields_sentinel2_2024.gpkg`.
+
+!!! note "Automatic crop filtering"
+    Agribound is the only field boundary package that automatically filters output to agricultural areas. It uses NLCD (CONUS, 1985–2024), Dynamic World (global, 2015–present), or C3S Land Cover (global, pre-2015, 1992–2022) depending on your study area location and year. Disable with `lulc_filter=False` for non-agricultural use cases or local files without GEE access.
 
 ### Using a Configuration Object
 

@@ -13,24 +13,29 @@
 
 ## Overview
 
-Agribound is a Python package that provides a unified framework for agricultural field boundary delineation by combining seven complementary approaches: object detection, semantic segmentation, vision transformer segmentation, foundation model inference, embedding-based unsupervised clustering, supervised fine-tuning, and multi-engine ensembling. It handles the full pipeline from satellite composite generation through Google Earth Engine (or local GeoTIFFs) to vectorized, post-processed field boundary polygons, supporting Landsat, Sentinel-2, HLS, NAIP, and SPOT imagery out of the box. The result is a single `agribound.delineate()` call or CLI command that replaces dozens of ad hoc scripts with a reproducible, configurable workflow.
+Agribound is a Python package that provides a unified framework for agricultural field boundary delineation by combining seven complementary approaches: object detection, semantic segmentation, vision transformer segmentation, foundation model inference, embedding-based unsupervised clustering, supervised fine-tuning, and multi-engine ensembling. It handles the full pipeline from satellite composite generation through Google Earth Engine (or local GeoTIFFs) to vectorized, post-processed field boundary polygons, supporting Landsat, Sentinel-2, HLS, NAIP, SPOT, and pre-computed embedding datasets (Google Satellite Embeddings, TESSERA) out of the box.
+
+Unlike other field boundary tools that detect *all* visual boundaries (roads, water, forests, buildings), agribound **automatically removes non-agricultural polygons** using LULC data: NLCD for CONUS (1985–2024), Dynamic World globally (2015–present), or C3S Land Cover for pre-2015 coverage, with all zonal statistics computed server-side on GEE. It also supports a fully automated semi-supervised pipeline that combines embedding clusters, Dynamic World crop filtering, and DINOv3 fine-tuning to delineate fields anywhere in the world without human-labeled reference data.
+
+The result is a single `agribound.delineate()` call or CLI command that replaces dozens of ad hoc scripts with a reproducible, configurable workflow. Fifteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, eight satellite sources, and all delineation engines.
 
 ## Features
 
-- **Multi-satellite support** -- Landsat (30 m, 1984--present), Sentinel-2 (10 m), Harmonized Landsat Sentinel (HLS, 30 m), NAIP (1 m), and SPOT 6/7 (1.5 m)
-- **All spectral bands downloaded** -- Full multi-band composites are downloaded for each sensor (e.g., all 12 Sentinel-2 spectral bands, all 6 Landsat SR bands). Engines automatically extract and reorder the bands they need via canonical band mappings (e.g., FTW expects R, G, B, NIR as bands 1--4 matching its `B04, B03, B02, B08` training order, so agribound extracts those from the full composite before passing to FTW)
-- **Seven delineation engines** -- Delineate-Anything, Fields of The World (FTW), GeoAI Field Boundary, DINOv3, Prithvi-EO-2.0, embedding-based unsupervised delineation, and a multi-model ensemble mode
-- **SAM2 boundary refinement** -- Optional post-processing step that feeds field bounding boxes as prompts to SAM2, producing pixel-accurate masks that replace the original polygons. Best applied to the final ensemble output for efficiency. Can also be used per-engine via `engine_params={"sam_refine": True}`
-- **14+ pre-trained FTW models** -- All FTW model variants (EfficientNet-B3/B5/B7, CC-BY and standard licensing, v1--v3) are available via `agribound.list_ftw_models()` and selectable through `engine_params`
-- **Smart DA routing** -- For Sentinel-2, Delineate-Anything automatically delegates to FTW's built-in instance segmentation with proper S2 preprocessing and native MPS (Apple GPU) support. For other sensors, the standalone DA pipeline with sensor-agnostic normalization is used
-- **Google Earth Engine integration** -- Annual cloud-free composite generation with configurable date ranges, compositing methods (median, greenest pixel, max NDVI), and cloud masking
-- **Embedding-based unsupervised delineation** -- Google AlphaEarth and TESSERA (Feng et al.) embeddings for CPU-only boundary extraction without any labeled training data
-- **Automatic fine-tuning** -- Supply reference boundaries and agribound will fine-tune Delineate-Anything (YOLO), GeoAI, DINOv3 (LoRA), or Prithvi on your region before inference. FTW uses pre-trained weights (fine-tuning requires paired temporal windows not yet supported)
-- **CLI and Python API** -- Full-featured command-line interface (`agribound delineate`) and a clean Python API (`agribound.delineate()`) for scripting and notebooks
-- **fiboa-compliant output** -- Export to GeoPackage, GeoJSON, or GeoParquet with field area, perimeter, and compactness attributes
-- **Dask-based parallelism** -- Large study areas are automatically tiled and processed in parallel
-- **Post-processing pipeline** -- Configurable minimum area filtering, Chaikin corner-cutting smoothing, metric-aware polygon simplification, overlap removal, and slivers cleanup
-- **Built-in evaluation** -- Compare delineated boundaries against reference data with IoU, boundary F1, and over/under-segmentation metrics
+- **Multi-satellite support** – Landsat (30 m, 1984–present), Sentinel-2 (10 m), Harmonized Landsat Sentinel (HLS, 30 m), NAIP (1 m), and SPOT 6/7 (1.5 m)
+- **All spectral bands downloaded** – Full multi-band composites are downloaded for each sensor (e.g., all 12 Sentinel-2 spectral bands, all 6 Landsat SR bands). Engines automatically extract and reorder the bands they need via canonical band mappings (e.g., FTW expects R, G, B, NIR as bands 1–4 matching its `B04, B03, B02, B08` training order, so agribound extracts those from the full composite before passing to FTW)
+- **Seven delineation engines** – Delineate-Anything, Fields of The World (FTW), GeoAI Field Boundary, DINOv3, Prithvi-EO-2.0, embedding-based unsupervised delineation, and a multi-model ensemble mode
+- **SAM2 boundary refinement** – Optional post-processing step that feeds field bounding boxes as prompts to SAM2, producing pixel-accurate masks that replace the original polygons. Best applied to the final ensemble output for efficiency. Can also be used per-engine via `engine_params={"sam_refine": True}`
+- **14+ pre-trained FTW models** – All FTW model variants (EfficientNet-B3/B5/B7, CC-BY and standard licensing, v1–v3) are available via `agribound.list_ftw_models()` and selectable through `engine_params`
+- **Smart DA routing** – For Sentinel-2, Delineate-Anything automatically delegates to FTW's built-in instance segmentation with proper S2 preprocessing and native MPS (Apple GPU) support. For other sensors, the standalone DA pipeline with sensor-agnostic normalization is used
+- **Google Earth Engine integration** – Annual cloud-free composite generation with configurable date ranges, compositing methods (median, greenest pixel, max NDVI), and cloud masking
+- **Embedding-based unsupervised delineation** – Google AlphaEarth and TESSERA (Feng et al.) embeddings for CPU-only boundary extraction without any labeled training data
+- **Automatic fine-tuning** – Supply reference boundaries and agribound will fine-tune Delineate-Anything (YOLO), GeoAI, DINOv3 (LoRA), or Prithvi on your region before inference. FTW uses pre-trained weights (fine-tuning requires paired temporal windows not yet supported)
+- **CLI and Python API** – Full-featured command-line interface (`agribound delineate`) and a clean Python API (`agribound.delineate()`) for scripting and notebooks
+- **fiboa-compliant output** – Export to GeoPackage, GeoJSON, or GeoParquet with field area, perimeter, and compactness attributes
+- **Dask-based parallelism** – Large study areas are automatically tiled and processed in parallel
+- **Automatic LULC crop filtering** – Unlike other field boundary packages that detect *all* visual boundaries (roads, water, forests, buildings), agribound **automatically removes non-agricultural polygons** using the best available land cover dataset for the study area. Uses NLCD (CONUS, 1985–2024), Dynamic World (global, 2015–present), or C3S Land Cover (global, pre-2015). All datasets use nearest-year matching. Enabled by default, configurable threshold, no user intervention required
+- **Post-processing pipeline** – Configurable minimum area filtering, Chaikin corner-cutting smoothing, metric-aware polygon simplification, overlap removal, and slivers cleanup
+- **Built-in evaluation** – Compare delineated boundaries against reference data with IoU, boundary F1, and over/under-segmentation metrics
 
 ## Satellite Sources
 
@@ -38,11 +43,11 @@ All spectral bands are downloaded for each sensor. Engines automatically select 
 
 | Source | Key | Resolution | Bands Downloaded | GEE Collection ID | Notes |
 |---|---|---|---|---|---|
-| Sentinel-2 | `sentinel2` | 10 m | B1--B12, B8A (12 bands) | `COPERNICUS/S2_SR_HARMONIZED` | Default source; L2A surface reflectance |
-| Landsat | `landsat` | 30 m | SR_B2--SR_B7 (6 bands) | `LANDSAT/LC08/C02/T1_L2`, `LANDSAT/LC09/C02/T1_L2` | Long time-series; L5/7 bands harmonized to L8/9 naming |
-| HLS | `hls` | 30 m | B1--B7 (7 bands) | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
+| Sentinel-2 | `sentinel2` | 10 m | B1–B12, B8A (12 bands) | `COPERNICUS/S2_SR_HARMONIZED` | Default source; L2A surface reflectance |
+| Landsat | `landsat` | 30 m | SR_B2–SR_B7 (6 bands) | `LANDSAT/LC08/C02/T1_L2`, `LANDSAT/LC09/C02/T1_L2` | Long time-series; L5/7 bands harmonized to L8/9 naming |
+| HLS | `hls` | 30 m | B1–B7 (7 bands) | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
 | NAIP | `naip` | 1 m | R, G, B, N (4 bands) | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields |
-| SPOT 6/7 | `spot` | 1.5 m | R, G, B (3 bands) | Restricted -- see [SPOT Access](#spot-access) | Restricted GEE collection; see note below |
+| SPOT 6/7 | `spot` | 1.5 m | R, G, B (3 bands) | Restricted –see [SPOT Access](#spot-access) | Restricted GEE collection; see note below |
 | Local GeoTIFF | `local` | Any | All bands | N/A | Bring your own imagery via `--local-tif` |
 | Google Embeddings | `google-embedding` | 10 m | 64-D embeddings | `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Pre-computed satellite embeddings |
 | TESSERA Embeddings | `tessera-embedding` | 10 m | 128-D embeddings | N/A | TESSERA foundation model embeddings |
@@ -51,13 +56,13 @@ All spectral bands are downloaded for each sensor. Engines automatically select 
 
 | Engine | Key | Approach | Strengths | GPU Required | Reference |
 |---|---|---|---|---|---|
-| Delineate-Anything | `delineate-anything` | YOLO instance segmentation (2 model variants) | Fast; resolution-agnostic (1--10 m+); routes through FTW for S2 with native MPS support | Recommended | [Lavreniuk et al. (2025)](https://arxiv.org/abs/2504.02534) |
+| Delineate-Anything | `delineate-anything` | YOLO instance segmentation (2 model variants) | Fast; resolution-agnostic (1–10 m+); routes through FTW for S2 with native MPS support | Recommended | [Lavreniuk et al. (2025)](https://arxiv.org/abs/2504.02534) |
 | Fields of The World | `ftw` | Semantic segmentation (14+ models: EfficientNet-B3/B5/B7, UNet, UPerNet) | Strong generalization; 25-country training set; all models via `list_ftw_models()` | Yes | [Kerner et al. (2024)](https://fieldsofthe.world/) |
 | GeoAI Field Boundary | `geoai` | Mask R-CNN instance segmentation | Easy to use; built-in NDVI support; auto-falls back to CPU on Apple Silicon (see [MPS note](#apple-silicon-mps-note)) | No | [Wu (2026)](https://github.com/opengeos/geoai) |
 | DINOv3 | `dinov3` | DINOv2/v3 ViT backbone + DPT segmentation head | Powerful ViT features; LoRA fine-tuning; resolution-agnostic | Yes | [Siméoni et al. (2025)](https://arxiv.org/abs/2508.10104) |
 | Prithvi-EO-2.0 | `prithvi` | NASA/IBM geospatial foundation model with TerraTorch fine-tuning | State-of-the-art foundation model; multi-temporal | Yes | [Jakubik et al. (2024)](https://huggingface.co/ibm-nasa-geospatial) |
 | Embedding | `embedding` | Unsupervised clustering of pre-computed embeddings | No GPU needed; no labeled data required | No | [Brown et al. (2025)](https://arxiv.org/abs/2507.22291), [Feng et al. (2025)](https://arxiv.org/abs/2506.20380) |
-| Ensemble | `ensemble` | Multi-engine or multi-model consensus (vote / union / intersection) | Best accuracy; supports running same engine with different models | Depends on engines | -- |
+| Ensemble | `ensemble` | Multi-engine or multi-model consensus (vote / union / intersection) | Best accuracy; supports running same engine with different models | Depends on engines | –|
 
 ## Installation
 
@@ -69,7 +74,7 @@ conda activate agribound
 pip install agribound
 ```
 
-> **Note:** The `gdal` conda package provides the GDAL Python bindings (`osgeo`) required by `geedim` for downloading satellite composites from Google Earth Engine. Installing `libgdal` alone is not sufficient -- you need the full `gdal` package.
+> **Note:** The `gdal` conda package provides the GDAL Python bindings (`osgeo`) required by `geedim` for downloading satellite composites from Google Earth Engine. Installing `libgdal` alone is not sufficient –you need the full `gdal` package.
 
 Alternatively, install directly via pip if you have system GDAL with Python bindings already available:
 
@@ -163,6 +168,8 @@ composite_method: median        # median | greenest | max_ndvi
 # Post-processing
 min_field_area_m2: 2500         # minimum field area in m²
 simplify_tolerance: 2.0         # simplification tolerance in meters
+lulc_filter: true               # remove non-agricultural polygons (default: true)
+lulc_crop_threshold: 0.3        # crop fraction threshold (default: 0.3)
 
 # Engine-specific parameters
 engine_params:
@@ -199,7 +206,8 @@ agribound/
 │   ├── composites/             # Satellite composite builders
 │   │   ├── base.py             # Source registry and abstract builder
 │   │   ├── gee.py              # GEE composites (Landsat, S2, HLS, NAIP, SPOT)
-│   │   └── local.py            # Local GeoTIFF and embedding loaders
+│   │   ├── local.py            # Local GeoTIFF and embedding loaders
+│   │   └── dynamic_world.py    # Dynamic World crop probability downloads
 │   ├── engines/                # Delineation engines
 │   │   ├── base.py             # Engine registry and abstract base class
 │   │   ├── delineate_anything.py  # YOLO + SAM instance segmentation
@@ -216,21 +224,28 @@ agribound/
 │   │   ├── raster.py           # GeoTIFF reading, tiling, band selection
 │   │   └── vector.py           # Study area / reference boundary readers
 │   └── postprocess/            # Post-processing pipeline
-│       ├── filter.py           # Area filtering and LULC masking
+│       ├── filter.py           # Area filtering
+│       ├── lulc_filter.py      # LULC-based crop filtering (NLCD / Dynamic World / C3S)
 │       ├── merge.py            # Cross-tile polygon merging (IoU-based)
 │       ├── polygonize.py       # Raster mask → vector polygons
 │       ├── regularize.py       # Polygon regularization
 │       └── simplify.py         # Douglas-Peucker simplification
-├── examples/                   # Example scripts (12) and Jupyter notebooks
-│   ├── 01–12_*.py              # Runnable Python scripts
+├── examples/                   # Example scripts (15) and Jupyter notebooks
+│   ├── 01–15_*.py              # Runnable Python scripts
 │   ├── notebooks/              # Interactive notebook versions
 │   └── NMOSE Field Boundaries/ # Reference shapefile (NM)
 ├── tests/                      # Pytest suite
-│   ├── unit/                   # Unit tests (config, evaluate, I/O, postprocess)
+│   ├── unit/                   # Unit tests (config, evaluate, I/O, postprocess, LULC)
 │   └── integration/            # Integration tests (CLI, local pipeline)
+├── paper/                      # JOSS paper (not included in PyPI distribution)
+│   ├── paper.md                # Manuscript source
+│   └── paper.bib               # References
 ├── docs/                       # MkDocs documentation source
 │   ├── api/                    # API reference (auto-generated from docstrings)
 │   └── user-guide/             # Quickstart, engines, satellite sources, etc.
+├── CITATION.cff                # Citation metadata (JOSS / Zenodo)
+├── CONTRIBUTING.md             # Developer guide
+├── MANIFEST.in                 # Source distribution inclusions/exclusions
 ├── pyproject.toml              # Build config, dependencies, optional extras
 └── README.md
 ```
@@ -245,14 +260,17 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [02_india_ganges_sentinel2.py](examples/02_india_ganges_sentinel2.py) | [notebook](examples/notebooks/02_india_ganges_sentinel2.ipynb) | Smallholder field delineation in the Ganges River basin, India |
 | [03_australia_murray_darling_hls.py](examples/03_australia_murray_darling_hls.py) | [notebook](examples/notebooks/03_australia_murray_darling_hls.ipynb) | Irrigated agriculture mapping in Murray-Darling Basin using HLS |
 | [04_france_beauce_sentinel2.py](examples/04_france_beauce_sentinel2.py) | [notebook](examples/notebooks/04_france_beauce_sentinel2.ipynb) | Large-field European agriculture in the Beauce region, France |
-| [05_riodelaplata_embeddings.py](examples/05_riodelaplata_embeddings.py) | [notebook](examples/notebooks/05_riodelaplata_embeddings.ipynb) | CPU-only unsupervised delineation in the Rio de la Plata / Guarani region using GEE asset + embeddings |
+| [05_pampas_embeddings.py](examples/05_pampas_embeddings.py) | [notebook](examples/notebooks/05_pampas_embeddings.ipynb) | CPU-only unsupervised delineation in the Argentine Pampas using Google/TESSERA embeddings |
 | [06_kenya_smallholder_ftw.py](examples/06_kenya_smallholder_ftw.py) | [notebook](examples/notebooks/06_kenya_smallholder_ftw.ipynb) | East Africa smallholder fields with the Fields of The World engine |
 | [07_usa_naip_high_res.py](examples/07_usa_naip_high_res.py) | [notebook](examples/notebooks/07_usa_naip_high_res.ipynb) | High-resolution (1 m) boundary extraction from NAIP imagery |
 | [08_china_north_plain_spot.py](examples/08_china_north_plain_spot.py) | [notebook](examples/notebooks/08_china_north_plain_spot.ipynb) | Field mapping from SPOT 6/7 imagery over the North China Plain |
 | [09_ensemble_comparison.py](examples/09_ensemble_comparison.py) | [notebook](examples/notebooks/09_ensemble_comparison.ipynb) | Multi-engine comparison and ensemble fusion |
 | [10_local_tif_quickstart.py](examples/10_local_tif_quickstart.py) | [notebook](examples/notebooks/10_local_tif_quickstart.ipynb) | Five-line quickstart using a local GeoTIFF with no GEE dependency |
 | [11_mississippi_alluvial_plain_spot.py](examples/11_mississippi_alluvial_plain_spot.py) | [notebook](examples/notebooks/11_mississippi_alluvial_plain_spot.ipynb) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
-| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-model grand ensemble (2020--2022) over Lea County, NM with per-model fine-tuning. Grand ensemble boundaries are refined by SAM2 after majority-vote merging |
+| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-model grand ensemble (2020–2022) over Lea County, NM with per-model fine-tuning. Grand ensemble boundaries are refined by SAM2 after majority-vote merging |
+| [13_sam2_refine_dinov3.py](examples/13_sam2_refine_dinov3.py) | [notebook](examples/notebooks/13_sam2_refine_dinov3.ipynb) | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries |
+| [14_dinov3_sam2_ensemble.py](examples/14_dinov3_sam2_ensemble.py) | [notebook](examples/notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source ensemble with per-source refinement (Lea County, NM) |
+| [15_pampas_semi_supervised.py](examples/15_pampas_semi_supervised.py) | [notebook](examples/notebooks/15_pampas_semi_supervised.ipynb) | Semi-supervised pipeline: embedding clusters + Dynamic World crop filter + DINOv3 + SAM2 (no reference boundaries needed) |
 
 ## Google Earth Engine Authentication
 
@@ -301,7 +319,7 @@ The **GeoAI engine** (Mask R-CNN) is unstable on Apple Silicon GPUs via MPS (Met
 
 If you use agribound in your research, please cite:
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Bromley, M., Atkin, J., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data* [Software]. Zenodo. https://doi.org/10.5281/zenodo.19229666
+> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data* [Software]. Zenodo. https://doi.org/10.5281/zenodo.19229666
 
 
 Please also cite the underlying engines and models as appropriate:
@@ -311,12 +329,14 @@ Please also cite the underlying engines and models as appropriate:
 - **GeoAI**: Wu, Q. (2026). GeoAI: A Python package for integrating artificial intelligence with geospatial data analysis and visualization. *Journal of Open Source Software*, 11(118), 9605. https://doi.org/10.21105/joss.09605
 - **DINOv3**: Siméoni, O., Vo, H. V., Seitzer, M., Baldassarre, F., Oquab, M., Jose, C., Khalidov, V., Szafraniec, M., Yi, S., Ramamonjisoa, M., Massa, F., Haziza, D., Wehrstedt, L., Wang, J., Darcet, T., Moutakanni, T., Sentana, L., Roberts, C., Vedaldi, A., ... Bojanowski, P. (2025). DINOv3. *arXiv preprint arXiv:2508.10104*. https://arxiv.org/abs/2508.10104
 - **Prithvi-EO-2.0**: Szwarcman, D., Roy, S., Fraccaro, P., et al. (2024). Prithvi-EO-2.0: A versatile multi-temporal foundation model for Earth observation applications. *arXiv preprint arXiv:2412.02732*. https://arxiv.org/abs/2412.02732
-- **TESSERA**: Feng, Z. et al. (2025). TESSERA: Temporal embeddings of surface spectra for Earth representation and analysis. *arXiv preprint arXiv:2506.20380*. https://arxiv.org/abs/2506.20380
+- **TESSERA**: Feng, Z., Atzberger, C., Jaffer, S., Knezevic, J., Sormunen, S., Young, R., Lisaius, M. C., Immitzer, M., Jackson, T., Ball, J., Coomes, D. A., Madhavapeddy, A., Blake, A., & Keshav, S. (2025). TESSERA: Temporal embeddings of surface spectra for Earth representation and analysis. *arXiv preprint arXiv:2506.20380*. https://arxiv.org/abs/2506.20380
 - **SamGeo**: Wu, Q., & Osco, L. (2023). samgeo: A Python package for segmenting geospatial data with the Segment Anything Model (SAM). *Journal of Open Source Software*, 8(89), 5663. https://doi.org/10.21105/joss.05663
 - **SAM for Remote Sensing**: Osco, L. P., Wu, Q., de Lemos, E. L., Gonçalves, W. N., Ramos, A. P. M., Li, J., & Junior, J. M. (2023). The Segment Anything Model (SAM) for remote sensing applications: From zero to one shot. *International Journal of Applied Earth Observation and Geoinformation*, 124, 103540. https://doi.org/10.1016/j.jag.2023.103540
 - **SAM 2**: Ravi, N., Gabeur, V., Hu, Y.-T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., Mintun, E., Pan, J., Alwala, K. V., Carion, N., Wu, C.-Y., Girshick, R., Dollár, P., & Feichtenhofer, C. (2024). SAM 2: Segment anything in images and videos. *arXiv preprint arXiv:2408.00714*. https://arxiv.org/abs/2408.00714
 - **geemap**: Wu, Q. (2020). geemap: A Python package for interactive mapping with Google Earth Engine. *Journal of Open Source Software*, 5(51), 2305. https://doi.org/10.21105/joss.02305
 - **Google Satellite Embeddings (AlphaEarth)**: Brown, C. F., Kazmierski, M. R., Pasquarella, V. J., Rucklidge, W. J., Samsikova, M., Zhang, C., Shelhamer, E., Lahera, E., Wiles, O., Ilyushchenko, S., Gorelick, N., Zhang, L. L., Alj, S., Schechter, E., Askay, S., Guinan, O., Moore, R., Boukouvalas, A., & Kohli, P. (2025). AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data. *arXiv preprint arXiv:2507.22291*. https://doi.org/10.48550/arXiv.2507.22291
+- **Google Earth Engine**: Gorelick, N., Hancher, M., Dixon, M., Ilyushchenko, S., Thau, D., & Moore, R. (2017). Google Earth Engine: Planetary-scale geospatial analysis for everyone. *Remote Sensing of Environment*, 202, 18–27. https://doi.org/10.1016/j.rse.2017.06.031
+- **Awesome GEE Community Catalog**: Roy, S., Majumdar, S., & Swetnam, T. (2025). samapriya/awesome-gee-community-datasets: Community Catalog (3.9.0). Zenodo. https://doi.org/10.5281/zenodo.17641528
 
 ## License
 

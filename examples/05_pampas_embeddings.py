@@ -6,10 +6,10 @@ Rio de la Plata basin) using pre-computed satellite embeddings (Google 64-D and
 TESSERA 128-D) with unsupervised K-means clustering. No GPU required.
 
 The study area is a ~50 km bbox over the Pampas agricultural heartland near
-Pergamino, Buenos Aires Province — small enough for practical embedding
-downloads (~1–2 GB) while still covering large-scale cropping.
+Pergamino, Buenos Aires Province. Note: Google embeddings have 64 bands at
+10 m resolution, so the download is ~6 GB for this area.
 
-Estimated runtime: ~10–20 minutes (5 years, CPU only).
+Estimated runtime: ~5–10 minutes (single year, CPU only).
 
 Prerequisites:
     pip install agribound[gee,tessera]
@@ -17,20 +17,31 @@ Prerequisites:
 """
 
 import argparse
+import logging
 import warnings
 from pathlib import Path
 
-warnings.filterwarnings("ignore", category=FutureWarning, module="geedim")
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="geedim")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"geedim\..*")
+warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"geedim\..*")
 
 import agribound
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/pampas")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Study area: ~50 km bbox over the Argentine Pampas near Pergamino, Buenos Aires
-# Covers intensive soybean/corn/wheat cropping in the Pampas agricultural heartland
+# Covers intensive soybean/corn/wheat cropping (~6 GB per year for Google embeddings)
 STUDY_AREA_BBOX = {
     "type": "FeatureCollection",
     "features": [
@@ -53,10 +64,7 @@ STUDY_AREA_BBOX = {
     ],
 }
 
-YEARS = range(2020, 2025)
-
-# Set to True to refine boundaries with SAM2
-SAM_REFINE = True
+YEARS = [2020]
 
 
 def parse_args():
@@ -100,7 +108,8 @@ def main():
             gee_project=gee_project,
             device="cpu",
             min_area=5000,
-            engine_params={"sam_refine": SAM_REFINE},
+            lulc_filter=False,  # Unsupervised clusters — no semantic filtering
+            engine_params={},
         )
         all_results[f"google_{year}"] = gdf
         print(f"  {year}: {len(gdf)} fields delineated")
@@ -123,7 +132,8 @@ def main():
             gee_project=gee_project,
             device="cpu",
             min_area=5000,
-            engine_params={"sam_refine": SAM_REFINE},
+            lulc_filter=False,  # Unsupervised clusters — no semantic filtering
+            engine_params={},
         )
         all_results[f"tessera_{year}"] = gdf
         print(f"  {year}: {len(gdf)} fields delineated")

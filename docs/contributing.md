@@ -161,15 +161,18 @@ agribound/
         base.py          # CompositeBuilder ABC + source registry
         gee.py           # GEE composite builder
         local.py         # Local/embedding composite builders
+        dynamic_world.py # Dynamic World crop probability utilities
     engines/
         __init__.py
         base.py          # DelineationEngine ABC + engine registry
         delineate_anything.py
         ftw.py
         geoai_field.py
+        dinov3.py        # DINOv3 ViT + DPT segmentation
         prithvi.py
         embedding.py
         ensemble.py
+        samgeo_engine.py # SAM2 boundary refinement
         finetune.py      # Fine-tuning orchestrator
     io/
         __init__.py
@@ -182,5 +185,6 @@ agribound/
         simplify.py      # Douglas-Peucker simplification
         regularize.py    # Polygon regularization
         filter.py        # Area and hole filtering
+        lulc_filter.py   # LULC crop filtering (NLCD / Dynamic World / C3S)
         merge.py         # Cross-tile polygon merging
 ```
