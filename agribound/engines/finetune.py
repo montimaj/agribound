@@ -194,8 +194,10 @@ def _prepare_training_data(raster_path: str, config: AgriboundConfig, engine: st
     from agribound.io.vector import read_vector
 
     cache_dir = config.get_working_dir()
-    # Isolate training data per engine to handle different band requirements
-    train_dir = cache_dir / f"finetune_data_{engine}"
+    # Isolate training data per engine AND source — different sensors produce
+    # different composites (spectral bands, resolution, nodata patterns).
+    source_tag = config.source.replace("-", "_")
+    train_dir = cache_dir / f"finetune_data_{engine}_{source_tag}"
 
     # Skip if already prepared
     if (train_dir / "images").exists() and any((train_dir / "images").glob("*.tif")):

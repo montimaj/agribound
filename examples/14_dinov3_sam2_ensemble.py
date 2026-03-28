@@ -76,11 +76,11 @@ SOURCES = ["sentinel2", "landsat", "hls", "naip", "spot"]
 
 # Year availability constraints
 SOURCE_YEAR_RANGE = {
-    "sentinel2": (2017, 2025),
     "landsat": (1985, 2025),
     "hls": (2013, 2025),
     "naip": (2003, 2025),
     "spot": (2012, 2023),
+    "sentinel2": (2017, 2025),
 }
 
 
