@@ -705,6 +705,14 @@ def _finetune_dinov3(train_dir: Path, config: AgriboundConfig) -> str:
         len(val_imgs),
     )
 
+    # Suppress noisy Lightning/PyTorch warnings during training
+    import warnings
+
+    warnings.filterwarnings("ignore", message=".*LeafSpec.*is deprecated.*")
+    warnings.filterwarnings("ignore", message=".*persistent_workers.*")
+    warnings.filterwarnings("ignore", message=".*pin_memory.*not supported on MPS.*")
+    logging.getLogger("lightning.pytorch").setLevel(logging.WARNING)
+
     train_dinov3_segmentation(
         train_dataset=train_dataset,
         val_dataset=val_dataset,
