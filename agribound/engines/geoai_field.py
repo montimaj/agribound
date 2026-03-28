@@ -130,7 +130,8 @@ class GeoAIEngine(DelineationEngine):
 
         # Run delineation (skip if cached output exists)
         cache_dir = config.get_working_dir()
-        output_path = str(cache_dir / "geoai_output.geojson")
+        source_tag = config.source.replace("-", "_")
+        output_path = str(cache_dir / f"geoai_output_{source_tag}.geojson")
 
         if Path(output_path).exists():
             logger.info("Using cached GeoAI output: %s", output_path)

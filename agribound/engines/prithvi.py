@@ -111,7 +111,8 @@ class PrithviEngine(DelineationEngine):
 
         # Run inference on tiles
         cache_dir = config.get_working_dir()
-        pred_path = str(cache_dir / "prithvi_segmentation.tif")
+        source_tag = config.source.replace("-", "_")
+        pred_path = str(cache_dir / f"prithvi_segmentation_{source_tag}.tif")
 
         if Path(pred_path).exists():
             logger.info("Using cached Prithvi segmentation: %s", pred_path)
@@ -198,7 +199,8 @@ class PrithviEngine(DelineationEngine):
 
         # Write cluster map as raster
         cache_dir = config.get_working_dir()
-        cluster_path = str(cache_dir / "prithvi_clusters.tif")
+        source_tag = config.source.replace("-", "_")
+        cluster_path = str(cache_dir / f"prithvi_clusters_{source_tag}.tif")
 
         if Path(cluster_path).exists():
             logger.info("Using cached Prithvi clusters: %s", cluster_path)

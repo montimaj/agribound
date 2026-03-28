@@ -249,7 +249,15 @@ def main():
             gdf = filter_polygons(gdf, min_area_m2=2500)
             print(f"{len(gdf)} fields")
 
-            # SAM2 boundary refinement
+            # Save pre-SAM ensemble for debugging
+            pre_sam_path = OUTPUT_DIR / f"fields_ensemble_dinov3_{year}_pre_sam.gpkg"
+            pre_sam_gdf = gdf.copy()
+            if pre_sam_gdf.crs is not None and str(pre_sam_gdf.crs) != OUTPUT_CRS:
+                pre_sam_gdf = pre_sam_gdf.to_crs(OUTPUT_CRS)
+            pre_sam_gdf.to_file(pre_sam_path, driver="GPKG", layer="fields")
+            print(f"  {year}: saved pre-SAM ensemble to {pre_sam_path}")
+
+            # SAM2 boundary refinement — use the source-specific raster
             if SAM_REFINE:
                 print(f"  {year}: refining {len(gdf)} boundaries with SAM2...", flush=True)
                 try:
@@ -257,12 +265,25 @@ def main():
                     from agribound.engines.samgeo_engine import refine_boundaries
 
                     raster_cache = OUTPUT_DIR / ".agribound_cache"
-                    raster_candidates = sorted(raster_cache.glob(f"*sentinel2*{year}*.tif"))
-                    if not raster_candidates:
-                        raster_candidates = sorted(raster_cache.glob(f"*{year}*.tif"))
-                    if raster_candidates:
+                    # Find the best available source raster from ensemble contributors
+                    sam_raster = None
+                    sam_source = None
+                    for src_name in year_results:
+                        candidates = sorted(raster_cache.glob(f"*{src_name}*{year}*.tif"))
+                        if candidates:
+                            sam_raster = str(candidates[0])
+                            sam_source = src_name
+                            break
+                    if sam_raster is None:
+                        candidates = sorted(raster_cache.glob(f"*{year}*.tif"))
+                        if candidates:
+                            sam_raster = str(candidates[0])
+                            sam_source = "sentinel2"
+
+                    if sam_raster:
+                        print(f"  {year}: SAM2 using {sam_source} raster: {sam_raster}")
                         sam_config = AgriboundConfig(
-                            source="sentinel2",
+                            source=sam_source,
                             engine="dinov3",
                             year=year,
                             study_area=study_area,
@@ -273,7 +294,7 @@ def main():
                             },
                             device="auto",
                         )
-                        gdf = refine_boundaries(gdf, str(raster_candidates[0]), sam_config)
+                        gdf = refine_boundaries(gdf, sam_raster, sam_config)
                         print(f"  {year}: SAM2 refined {len(gdf)} boundaries")
                     else:
                         print(f"  {year}: no raster found for SAM2, skipping")

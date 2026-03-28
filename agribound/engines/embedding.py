@@ -96,7 +96,8 @@ class EmbeddingEngine(DelineationEngine):
 
         # Write cluster raster
         cache_dir = config.get_working_dir()
-        cluster_path = str(cache_dir / "embedding_clusters.tif")
+        source_tag = config.source.replace("-", "_")
+        cluster_path = str(cache_dir / f"embedding_clusters_{source_tag}.tif")
 
         if Path(cluster_path).exists():
             logger.info("Using cached embedding clusters: %s", cluster_path)

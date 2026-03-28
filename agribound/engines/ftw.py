@@ -295,7 +295,8 @@ class FTWEngine(DelineationEngine):
                 model_name = _get_default_model(config.source)
 
         cache_dir = config.get_working_dir()
-        pred_path = str(cache_dir / f"ftw_prediction_{model_name}.tif")
+        source_tag = config.source.replace("-", "_")
+        pred_path = str(cache_dir / f"ftw_prediction_{model_name}_{source_tag}.tif")
 
         # Check if model needs 2 windows (8 bands) or 1 (4 bands)
         try:
@@ -346,7 +347,7 @@ class FTWEngine(DelineationEngine):
 
         # Polygonize
         output_ext = config.get_output_extension()
-        poly_path = str(cache_dir / f"ftw_polygons{output_ext}")
+        poly_path = str(cache_dir / f"ftw_polygons_{source_tag}{output_ext}")
 
         logger.info("Polygonizing FTW predictions")
         ftw_polygonize(

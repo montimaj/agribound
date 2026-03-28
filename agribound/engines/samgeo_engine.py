@@ -93,8 +93,9 @@ def refine_boundaries(
     device = config.resolve_device()
     cache_dir = config.get_working_dir()
 
-    # Prepare RGB raster for SAM
-    rgb_raster = str(cache_dir / "sam_refine_rgb.tif")
+    # Prepare RGB raster for SAM (source-tagged to avoid cache collisions)
+    source_tag = config.source.replace("-", "_")
+    rgb_raster = str(cache_dir / f"sam_refine_rgb_{source_tag}.tif")
     if not Path(rgb_raster).exists():
         from agribound.engines.base import get_canonical_band_indices
         from agribound.io.raster import select_and_reorder_bands

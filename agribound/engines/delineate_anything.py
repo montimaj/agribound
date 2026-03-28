@@ -217,7 +217,8 @@ class DelineateAnythingEngine(DelineationEngine):
             logger.warning("Cached DA output is empty, re-running inference")
 
         rgb_indices = get_canonical_band_indices(config.source, ["R", "G", "B"])
-        rgb_raster = str(cache_dir / "da_ftw_rgb_input.tif")
+        source_tag = config.source.replace("-", "_")
+        rgb_raster = str(cache_dir / f"da_ftw_rgb_input_{source_tag}.tif")
         if not Path(rgb_raster).exists():
             select_and_reorder_bands(raster_path, rgb_raster, rgb_indices)
 

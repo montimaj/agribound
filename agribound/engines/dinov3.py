@@ -98,8 +98,9 @@ class DINOv3Engine(DelineationEngine):
         device = config.resolve_device()
         cache_dir = config.get_working_dir()
 
-        # Prepare RGB input
-        rgb_raster = str(cache_dir / "dinov3_rgb_input.tif")
+        # Prepare RGB input (source-tagged to avoid cache collisions across sensors)
+        source_tag = config.source.replace("-", "_")
+        rgb_raster = str(cache_dir / f"dinov3_rgb_input_{source_tag}.tif")
         if not Path(rgb_raster).exists():
             from agribound.engines.base import get_canonical_band_indices
             from agribound.io.raster import select_and_reorder_bands
@@ -111,7 +112,7 @@ class DINOv3Engine(DelineationEngine):
             select_and_reorder_bands(raster_path, rgb_raster, rgb_indices)
 
         # Run segmentation
-        seg_path = str(cache_dir / "dinov3_segmentation.tif")
+        seg_path = str(cache_dir / f"dinov3_segmentation_{source_tag}.tif")
 
         if Path(seg_path).exists():
             logger.info("Using cached DINOv3 segmentation: %s", seg_path)
