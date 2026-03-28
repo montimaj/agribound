@@ -67,6 +67,31 @@ BATCH_SIZE = 8
 YEARS = [2020, 2021, 2022]
 VOTE_THRESHOLD = 0.3  # Fraction of sources that must agree
 
+# For NAIP (1 m) and SPOT (1.5 m), inference over the full county is too slow.
+# Use a ~20×20 km bbox over eastern Lea County where center pivots are dense.
+# This keeps NAIP inference under ~1 hour on a single GPU.
+HIGHRES_INFERENCE_BBOX = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-103.25, 32.75],
+                        [-103.05, 32.75],
+                        [-103.05, 32.95],
+                        [-103.25, 32.95],
+                        [-103.25, 32.75],
+                    ]
+                ],
+            },
+            "properties": {"name": "Eastern Lea County (center pivots)"},
+        }
+    ],
+}
+
 # SAM2 refinement per source (each source refined against its own raster)
 SAM_REFINE = True
 SAM_MODEL = "large"  # Per-field cropping makes large model feasible
@@ -132,6 +157,10 @@ def run_dinov3(source, year, study_area, gee_project, ref_path):
     The pipeline's built-in LULC filter removes non-agricultural polygons
     automatically.  SAM2 then refines only the crop field boundaries.
 
+    For NAIP (1 m) and SPOT (1.5 m), inference uses a smaller bbox over
+    eastern Lea County to keep runtimes practical.  Fine-tuning still uses
+    the full county composite + reference boundaries.
+
     Saves two GPKGs per source/year:
       1. *_lulc.gpkg  — LULC-filtered model output (pre-SAM)
       2. *.gpkg       — final (after SAM2 refinement)
@@ -142,12 +171,21 @@ def run_dinov3(source, year, study_area, gee_project, ref_path):
     if output_path.exists():
         return gpd.read_file(output_path), output_path
 
+    # For high-res sources, use smaller study area for inference
+    inference_study_area = study_area
+    if source in ("naip", "spot"):
+        highres_path = OUTPUT_DIR / f"study_area_highres_{source}.geojson"
+        with open(highres_path, "w") as f:
+            json.dump(HIGHRES_INFERENCE_BBOX, f)
+        inference_study_area = str(highres_path)
+        print(f"    Using eastern Lea County subset for {source} inference")
+
     # Use a temp path for the pipeline so it doesn't write to final output_path.
     # The final file is only written after all steps (including SAM2) complete.
     pipeline_path = OUTPUT_DIR / f"fields_dinov3_{source}_{year}_pipeline.gpkg"
 
     kwargs = dict(
-        study_area=study_area,
+        study_area=inference_study_area,
         source=source,
         year=year,
         engine="dinov3",

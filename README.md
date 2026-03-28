@@ -46,8 +46,8 @@ All spectral bands are downloaded for each sensor. Engines automatically select 
 | Sentinel-2 | `sentinel2` | 10 m | B1–B12, B8A (12 bands) | `COPERNICUS/S2_SR_HARMONIZED` | Default source; L2A surface reflectance |
 | Landsat | `landsat` | 30 m | SR_B2–SR_B7 (6 bands) | `LANDSAT/LC08/C02/T1_L2`, `LANDSAT/LC09/C02/T1_L2` | Long time-series; L5/7 bands harmonized to L8/9 naming |
 | HLS | `hls` | 30 m | B1–B7 (7 bands) | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
-| NAIP | `naip` | 1 m | R, G, B, N (4 bands) | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields |
-| SPOT 6/7 | `spot` | 1.5 m | R, G, B (3 bands) | Restricted –see [SPOT Access](#spot-access) | Restricted GEE collection; see note below |
+| NAIP | `naip` | 1 m | R, G, B, N (4 bands) | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields. **Very slow over large areas** (100–900x more pixels than S2) |
+| SPOT 6/7 | `spot` | 1.5 m | R, G, B (3 bands) | Restricted – see [SPOT Access](#spot-access) | Restricted GEE collection. **Very slow over large areas**; see note below |
 | Local GeoTIFF | `local` | Any | All bands | N/A | Bring your own imagery via `--local-tif` |
 | Google Embeddings | `google-embedding` | 10 m | 64-D embeddings | `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Pre-computed satellite embeddings |
 | TESSERA Embeddings | `tessera-embedding` | 10 m | 128-D embeddings | N/A | TESSERA foundation model embeddings |

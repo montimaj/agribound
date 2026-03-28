@@ -17,7 +17,7 @@ Dynamic World crop probability (or NLCD for US / C3S for pre-Sentinel) to
 keep only agricultural polygons.  Combining both gives us crop-only
 pseudo-labels with good boundaries.
 
-The study area is a ~10 km bbox near Pergamino, Buenos Aires Province,
+The study area is a region near Pergamino, Buenos Aires Province,
 covering intensive soybean/corn/wheat cropping.
 
 Estimated runtime: ~30–60 minutes (embedding download + fine-tuning +
@@ -58,7 +58,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 OUTPUT_DIR = Path("outputs/pampas_semi_supervised")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Study area: ~10 km bbox near Pergamino, Buenos Aires (Pampas heartland)
+# Study area: Pampas region near Pergamino, Buenos Aires
+# Coordinates extracted from pampas_region.geojson
 STUDY_AREA_BBOX = {
     "type": "FeatureCollection",
     "features": [
@@ -68,11 +69,12 @@ STUDY_AREA_BBOX = {
                 "type": "Polygon",
                 "coordinates": [
                     [
-                        [-60.65, -33.85],
-                        [-60.55, -33.85],
-                        [-60.55, -33.75],
-                        [-60.65, -33.75],
-                        [-60.65, -33.85],
+                        [-60.552058, -33.789222],
+                        [-60.274083, -33.734778],
+                        [-60.242050, -33.903368],
+                        [-60.363950, -33.995060],
+                        [-60.505737, -34.015376],
+                        [-60.552058, -33.789222],
                     ]
                 ],
             },
@@ -103,7 +105,6 @@ def main():
     gee_project = args.gee_project
     start_time = time.time()
 
-    # Write study area
     study_area_path = str(OUTPUT_DIR / "study_area.geojson")
     with open(study_area_path, "w") as f:
         json.dump(STUDY_AREA_BBOX, f)

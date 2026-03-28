@@ -210,3 +210,4 @@ NMOSE Field Boundaries
 .claude/
 outputs/
 weights/
+*.geojson

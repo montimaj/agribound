@@ -403,8 +403,11 @@ def _download_tile_local(
         Path to the downloaded GeoTIFF.
     """
     import time
+    import warnings
 
     import rasterio
+
+    warnings.filterwarnings("ignore", category=rasterio.errors.NodataShadowWarning)
 
     try:
         import geedim  # noqa: F401 — registers the ee.Image.gd accessor
