@@ -109,6 +109,11 @@ pip install agribound[all]
 
 **Supported sources**: `landsat`, `sentinel2`, `hls`, `naip`, `spot`, `local`
 
+!!! warning "When to use ensembles"
+    Ensembles work best when **multiple models run on the same sensor data**. Each architecture has different biases, and vote-merging cancels out individual errors because every model sees the same pixels.
+
+    Ensembles across **different sensors** (e.g., Sentinel-2 + Landsat + NAIP) do not work well due to resolution mismatch (1 m vs 30 m polygons), temporal mismatch (different overpass dates), and spatial alignment errors. For multi-sensor analysis, compare per-source results independently rather than merging them.
+
 ## SAM2 Boundary Refinement
 
 SAM2 is not a standalone engine — it is an optional **post-processing step** that refines field boundaries. Each polygon's bounding box is fed to SAM2 as a prompt, and SAM2 produces a pixel-accurate mask that replaces the original geometry.
@@ -147,9 +152,20 @@ SAM2 model variants: `"tiny"`, `"small"`, `"base_plus"`, `"large"` (default). Ba
 | High-resolution imagery (1--6 m), NAIP or SPOT | `delineate-anything` |
 | Sentinel-2 in a country covered by FTW pre-trained models | `ftw` |
 | General-purpose Sentinel-2 or NAIP with NDVI | `geoai` |
+| Fine-tuning on reference boundaries (any sensor) | `dinov3` (SAT-493M) |
 | Multi-temporal Landsat/HLS analysis | `prithvi` |
-| No GPU available, pre-computed embeddings exist | `embedding` |
-| Maximum accuracy, multiple engines available | `ensemble` |
+| No GPU, no reference data, global coverage | `embedding` + LULC filter |
+| Maximum accuracy, multiple engines on same sensor | `ensemble` |
+
+## Recommended Workflows
+
+| Situation | Approach | Example |
+|---|---|---|
+| **Reference boundaries available** | DINOv3 + SAM2 per source | Example 14 |
+| **No reference boundaries** | Embedding clustering + LULC filter + SAM2 | Example 15 |
+| **Multi-model ensemble** | All engines on same sensor, majority vote | Example 12 |
+| **Multi-year time series** | Single engine per year, fine-tune once | Example 01 |
+| **Quick local test** | Delineate-Anything on local GeoTIFF | Example 10 |
 
 ## GPU Requirements
 

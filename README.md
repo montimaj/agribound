@@ -19,6 +19,22 @@ Unlike other field boundary tools that detect *all* visual boundaries (roads, wa
 
 The result is a single `agribound.delineate()` call or CLI command that replaces dozens of ad hoc scripts with a reproducible, configurable workflow. Fifteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, eight satellite sources, and all delineation engines.
 
+## Results
+
+### Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)
+
+DINOv3 (SAT-493M satellite-pretrained) fine-tuned on NMOSE reference boundaries, with LULC crop filtering (NLCD) and per-field SAM2 refinement on 1 m NAIP imagery (2020). Blue polygons are model-predicted boundaries; yellow polygons are NMOSE reference boundaries. The study area bbox extends slightly into Texas, so fields along the NM–TX border are also delineated.
+
+![DINOv3 + SAM2 on NAIP — Eastern Lea County, New Mexico, USA](assets/NM_example.png)
+
+### Unsupervised: TESSERA Embeddings + LULC Filter + SAM2 (Pampas, Argentina)
+
+Fully automated pipeline with no reference boundaries or training. TESSERA (128-D) embedding clustering, LULC crop filtering (Dynamic World), and SAM2 boundary refinement on Sentinel-2 (2024).
+
+![TESSERA + LULC + SAM2 — Pampas, Argentina](assets/Pampas_example.png)
+
+*Note: The satellite basemap shown in these screenshots may not correspond to the same acquisition date as the imagery used for delineation. Field boundaries and crop patterns may differ between the basemap and the analysis period.*
+
 ## Features
 
 - **Multi-satellite support** – Landsat (30 m, 1984–present), Sentinel-2 (10 m), Harmonized Landsat Sentinel (HLS, 30 m), NAIP (1 m), and SPOT 6/7 (1.5 m)
@@ -268,9 +284,9 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [09_ensemble_comparison.py](examples/09_ensemble_comparison.py) | [notebook](examples/notebooks/09_ensemble_comparison.ipynb) | Multi-engine comparison and ensemble fusion |
 | [10_local_tif_quickstart.py](examples/10_local_tif_quickstart.py) | [notebook](examples/notebooks/10_local_tif_quickstart.ipynb) | Five-line quickstart using a local GeoTIFF with no GEE dependency |
 | [11_mississippi_alluvial_plain_spot.py](examples/11_mississippi_alluvial_plain_spot.py) | [notebook](examples/notebooks/11_mississippi_alluvial_plain_spot.ipynb) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
-| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-model grand ensemble (2020–2022) over Lea County, NM with per-model fine-tuning. Grand ensemble boundaries are refined by SAM2 after majority-vote merging |
+| [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-model per-source ensemble (2024) over Eastern Lea County, NM. Vote-merges engines within each sensor, not across resolutions |
 | [13_sam2_refine_dinov3.py](examples/13_sam2_refine_dinov3.py) | [notebook](examples/notebooks/13_sam2_refine_dinov3.ipynb) | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries |
-| [14_dinov3_sam2_ensemble.py](examples/14_dinov3_sam2_ensemble.py) | [notebook](examples/notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source comparison across 5 sensors (Eastern Lea County, NM) |
+| [14_dinov3_sam2_ensemble.py](examples/14_dinov3_sam2_ensemble.py) | [notebook](examples/notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source comparison across 5 sensors (Eastern Lea County, New Mexico, USA) |
 | [15_pampas_semi_supervised.py](examples/15_pampas_semi_supervised.py) | [notebook](examples/notebooks/15_pampas_semi_supervised.ipynb) | Automated pipeline: Google + TESSERA embeddings → LULC filter → SAM2 on S2. 6-way comparison, no training needed |
 
 ## Google Earth Engine Authentication

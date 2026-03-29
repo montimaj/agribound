@@ -1,28 +1,25 @@
 """
-12 — Lea County, NM: Multi-Source, Multi-Model Ensemble Time Series (2020–2022)
+12 — Eastern Lea County, NM: Multi-Model Per-Source Ensemble (2024)
 
-Comprehensive field boundary delineation using ALL available satellite
-products, delineation engines, and model variants with vote-based ensemble
-merging and per-model fine-tuning on NMOSE reference boundaries.
+Comprehensive field boundary delineation using all available satellite
+sources and engines with **per-source** vote-based ensemble merging.
+Ensembles are computed within each sensor (multiple models on same data),
+not across sensors — merging across different resolutions produces noisy
+results.
 
 Sources: Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings
 Engines: delineate-anything (2 variants), FTW (3 models: B3/B5/B7),
-         GeoAI, Prithvi, SamGeo (SAM2), embedding
+         GeoAI, DINOv3, Prithvi, embedding
 
-For each source, FTW is expanded into 3 EfficientNet models (B3, B5, B7)
-and Delineate-Anything into both model variants (full + small). Each model
-is independently fine-tuned on NMOSE reference boundaries before inference.
-For Sentinel-2, DA automatically routes through FTW's instance segmentation
-with proper S2 preprocessing and native MPS support.
+For each source, multiple engines are run and merged via majority vote.
+Each engine is independently fine-tuned on NMOSE reference boundaries.
+SAM2 refines each per-source ensemble using that source's native raster.
 
 Study area: Eastern Lea County (County 25), a ~20×22 km bbox over the
-center pivot irrigation area.  The ensemble runs every compatible
-source–engine–model combination per year and merges via majority-vote
-overlap, producing higher-confidence boundaries than any single run alone.
+center pivot irrigation area.
 
-Estimated runtime: ~3–6 hours (3 years × up to 20+ source–engine–model
-combos + per-model fine-tuning, GPU recommended).  Best run on HPC/cloud
-with GPU.
+Estimated runtime: ~3–6 hours (up to 20+ source–engine–model combos +
+per-model fine-tuning, GPU recommended).  Best run on HPC/cloud with GPU.
 
 Prerequisites:
     pip install agribound[gee,delineate-anything,ftw,geoai,prithvi,samgeo]
@@ -75,7 +72,7 @@ BATCH_SIZE = 8  # Increase for more RAM (e.g. 16 for 128 GB)
 SAM_REFINE = True  # Refine boundaries with SAM2 (requires pip install agribound[samgeo])
 SAM_MODEL = "tiny"  # SAM2 variant: "tiny", "small", "base_plus", "large"
 SAM_BATCH_SIZE = 50  # Number of field boxes per SAM2 batch
-YEARS = range(2020, 2023)
+YEARS = [2024]
 VOTE_THRESHOLD = 0.3  # Fraction of source–engine combos that must agree
 
 # Source → compatible engines
@@ -388,111 +385,120 @@ def main():
                         print(f"  {tag}: FAILED — {exc}")
 
     # ================================================================
-    # Phase 2: Grand ensemble per year (vote merge)
+    # Phase 2: Per-source ensemble (vote merge across engines, not sensors)
     # ================================================================
+    # Ensembles work best when multiple models run on the same sensor.
+    # Merging across different sensors (1m NAIP + 30m Landsat) produces
+    # noisy vote overlap due to resolution/temporal mismatches.
     print(f"\n{'=' * 70}")
-    print(f"Phase 2: Grand ensemble (vote threshold={VOTE_THRESHOLD})")
+    print(f"Phase 2: Per-source ensemble (vote threshold={VOTE_THRESHOLD})")
     print(f"{'=' * 70}")
 
-    ensemble_results = {}
+    from agribound.postprocess import filter_polygons
+
+    ensemble_results = {}  # {year: {source: gdf}}
 
     for year in YEARS:
         year_results = all_results.get(year, {})
-        if len(year_results) < 2:
-            print(f"\n  {year}: only {len(year_results)} result(s), skipping ensemble.")
+        if not year_results:
             continue
 
-        output_path = OUTPUT_DIR / f"fields_grand_ensemble_{year}.gpkg"
+        ensemble_results[year] = {}
 
-        if output_path.exists():
-            print(f"\n  {year}: already exists, loading.")
-            ensemble_results[year] = gpd.read_file(output_path)
-            continue
+        # Group results by source
+        source_groups = {}  # {source: {tag: gdf}}
+        for tag, gdf in year_results.items():
+            source = tag.split("/")[0]
+            source_groups.setdefault(source, {})[tag] = gdf
 
-        print(f"\n  {year}: merging {len(year_results)} source–engine results...", end=" ")
-        try:
-            gdf = grand_ensemble_vote(year_results, VOTE_THRESHOLD)
+        for source, engine_results in sorted(source_groups.items()):
+            if len(engine_results) < 2:
+                # Single engine — use directly, no vote needed
+                only_gdf = next(iter(engine_results.values()))
+                ensemble_results[year][source] = only_gdf
+                print(f"  {year}/{source}: single engine, {len(only_gdf)} fields")
+                continue
 
-            # Post-process: filter small polygons
-            from agribound.postprocess import filter_polygons
+            output_path = OUTPUT_DIR / f"fields_ensemble_{source}_{year}.gpkg"
 
-            gdf = filter_polygons(gdf, min_area_m2=2500)
-            print(f"{len(gdf)} fields")
+            if output_path.exists():
+                ensemble_results[year][source] = gpd.read_file(output_path)
+                print(f"  {year}/{source}: loaded cached ensemble")
+                continue
 
-            # SAM2 boundary refinement on the final ensemble
-            if SAM_REFINE:
-                print(f"  {year}: refining {len(gdf)} ensemble boundaries with SAM2...", flush=True)
-                try:
-                    from agribound.config import AgriboundConfig
-                    from agribound.engines.samgeo_engine import refine_boundaries
+            print(
+                f"  {year}/{source}: merging {len(engine_results)} engines...",
+                end=" ",
+            )
+            try:
+                gdf = grand_ensemble_vote(engine_results, VOTE_THRESHOLD)
+                gdf = filter_polygons(gdf, min_area_m2=2500)
+                print(f"{len(gdf)} fields")
 
-                    # Find the raster for this year (use sentinel2 composite as default)
-                    raster_cache = OUTPUT_DIR / ".agribound_cache"
-                    raster_candidates = sorted(raster_cache.glob(f"*sentinel2*{year}*.tif"))
-                    if not raster_candidates:
-                        raster_candidates = sorted(raster_cache.glob(f"*{year}*.tif"))
-                    if raster_candidates:
-                        sam_config = AgriboundConfig(
-                            source="sentinel2",
-                            engine="ftw",
-                            year=year,
-                            study_area=study_area,
-                            output_path=str(output_path),
-                            engine_params={
-                                "sam_model": SAM_MODEL,
-                                "sam_batch_size": SAM_BATCH_SIZE,
-                            },
-                            device="auto",
-                        )
-                        gdf = refine_boundaries(gdf, str(raster_candidates[0]), sam_config)
-                        print(f"  {year}: SAM2 refined {len(gdf)} boundaries")
-                    else:
-                        print(f"  {year}: no raster found for SAM2 refinement, skipping")
-                except Exception as exc:
-                    print(f"  {year}: SAM2 refinement failed: {exc}")
+                # SAM2 refinement using this source's raster
+                if SAM_REFINE:
+                    try:
+                        from agribound.config import AgriboundConfig
+                        from agribound.engines.samgeo_engine import refine_boundaries
 
-            # Reproject to match NMOSE reference CRS
-            if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
-                gdf = gdf.to_crs(OUTPUT_CRS)
-            gdf.to_file(output_path, driver="GPKG", layer="fields")
+                        raster_cache = OUTPUT_DIR / ".agribound_cache"
+                        raster_candidates = sorted(raster_cache.glob(f"*{source}*{year}*.tif"))
+                        if raster_candidates:
+                            sam_config = AgriboundConfig(
+                                source=source,
+                                engine="ensemble",
+                                year=year,
+                                study_area=study_area,
+                                output_path=str(output_path),
+                                engine_params={
+                                    "sam_model": SAM_MODEL,
+                                    "sam_batch_size": SAM_BATCH_SIZE,
+                                },
+                                device="auto",
+                            )
+                            gdf = refine_boundaries(gdf, str(raster_candidates[0]), sam_config)
+                            print(f"    SAM2 refined → {len(gdf)} fields")
+                    except Exception as exc:
+                        print(f"    SAM2 failed: {exc}")
 
-            ensemble_results[year] = gdf
-        except Exception as exc:
-            print(f"FAILED — {exc}")
+                if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
+                    gdf = gdf.to_crs(OUTPUT_CRS)
+                gdf.to_file(output_path, driver="GPKG", layer="fields")
+                ensemble_results[year][source] = gdf
+            except Exception as exc:
+                print(f"FAILED — {exc}")
 
     # ================================================================
-    # Phase 3: Evaluation against NMOSE reference (Lea County)
+    # Phase 3: Evaluation against NMOSE reference
     # ================================================================
     print(f"\n{'=' * 70}")
-    print("Phase 3: Evaluation against NMOSE reference (Lea County)")
+    print("Phase 3: Evaluation against NMOSE reference")
     print(f"{'=' * 70}")
 
-    header = (
-        f"  {'Year':<6} {'Source/Engine':<40} {'Fields':>6} {'F1':>6} {'IoU':>6} {'P':>6} {'R':>6}"
-    )
+    header = f"  {'Source/Engine':<40} {'Fields':>6} {'F1':>6} {'IoU':>6} {'P':>6} {'R':>6}"
     print(f"\n{header}")
-    print(f"  {'-' * 6} {'-' * 40} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6}")
+    print(f"  {'-' * 40} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6}")
 
     for year in YEARS:
-        # Evaluate individual runs
+        # Individual runs
         for tag, gdf in sorted(all_results.get(year, {}).items()):
             try:
                 m = evaluate(gdf, ref_gdf)
                 print(
-                    f"  {year:<6} {tag:<40} {len(gdf):>6} "
+                    f"  {tag:<40} {len(gdf):>6} "
                     f"{m['f1']:.3f} {m['iou_mean']:.3f} "
                     f"{m['precision']:.3f} {m['recall']:.3f}"
                 )
             except Exception:
                 pass
 
-        # Evaluate grand ensemble
-        gdf = ensemble_results.get(year)
-        if gdf is not None:
+        # Per-source ensembles
+        year_ensembles = ensemble_results.get(year, {})
+        for source, gdf in sorted(year_ensembles.items()):
             try:
                 m = evaluate(gdf, ref_gdf)
                 print(
-                    f"  {year:<6} {'** GRAND ENSEMBLE **':<40} {len(gdf):>6} "
+                    f"  {'** ' + source + ' ENSEMBLE **':<40} {len(gdf):>6} "
                     f"{m['f1']:.3f} {m['iou_mean']:.3f} "
                     f"{m['precision']:.3f} {m['recall']:.3f}"
                 )
@@ -500,31 +506,7 @@ def main():
                 pass
 
     # ================================================================
-    # Phase 4: Ensemble time series summary
-    # ================================================================
-    print(f"\n{'=' * 70}")
-    print("Grand Ensemble Time Series Summary")
-    print(f"{'=' * 70}")
-    print(f"  {'Year':<6} {'Fields':>6} {'Area (ha)':>12} {'Sources':>8} {'F1':>6} {'IoU':>6}")
-    print(f"  {'-' * 6} {'-' * 6} {'-' * 12} {'-' * 8} {'-' * 6} {'-' * 6}")
-
-    for year in YEARS:
-        gdf = ensemble_results.get(year)
-        if gdf is None:
-            continue
-        area_ha = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
-        n_sources = len(all_results.get(year, {}))
-        try:
-            m = evaluate(gdf, ref_gdf)
-            print(
-                f"  {year:<6} {len(gdf):>6} {area_ha:>12,.1f} "
-                f"{n_sources:>8} {m['f1']:.3f} {m['iou_mean']:.3f}"
-            )
-        except Exception:
-            print(f"  {year:<6} {len(gdf):>6} {area_ha:>12,.1f} {n_sources:>8}")
-
-    # ================================================================
-    # Phase 5: Visualization
+    # Phase 4: Visualization
     # ================================================================
     print(f"\n{'=' * 70}")
     print("Generating maps...")
@@ -532,55 +514,21 @@ def main():
 
     from agribound.visualize import show_comparison
 
-    # Grand ensemble vs NMOSE reference (latest year)
-    if ensemble_results:
-        latest_year = max(ensemble_results.keys())
+    for year in YEARS:
+        year_ensembles = ensemble_results.get(year, {})
+        if not year_ensembles:
+            continue
+
+        # Per-source ensemble comparison + reference
+        comp_gdfs = list(year_ensembles.values()) + [ref_gdf]
+        comp_labels = [f"{s} ensemble" for s in year_ensembles] + ["NMOSE Reference"]
         show_comparison(
-            [ensemble_results[latest_year], ref_gdf],
-            labels=[f"Grand Ensemble ({latest_year})", "NMOSE Reference"],
+            comp_gdfs,
+            labels=comp_labels,
             basemap="Esri.WorldImagery",
-            output_html=str(OUTPUT_DIR / "map_ensemble_vs_reference.html"),
+            output_html=str(OUTPUT_DIR / f"map_ensemble_comparison_{year}.html"),
         )
-        print(f"  Ensemble vs Reference: {OUTPUT_DIR / 'map_ensemble_vs_reference.html'}")
-
-    # Per-source–engine comparison for latest year
-    if ensemble_results:
-        latest = all_results.get(latest_year, {})
-        if latest:
-            comp_gdfs = list(latest.values())
-            comp_labels = list(latest.keys())
-            comp_gdfs.append(ensemble_results[latest_year])
-            comp_labels.append("Grand Ensemble")
-
-            show_comparison(
-                comp_gdfs,
-                labels=comp_labels,
-                basemap="Esri.WorldImagery",
-                output_html=str(OUTPUT_DIR / "map_source_engine_comparison.html"),
-            )
-            print(f"  Source–engine comparison: {OUTPUT_DIR / 'map_source_engine_comparison.html'}")
-
-    # Ensemble time series (all 3 years)
-    ts_gdfs = [ensemble_results[y] for y in YEARS if y in ensemble_results]
-    ts_labels = [str(y) for y in YEARS if y in ensemble_results]
-
-    if len(ts_gdfs) >= 2:
-        show_comparison(
-            ts_gdfs,
-            labels=ts_labels,
-            basemap="Esri.WorldImagery",
-            output_html=str(OUTPUT_DIR / "map_ensemble_timeseries.html"),
-        )
-        print(f"  Time series: {OUTPUT_DIR / 'map_ensemble_timeseries.html'}")
-
-    # Latest year standalone map
-    if ensemble_results:
-        agribound.show_boundaries(
-            ensemble_results[max(ensemble_results.keys())],
-            basemap="Esri.WorldImagery",
-            output_html=str(OUTPUT_DIR / "map_latest.html"),
-        )
-        print(f"  Latest year map: {OUTPUT_DIR / 'map_latest.html'}")
+        print(f"  Ensemble comparison: {OUTPUT_DIR / f'map_ensemble_comparison_{year}.html'}")
 
 
 if __name__ == "__main__":

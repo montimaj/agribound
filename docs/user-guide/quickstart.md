@@ -145,3 +145,16 @@ Each output polygon includes metadata columns:
 | `agribound:engine` | Engine used for delineation |
 | `agribound:source` | Satellite source |
 | `agribound:year` | Target year |
+| `lulc:crop_fraction` | Crop probability/fraction from LULC filter (when `lulc_filter=True`) |
+
+## Examples
+
+Fifteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, eight satellite sources, and all delineation engines. See the [examples README](https://github.com/montimaj/agribound/tree/main/examples) for full details.
+
+| Situation | Approach | Example |
+|---|---|---|
+| **Reference boundaries available** | DINOv3 + SAM2 per source | Example 14 |
+| **No reference boundaries** | Embedding clustering + LULC filter + SAM2 | Example 15 |
+| **Multi-model ensemble** | All engines on same sensor, majority vote | Example 12 |
+| **Multi-year time series** | Single engine per year, fine-tune once | Example 01 |
+| **Quick local test** | Delineate-Anything on local GeoTIFF | Example 10 |

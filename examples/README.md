@@ -64,7 +64,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 09 | `09_ensemble_comparison.py` | Andalusia, Spain | Sentinel-2 | ensemble | ~30--60 min | Runs delineate-anything, FTW, and geoai on the same AOI, then runs the ensemble engine with vote strategy. Visualizes per-engine and consensus results. |
 | 10 | `10_local_tif_quickstart.py` | User-provided | Local GeoTIFF | delineate-anything | ~2--5 min | Minimal 5-line quickstart using a local file. No GEE required. Edit `LOCAL_TIF` and `STUDY_AREA` paths before running. |
 | 11 | `11_mississippi_alluvial_plain_spot.py` | Mississippi Alluvial Plain, USA | SPOT 6/7 | delineate-anything | ~15--30 min | SPOT-based delineation of row-crop agriculture (2021--2023). Includes cross-year stability analysis using IoU/F1. **Restricted access** -- see note below. |
-| 12 | `12_new_mexico_ensemble_timeseries.py` | Eastern Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (ensemble) | ~3--6 h | Multi-source, multi-model ensemble (2020--2022) over ~20 km center pivot area with per-model fine-tuning (DA, GeoAI, DINOv3, Prithvi). Grand ensemble boundaries refined by SAM2 after majority-vote merging. Best run on HPC/cloud with GPU. |
+| 12 | `12_new_mexico_ensemble_timeseries.py` | Eastern Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (per-source ensemble) | ~3--6 h | Multi-model **per-source** ensemble (2024) over ~20 km center pivot area. Runs all engines per sensor and vote-merges within each source (not across sensors). SAM2 refines each per-source ensemble. Best run on HPC/cloud with GPU. |
 | 13 | `13_sam2_refine_dinov3.py` | Lea County, NM, USA | Sentinel-2 | SAM2 refinement | ~5--15 min | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries (555 fields). Crops each field from the raster and refines with SAM2 box prompts. Compares before/after metrics against NMOSE reference. |
 | 14 | `14_dinov3_sam2_ensemble.py` | Eastern Lea County, NM, USA | Sentinel-2, Landsat, HLS, NAIP, SPOT | DINOv3 + SAM2 | ~1--2 h | Runs DINOv3 (SAT-493M) across 5 satellite sources with per-source SAM2 refinement. Compares per-source results against NMOSE reference boundaries. Uses a ~20 km bbox over the center pivot area to keep NAIP/SPOT runtimes practical. |
 | 15 | `15_pampas_semi_supervised.py` | Pampas (Pergamino), Argentina | Google + TESSERA embeddings + Dynamic World + Sentinel-2 | Embedding + SAM2 (no training) | ~15--30 min | Fully automated pipeline requiring **no reference boundaries or training**. Clusters Google (64-D) and TESSERA (128-D) embeddings, LULC-filters to crops, then refines with SAM2 using both S2 and TESSERA native bands. Includes improved SAM2 with geometry fixes, polygon exploding, and large-field separation. TESSERA produces more accurate boundaries than Google (see [Embedding Comparison](#embedding-comparison-google-vs-tessera-example-15)). GPU recommended. |
@@ -127,16 +127,23 @@ The appropriate LULC dataset is selected automatically based on the study area l
 
 Examples 08 and 11 use SPOT 6/7 imagery, which is restricted to select GEE users under a data-sharing agreement. This source is primarily for internal DRI use. If you receive an access error, contact the agribound author (sayantan.majumdar@dri.edu) to request field boundary processing for your study area.
 
-## Recommended Approach: DINOv3 + SAM2 (Example 14)
+## When to Use Ensembles
 
-Based on testing over Lea County, NM, the **DINOv3 + SAM2 multi-source ensemble** (example 14) produces the best results. Key findings:
+Ensembles work best when **multiple models are run on the same sensor data**. Each model architecture (DA, FTW, GeoAI, DINOv3, Prithvi) has different biases — vote-merging across models cancels out individual errors because every model sees the **same pixels** but interprets them differently.
 
-- **DINOv3 fine-tuned per source** produces cleaner field boundaries than other engines. The ViT backbone adapts well to each sensor's spectral characteristics with just 10--30 epochs of fine-tuning.
-- **FTW over-segments** in this region, picking up too many small polygons (roads, pivot edges, noise). FTW is designed for global generalization across 25 countries but tends to be aggressive in arid/irrigated landscapes like southeastern New Mexico.
-- **Per-source SAM2 boundary refinement** produces pixel-accurate edges using each sensor's native raster at its own resolution, avoiding resolution mismatches from refining against a single raster. Pre-SAM outputs are saved for comparison.
-- **Multi-source diversity** (Sentinel-2, Landsat, HLS, NAIP, SPOT) provides more meaningful ensemble diversity than running multiple model architectures on the same image.
+Ensembles across **different sensors** (e.g., Sentinel-2 + Landsat + NAIP) do not work well because:
 
-For new study areas with reference boundaries available for fine-tuning, we recommend starting with example 14 (DINOv3 + SAM2) rather than the full multi-model ensemble (example 12).
+- **Resolution mismatch** — a 1 m NAIP polygon and a 30 m Landsat polygon for the same field have different shapes, producing poor vote overlap
+- **Temporal mismatch** — each sensor captures different dates, so field states (bare vs cropped) may differ
+- **Spatial alignment** — sub-pixel registration errors between sensors create artificial disagreements at boundaries
+
+For multi-sensor analysis, **compare per-source results independently** (example 14) rather than merging them. The multi-model ensemble (example 12) runs all engines on the same eastern Lea County area for this reason.
+
+## Recommended Approaches
+
+- **With reference boundaries:** DINOv3 + SAM2 per source (example 14). DINOv3's SAT-493M backbone fine-tunes well on each sensor with just 10--30 epochs.
+- **Without reference boundaries:** Embedding clustering + LULC filter + SAM2 (example 15). TESSERA embeddings produce more accurate boundaries than Google (see below). No training required.
+- **Multi-model ensemble:** Example 12 runs all engines on the same sensor and merges via majority vote. Best accuracy but slowest.
 
 ## Embedding Comparison: Google vs TESSERA (Example 15)
 
@@ -154,7 +161,7 @@ For new study areas **without reference boundaries**, we recommend the example 1
 
 ## NMOSE Reference Data
 
-Examples 01 and 12 use NMOSE (New Mexico Office of the State Engineer) WUCB agricultural polygon boundaries located in `examples/NMOSE Field Boundaries/WUCB ag polys.shp` for fine-tuning and evaluation. Example 12 filters to Lea County (County 25). This shapefile is included in the repository.
+Examples 01, 12, 13, and 14 use NMOSE (New Mexico Office of the State Engineer) WUCB agricultural polygon boundaries located in `examples/NMOSE Field Boundaries/WUCB ag polys.shp` for fine-tuning and/or evaluation. Examples 12 and 14 filter to eastern Lea County (County 25). Example 13 uses pre-computed DINOv3 boundaries from Lea County for standalone SAM2 refinement. This shapefile is included in the repository.
 
 ## Output Structure
 
