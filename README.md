@@ -250,7 +250,7 @@ agribound/
 ├── examples/                   # Example scripts (15) and Jupyter notebooks
 │   ├── 01–15_*.py              # Runnable Python scripts
 │   ├── notebooks/              # Interactive notebook versions
-│   └── NMOSE Field Boundaries/ # Reference shapefile (NM)
+│   └── NMOSE Field Boundaries/ # Reference shapefile (NM, not public)
 ├── tests/                      # Pytest suite
 │   ├── unit/                   # Unit tests (config, evaluate, I/O, postprocess, LULC)
 │   └── integration/            # Integration tests (CLI, local pipeline)

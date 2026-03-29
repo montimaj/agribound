@@ -161,7 +161,7 @@ For new study areas **without reference boundaries**, we recommend the example 1
 
 ## NMOSE Reference Data
 
-Examples 01, 12, 13, and 14 use NMOSE (New Mexico Office of the State Engineer) WUCB agricultural polygon boundaries located in `examples/NMOSE Field Boundaries/WUCB ag polys.shp` for fine-tuning and/or evaluation. Examples 12 and 14 filter to eastern Lea County (County 25). Example 13 uses pre-computed DINOv3 boundaries from Lea County for standalone SAM2 refinement. This shapefile is included in the repository.
+Examples 01, 12, 13, and 14 use NMOSE (New Mexico Office of the State Engineer) WUCB agricultural polygon boundaries for fine-tuning and/or evaluation. Examples 12 and 14 filter to eastern Lea County (County 25). Example 13 uses pre-computed DINOv3 boundaries from Lea County for standalone SAM2 refinement. The NMOSE shapefile is not included in the public repository — contact the agribound author (sayantan.majumdar@dri.edu) for access.
 
 ## Output Structure
 
