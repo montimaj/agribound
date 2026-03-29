@@ -264,9 +264,15 @@ def _normalize_to_uint8(arr: np.ndarray) -> np.ndarray:
     out = np.zeros_like(arr, dtype=np.uint8)
     for b in range(arr.shape[2]):
         band = arr[:, :, b].astype(np.float64)
-        p2, p98 = np.nanpercentile(band, [2, 98])
+        # Mask out inf/nan before computing percentiles
+        valid = band[np.isfinite(band)]
+        if len(valid) == 0:
+            continue
+        p2, p98 = np.percentile(valid, [2, 98])
         if p98 > p2:
-            band = (band - p2) / (p98 - p2) * 255
+            band = np.where(np.isfinite(band), (band - p2) / (p98 - p2) * 255, 0)
+        else:
+            band = np.where(np.isfinite(band), 128, 0)
         band = np.clip(band, 0, 255)
         out[:, :, b] = band.astype(np.uint8)
     return out

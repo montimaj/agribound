@@ -211,3 +211,4 @@ NMOSE Field Boundaries
 outputs/
 weights/
 *.geojson
+global_*

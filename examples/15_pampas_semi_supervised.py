@@ -1,24 +1,26 @@
 """
-15 — Semi-Supervised Field Delineation (Pampas, Argentina)
+15 — Automated Field Delineation (Pampas, Argentina)
 
 Demonstrates a fully automated pipeline that requires **no human-labeled
-reference boundaries**:
+reference boundaries or model training**:
 
-    1. Download Google Satellite Embeddings → K-means clustering → all polygons
-    2. LULC crop filter (Dynamic World) → crop-only polygons
-    3. Download Sentinel-2 RGB composite
-    4. SAM2 refines each crop polygon's boundary using Sentinel-2 imagery
+    1. Download Google (64-D) and TESSERA (128-D) embeddings → K-means clustering
+    2. LULC crop filter (Dynamic World) → crop-only polygons per embedding
+    3. Download Sentinel-2 (10 m) composite
+    4. SAM2 refines crop polygons from each embedding using S2 imagery
+    5. 6-way comparison: 2 embeddings × (raw, LULC-filtered, SAM2/S2)
 
 The key insight: embedding clusters provide spectral boundaries but no
 semantics.  The LULC filter keeps only agricultural polygons.  SAM2 then
 refines the rough cluster boundaries to pixel-accurate field edges using
-the Sentinel-2 imagery.  No fine-tuning or model training required.
+Sentinel-2 imagery.  Comparing Google vs TESSERA embeddings reveals how
+embedding source affects boundary quality.
 
 The study area is a region near Pergamino, Buenos Aires Province,
 covering intensive soybean/corn/wheat cropping.
 
-Estimated runtime: ~15–30 minutes (embedding download + S2 download +
-SAM2 refinement, GPU recommended).
+Estimated runtime: ~15–30 minutes (embedding + S2 download + SAM2
+refinement, GPU recommended).
 
 Prerequisites:
     pip install agribound[gee,samgeo]
@@ -80,7 +82,7 @@ STUDY_AREA_BBOX = {
     ],
 }
 
-YEAR = 2020
+YEAR = 2024
 MIN_AREA = 5000  # m²
 CROP_PROB_THRESHOLD = 0.3  # LULC crop probability threshold
 
@@ -113,27 +115,53 @@ def main():
     print("Phase 1: Embedding clustering → all polygons")
     print(f"{'=' * 70}")
 
-    all_clusters_path = OUTPUT_DIR / f"all_clusters_google_{YEAR}.gpkg"
+    # Google Satellite Embeddings (64-D)
+    google_clusters_path = OUTPUT_DIR / f"all_clusters_google_{YEAR}.gpkg"
 
-    if all_clusters_path.exists():
-        print(f"  Using cached clusters: {all_clusters_path}")
-        all_clusters_gdf = gpd.read_file(all_clusters_path)
+    if google_clusters_path.exists():
+        print(f"  Using cached Google clusters: {google_clusters_path}")
+        google_clusters_gdf = gpd.read_file(google_clusters_path)
     else:
         print(f"  Downloading Google embeddings and clustering ({YEAR})...")
-        all_clusters_gdf = agribound.delineate(
+        google_clusters_gdf = agribound.delineate(
             study_area=study_area_path,
             source="google-embedding",
             year=YEAR,
             engine="embedding",
-            output_path=str(all_clusters_path),
+            output_path=str(google_clusters_path),
             gee_project=gee_project,
             device="cpu",
             min_area=MIN_AREA,
-            lulc_filter=False,  # Disable — we filter manually in Phase 2
+            lulc_filter=False,
             engine_params={},
         )
 
-    print(f"  All clusters: {len(all_clusters_gdf)} polygons")
+    print(f"  Google clusters: {len(google_clusters_gdf)} polygons")
+
+    # TESSERA Embeddings (128-D)
+    # Note: TESSERA coverage varies by region/year (2017-2025).
+    # See https://github.com/ucam-eo/geotessera for availability.
+    tessera_clusters_path = OUTPUT_DIR / f"all_clusters_tessera_{YEAR}.gpkg"
+
+    if tessera_clusters_path.exists():
+        print(f"  Using cached TESSERA clusters: {tessera_clusters_path}")
+        tessera_clusters_gdf = gpd.read_file(tessera_clusters_path)
+    else:
+        print(f"  Downloading TESSERA embeddings and clustering ({YEAR})...")
+        tessera_clusters_gdf = agribound.delineate(
+            study_area=study_area_path,
+            source="tessera-embedding",
+            year=YEAR,
+            engine="embedding",
+            output_path=str(tessera_clusters_path),
+            gee_project=gee_project,
+            device="cpu",
+            min_area=MIN_AREA,
+            lulc_filter=False,
+            engine_params={},
+        )
+
+    print(f"  TESSERA clusters: {len(tessera_clusters_gdf)} polygons")
 
     # ================================================================
     # Phase 2: LULC crop filter → crop-only polygons
@@ -143,27 +171,31 @@ def main():
     print(f"{'=' * 70}")
 
     from agribound.config import AgriboundConfig
+    from agribound.postprocess.lulc_filter import filter_by_lulc
 
-    crop_path = OUTPUT_DIR / f"fields_crop_clusters_{YEAR}.gpkg"
-
-    if crop_path.exists():
-        print(f"  Using cached crop polygons: {crop_path}")
-        pseudo_gdf = gpd.read_file(crop_path)
-    else:
-        from agribound.postprocess.lulc_filter import filter_by_lulc
-
-        filter_config = AgriboundConfig(
+    def _lulc_filter(clusters_gdf, source_name, cache_name):
+        """LULC-filter clusters, with caching."""
+        path = OUTPUT_DIR / f"fields_crop_{cache_name}_{YEAR}.gpkg"
+        if path.exists():
+            print(f"  Using cached {cache_name} crop polygons: {path}")
+            return gpd.read_file(path)
+        config = AgriboundConfig(
             study_area=study_area_path,
-            source="google-embedding",
+            source=source_name,
             year=YEAR,
-            output_path=str(all_clusters_path),
+            output_path=str(path),
             gee_project=gee_project,
             lulc_crop_threshold=CROP_PROB_THRESHOLD,
         )
-        pseudo_gdf = filter_by_lulc(all_clusters_gdf, filter_config)
-        pseudo_gdf.to_file(crop_path, driver="GPKG", layer="fields")
+        result = filter_by_lulc(clusters_gdf, config)
+        result.to_file(path, driver="GPKG", layer="fields")
+        return result
 
-    print(f"  Crop polygons: {len(pseudo_gdf)} (filtered from {len(all_clusters_gdf)})")
+    google_crop_gdf = _lulc_filter(google_clusters_gdf, "google-embedding", "google")
+    print(f"  Google crop polygons: {len(google_crop_gdf)} (from {len(google_clusters_gdf)})")
+
+    tessera_crop_gdf = _lulc_filter(tessera_clusters_gdf, "tessera-embedding", "tessera")
+    print(f"  TESSERA crop polygons: {len(tessera_crop_gdf)} (from {len(tessera_clusters_gdf)})")
 
     # ================================================================
     # Phase 3: Download Sentinel-2 composite
@@ -172,11 +204,14 @@ def main():
     print("Phase 3: Download Sentinel-2 composite")
     print(f"{'=' * 70}")
 
-    # Build S2 study area from pseudo-label extent
-    ref_bounds_gdf = pseudo_gdf.to_crs(epsg=4326)
+    # Build study area bbox from crop polygon extent
+    import pandas as pd
+
+    all_crop_gdf = pd.concat([google_crop_gdf, tessera_crop_gdf], ignore_index=True)
+    ref_bounds_gdf = all_crop_gdf.to_crs(epsg=4326)
     bounds = ref_bounds_gdf.total_bounds
-    s2_study_area_path = str(OUTPUT_DIR / "study_area_s2.geojson")
-    s2_bbox = {
+    composite_study_area_path = str(OUTPUT_DIR / "study_area_composite.geojson")
+    composite_bbox = {
         "type": "FeatureCollection",
         "features": [
             {
@@ -193,18 +228,17 @@ def main():
                         ]
                     ],
                 },
-                "properties": {"name": "S2 composite extent"},
+                "properties": {"name": "Composite extent"},
             }
         ],
     }
-    with open(s2_study_area_path, "w") as f:
-        json.dump(s2_bbox, f)
+    with open(composite_study_area_path, "w") as f:
+        json.dump(composite_bbox, f)
 
-    # Download S2 composite via the pipeline's composite builder
     from agribound.composites import get_composite_builder
 
     s2_config = AgriboundConfig(
-        study_area=s2_study_area_path,
+        study_area=composite_study_area_path,
         source="sentinel2",
         year=YEAR,
         output_path=str(OUTPUT_DIR / "s2_composite.gpkg"),
@@ -213,51 +247,63 @@ def main():
         cloud_cover_max=20,
         date_range=(f"{YEAR}-10-01", f"{YEAR}-10-31"),
     )
-    builder = get_composite_builder("sentinel2")
-    s2_raster = builder.build(s2_config)
+    s2_raster = get_composite_builder("sentinel2").build(s2_config)
     print(f"  Sentinel-2 composite: {s2_raster}")
 
     # ================================================================
-    # Phase 4: SAM2 boundary refinement
+    # Phase 4: SAM2 boundary refinement (S2)
     # ================================================================
     print(f"\n{'=' * 70}")
     print("Phase 4: SAM2 boundary refinement on crop polygons")
     print(f"{'=' * 70}")
 
-    output_path = OUTPUT_DIR / f"fields_sam2_{YEAR}.gpkg"
+    from agribound.engines.samgeo_engine import refine_boundaries
+    from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
 
-    if output_path.exists():
-        print(f"  Using cached SAM2 output: {output_path}")
-        refined_gdf = gpd.read_file(output_path)
-    else:
+    def _run_sam2(crop_gdf, label, raster_path, out_path):
+        """Run SAM2 refinement for a single embedding set."""
+        if out_path.exists():
+            print(f"  Using cached {out_path.name}")
+            return gpd.read_file(out_path)
         try:
-            from agribound.engines.samgeo_engine import refine_boundaries
-            from agribound.postprocess.simplify import (
-                simplify_polygons,
-                smooth_polygons,
-            )
-
-            print(f"  Refining {len(pseudo_gdf)} crop polygons with SAM2...")
+            print(f"  Refining {len(crop_gdf)} {label} polygons with SAM2...")
             sam_config = AgriboundConfig(
                 source="sentinel2",
                 engine="embedding",
                 year=YEAR,
-                study_area=s2_study_area_path,
-                output_path=str(output_path),
+                study_area=composite_study_area_path,
+                output_path=str(out_path),
                 engine_params={
                     "sam_model": SAM_MODEL,
                     "sam_batch_size": SAM_BATCH_SIZE,
                 },
                 device="auto",
             )
-            refined_gdf = refine_boundaries(pseudo_gdf, s2_raster, sam_config)
-            refined_gdf = smooth_polygons(refined_gdf, iterations=3)
-            refined_gdf = simplify_polygons(refined_gdf, tolerance=2.0)
-            refined_gdf.to_file(output_path, driver="GPKG", layer="fields")
-            print(f"  SAM2 refined → {len(refined_gdf)} fields")
+            result = refine_boundaries(crop_gdf, raster_path, sam_config)
+            result = smooth_polygons(result, iterations=3)
+            result = simplify_polygons(result, tolerance=2.0)
+            result.to_file(out_path, driver="GPKG", layer="fields")
+            print(f"  → {len(result)} fields")
+            return result
         except Exception as exc:
             print(f"  SAM2 failed: {exc}")
-            refined_gdf = pseudo_gdf
+            return None
+
+    # Google crops + S2
+    google_s2_gdf = _run_sam2(
+        google_crop_gdf,
+        "Google",
+        s2_raster,
+        OUTPUT_DIR / f"fields_sam2_google_s2_{YEAR}.gpkg",
+    )
+
+    # TESSERA crops + S2
+    tessera_s2_gdf = _run_sam2(
+        tessera_crop_gdf,
+        "TESSERA",
+        s2_raster,
+        OUTPUT_DIR / f"fields_sam2_tessera_s2_{YEAR}.gpkg",
+    )
 
     # ================================================================
     # Phase 5: Comparison
@@ -269,24 +315,30 @@ def main():
     print(f"\n  {'Method':<35} {'Fields':>8} {'Area (ha)':>12}")
     print(f"  {'-' * 35} {'-' * 8} {'-' * 12}")
 
-    for label, gdf in [
-        ("All embedding clusters", all_clusters_gdf),
-        ("Crop-filtered polygons", pseudo_gdf),
-        ("SAM2 refined", refined_gdf),
-    ]:
+    comparison_items = [
+        ("Google clusters (raw)", google_clusters_gdf),
+        ("Google crops (LULC)", google_crop_gdf),
+        ("TESSERA clusters (raw)", tessera_clusters_gdf),
+        ("TESSERA crops (LULC)", tessera_crop_gdf),
+    ]
+    if google_s2_gdf is not None:
+        comparison_items.append(("Google + SAM2/S2 (10 m)", google_s2_gdf))
+    if tessera_s2_gdf is not None:
+        comparison_items.append(("TESSERA + SAM2/S2 (10 m)", tessera_s2_gdf))
+
+    for label, gdf in comparison_items:
         area = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
         print(f"  {label:<35} {len(gdf):>8} {area:>12,.1f}")
 
     # Visualization
     from agribound.visualize import show_comparison
 
+    comp_gdfs = [item[1] for item in comparison_items]
+    comp_labels = [item[0] for item in comparison_items]
+
     show_comparison(
-        [all_clusters_gdf, pseudo_gdf, refined_gdf],
-        labels=[
-            "All Clusters",
-            "Crop-Filtered",
-            "SAM2 Refined (final)",
-        ],
+        comp_gdfs,
+        labels=comp_labels,
         basemap="Esri.WorldImagery",
         output_html=str(OUTPUT_DIR / "map_comparison.html"),
     )

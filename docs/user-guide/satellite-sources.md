@@ -119,4 +119,4 @@ config = AgriboundConfig(
 The `google-embedding` and `tessera-embedding` sources provide pre-computed pixel-level embeddings rather than raw imagery. These are used exclusively with the `embedding` engine and do not require GEE authentication.
 
 - **Google Satellite Embedding V1**: 64-dimensional embeddings at 10 m resolution, derived from high-resolution satellite imagery.
-- **TESSERA Embeddings**: 128-dimensional embeddings at 10 m resolution, from the TESSERA foundation model ([Feng et al., 2025](https://arxiv.org/abs/2506.20380)).
+- **TESSERA Embeddings**: 128-dimensional embeddings at 10 m resolution, from the TESSERA foundation model ([Feng et al., 2025](https://arxiv.org/abs/2506.20380)). Coverage varies by region and year (2017–2025) — not all areas have data for every year. See [geotessera](https://github.com/ucam-eo/geotessera) for coverage details and the download tool.

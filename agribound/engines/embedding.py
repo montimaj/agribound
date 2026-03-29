@@ -61,8 +61,10 @@ class EmbeddingEngine(DelineationEngine):
             info.height,
         )
 
+        logger.info("Reading raster into memory...")
         data, meta = read_raster(raster_path)
         bands, height, width = data.shape
+        logger.info("Raster loaded: %d bands, %dx%d pixels", bands, height, width)
 
         # Reshape to (H*W, D) for clustering
         embeddings = data.reshape(bands, -1).T.astype(np.float32)
@@ -88,9 +90,12 @@ class EmbeddingEngine(DelineationEngine):
                 ]
             else:
                 fit_sample = valid_embeddings
+            logger.info("Fitting PCA on %d samples...", len(fit_sample))
             pca.fit(fit_sample)
+            logger.info("Transforming %d valid pixels...", len(valid_embeddings))
             embeddings_reduced = np.zeros((len(embeddings), n_components), dtype=np.float32)
             embeddings_reduced[valid_mask] = pca.transform(valid_embeddings)
+            logger.info("PCA complete")
         else:
             embeddings_reduced = embeddings
 

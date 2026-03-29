@@ -50,7 +50,7 @@ All spectral bands are downloaded for each sensor. Engines automatically select 
 | SPOT 6/7 | `spot` | 1.5 m | R, G, B (3 bands) | Restricted – see [SPOT Access](#spot-access) | Restricted GEE collection. **Very slow over large areas**; see note below |
 | Local GeoTIFF | `local` | Any | All bands | N/A | Bring your own imagery via `--local-tif` |
 | Google Embeddings | `google-embedding` | 10 m | 64-D embeddings | `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Pre-computed satellite embeddings |
-| TESSERA Embeddings | `tessera-embedding` | 10 m | 128-D embeddings | N/A | TESSERA foundation model embeddings |
+| TESSERA Embeddings | `tessera-embedding` | 10 m | 128-D embeddings | N/A | TESSERA foundation model embeddings. Coverage varies by region/year (2017–2025); see [geotessera](https://github.com/ucam-eo/geotessera) |
 
 ## Delineation Engines
 
@@ -270,7 +270,7 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-model grand ensemble (2020–2022) over Lea County, NM with per-model fine-tuning. Grand ensemble boundaries are refined by SAM2 after majority-vote merging |
 | [13_sam2_refine_dinov3.py](examples/13_sam2_refine_dinov3.py) | [notebook](examples/notebooks/13_sam2_refine_dinov3.ipynb) | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries |
 | [14_dinov3_sam2_ensemble.py](examples/14_dinov3_sam2_ensemble.py) | [notebook](examples/notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source comparison across 5 sensors (Eastern Lea County, NM) |
-| [15_pampas_semi_supervised.py](examples/15_pampas_semi_supervised.py) | [notebook](examples/notebooks/15_pampas_semi_supervised.ipynb) | Automated pipeline: embedding clusters + Dynamic World crop filter + SAM2 on Sentinel-2 (no training or reference data needed) |
+| [15_pampas_semi_supervised.py](examples/15_pampas_semi_supervised.py) | [notebook](examples/notebooks/15_pampas_semi_supervised.ipynb) | Automated pipeline: Google + TESSERA embeddings → LULC filter → SAM2 on S2. 6-way comparison, no training needed |
 
 ## Google Earth Engine Authentication
 

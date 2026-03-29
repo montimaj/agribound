@@ -98,6 +98,7 @@ samgeo = [
 tessera = [
     "torch>=2.1",
     "geoai-py>=0.30",
+    "geotessera",
 ]
 docs = [
     "mkdocs>=1.5",
