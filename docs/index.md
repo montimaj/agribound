@@ -22,11 +22,11 @@ Disable with `lulc_filter=False` for local files without GEE access or unsupervi
 
 **Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)** — Fine-tuned on NMOSE reference boundaries, LULC-filtered (NLCD), SAM2-refined on 1 m NAIP. Blue = predicted, yellow = reference. The study area bbox extends slightly into Texas, so fields along the NM–TX border are also delineated.
 
-![DINOv3 + SAM2 on NAIP](../assets/NM_example.png)
+![DINOv3 + SAM2 on NAIP](https://raw.githubusercontent.com/montimaj/agribound/main/assets/NM_example.png)
 
 **Unsupervised: TESSERA + LULC Filter + SAM2 (Pampas, Argentina)** — No training, no reference data. TESSERA embedding clustering + LULC crop filter (Dynamic World) + SAM2 on Sentinel-2.
 
-![TESSERA + LULC + SAM2](../assets/Pampas_example.png)
+![TESSERA + LULC + SAM2](https://raw.githubusercontent.com/montimaj/agribound/main/assets/Pampas_example.png)
 
 *Note: The satellite basemap shown in these screenshots may not correspond to the same acquisition date as the imagery used for delineation.*
 
