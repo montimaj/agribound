@@ -1,30 +1,27 @@
 """
-15 — Semi-Supervised DINOv3 Field Delineation (Pampas, Argentina)
+15 — Semi-Supervised Field Delineation (Pampas, Argentina)
 
-Demonstrates a fully automated semi-supervised pipeline that requires **no
-human-labeled reference boundaries**:
+Demonstrates a fully automated pipeline that requires **no human-labeled
+reference boundaries**:
 
     1. Download Google Satellite Embeddings → K-means clustering → all polygons
-    2. LULC crop filter (Dynamic World) → crop-only pseudo-labels
-    3. Download Sentinel-2 RGB composite for the same area/year
-    4. Fine-tune DINOv3 on the Sentinel-2 imagery using crop pseudo-labels
-    5. Run DINOv3 inference → cleaner field boundaries (LULC filter applied)
-    6. SAM2 per-field boundary refinement → final output
+    2. LULC crop filter (Dynamic World) → crop-only polygons
+    3. Download Sentinel-2 RGB composite
+    4. SAM2 refines each crop polygon's boundary using Sentinel-2 imagery
 
-The key insight: embedding clusters provide precise spectral boundaries but
-no semantics (field vs road vs water).  The pipeline's LULC filter uses
-Dynamic World crop probability (or NLCD for US / C3S for pre-Sentinel) to
-keep only agricultural polygons.  Combining both gives us crop-only
-pseudo-labels with good boundaries.
+The key insight: embedding clusters provide spectral boundaries but no
+semantics.  The LULC filter keeps only agricultural polygons.  SAM2 then
+refines the rough cluster boundaries to pixel-accurate field edges using
+the Sentinel-2 imagery.  No fine-tuning or model training required.
 
 The study area is a region near Pergamino, Buenos Aires Province,
 covering intensive soybean/corn/wheat cropping.
 
-Estimated runtime: ~30–60 minutes (embedding download + fine-tuning +
-inference + SAM2, GPU recommended).
+Estimated runtime: ~15–30 minutes (embedding download + S2 download +
+SAM2 refinement, GPU recommended).
 
 Prerequisites:
-    pip install agribound[gee,geoai,samgeo]
+    pip install agribound[gee,samgeo]
     agribound auth --project YOUR_GEE_PROJECT
 """
 
@@ -84,8 +81,6 @@ STUDY_AREA_BBOX = {
 }
 
 YEAR = 2020
-FINE_TUNE_EPOCHS = 20
-BATCH_SIZE = 8
 MIN_AREA = 5000  # m²
 CROP_PROB_THRESHOLD = 0.3  # LULC crop probability threshold
 
@@ -95,7 +90,9 @@ SAM_BATCH_SIZE = 100
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Semi-supervised DINOv3 field delineation.")
+    parser = argparse.ArgumentParser(
+        description="Semi-supervised field delineation (embeddings + SAM2)."
+    )
     parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
@@ -139,122 +136,128 @@ def main():
     print(f"  All clusters: {len(all_clusters_gdf)} polygons")
 
     # ================================================================
-    # Phase 2: LULC crop filter → crop-only pseudo-labels
+    # Phase 2: LULC crop filter → crop-only polygons
     # ================================================================
     print(f"\n{'=' * 70}")
     print(f"Phase 2: LULC crop filter (threshold={CROP_PROB_THRESHOLD})")
     print(f"{'=' * 70}")
 
     from agribound.config import AgriboundConfig
-    from agribound.postprocess.lulc_filter import filter_by_lulc
 
-    filter_config = AgriboundConfig(
-        study_area=study_area_path,
-        source="google-embedding",
-        year=YEAR,
-        output_path=str(all_clusters_path),
-        gee_project=gee_project,
-        lulc_crop_threshold=CROP_PROB_THRESHOLD,
-    )
-    pseudo_gdf = filter_by_lulc(all_clusters_gdf, filter_config)
+    crop_path = OUTPUT_DIR / f"fields_crop_clusters_{YEAR}.gpkg"
 
-    print(
-        f"  Crop pseudo-labels: {len(pseudo_gdf)} polygons (filtered from {len(all_clusters_gdf)})"
-    )
+    if crop_path.exists():
+        print(f"  Using cached crop polygons: {crop_path}")
+        pseudo_gdf = gpd.read_file(crop_path)
+    else:
+        from agribound.postprocess.lulc_filter import filter_by_lulc
 
-    # Save crop-filtered pseudo-labels as reference boundaries
-    ref_path = str(OUTPUT_DIR / "pseudo_reference_crops.gpkg")
-    pseudo_gdf.to_file(ref_path, driver="GPKG", layer="fields")
+        filter_config = AgriboundConfig(
+            study_area=study_area_path,
+            source="google-embedding",
+            year=YEAR,
+            output_path=str(all_clusters_path),
+            gee_project=gee_project,
+            lulc_crop_threshold=CROP_PROB_THRESHOLD,
+        )
+        pseudo_gdf = filter_by_lulc(all_clusters_gdf, filter_config)
+        pseudo_gdf.to_file(crop_path, driver="GPKG", layer="fields")
+
+    print(f"  Crop polygons: {len(pseudo_gdf)} (filtered from {len(all_clusters_gdf)})")
 
     # ================================================================
-    # Phase 3: Fine-tune DINOv3 on Sentinel-2 using crop pseudo-labels
+    # Phase 3: Download Sentinel-2 composite
     # ================================================================
     print(f"\n{'=' * 70}")
-    print("Phase 3: DINOv3 fine-tuning on Sentinel-2 (crop pseudo-labels)")
+    print("Phase 3: Download Sentinel-2 composite")
     print(f"{'=' * 70}")
 
-    dinov3_lulc_path = OUTPUT_DIR / f"fields_dinov3_{YEAR}_lulc.gpkg"
-    dinov3_path = OUTPUT_DIR / f"fields_dinov3_{YEAR}.gpkg"
-    pipeline_path = OUTPUT_DIR / f"fields_dinov3_{YEAR}_pipeline.gpkg"
+    # Build S2 study area from pseudo-label extent
+    ref_bounds_gdf = pseudo_gdf.to_crs(epsg=4326)
+    bounds = ref_bounds_gdf.total_bounds
+    s2_study_area_path = str(OUTPUT_DIR / "study_area_s2.geojson")
+    s2_bbox = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [bounds[0], bounds[1]],
+                            [bounds[2], bounds[1]],
+                            [bounds[2], bounds[3]],
+                            [bounds[0], bounds[3]],
+                            [bounds[0], bounds[1]],
+                        ]
+                    ],
+                },
+                "properties": {"name": "S2 composite extent"},
+            }
+        ],
+    }
+    with open(s2_study_area_path, "w") as f:
+        json.dump(s2_bbox, f)
 
-    if dinov3_path.exists():
-        print(f"  Using cached DINOv3 output: {dinov3_path}")
-        dinov3_gdf = gpd.read_file(dinov3_path)
+    # Download S2 composite via the pipeline's composite builder
+    from agribound.composites import get_composite_builder
+
+    s2_config = AgriboundConfig(
+        study_area=s2_study_area_path,
+        source="sentinel2",
+        year=YEAR,
+        output_path=str(OUTPUT_DIR / "s2_composite.gpkg"),
+        gee_project=gee_project,
+        composite_method="median",
+        cloud_cover_max=20,
+        date_range=(f"{YEAR}-10-01", f"{YEAR}-10-31"),
+    )
+    builder = get_composite_builder("sentinel2")
+    s2_raster = builder.build(s2_config)
+    print(f"  Sentinel-2 composite: {s2_raster}")
+
+    # ================================================================
+    # Phase 4: SAM2 boundary refinement
+    # ================================================================
+    print(f"\n{'=' * 70}")
+    print("Phase 4: SAM2 boundary refinement on crop polygons")
+    print(f"{'=' * 70}")
+
+    output_path = OUTPUT_DIR / f"fields_sam2_{YEAR}.gpkg"
+
+    if output_path.exists():
+        print(f"  Using cached SAM2 output: {output_path}")
+        refined_gdf = gpd.read_file(output_path)
     else:
-        print(f"  Fine-tuning DINOv3 for {FINE_TUNE_EPOCHS} epochs...")
-        dinov3_gdf = agribound.delineate(
-            study_area=study_area_path,
-            source="sentinel2",
-            year=YEAR,
-            engine="dinov3",
-            output_path=str(pipeline_path),
-            gee_project=gee_project,
-            min_area=MIN_AREA,
-            simplify=2.0,
-            device="auto",
-            reference_boundaries=ref_path,
-            fine_tune=True,
-            fine_tune_epochs=FINE_TUNE_EPOCHS,
-            composite_method="median",
-            cloud_cover_max=20,
-            date_range=(f"{YEAR}-10-01", f"{YEAR}-10-31"),
-            lulc_filter=True,
-            lulc_crop_threshold=CROP_PROB_THRESHOLD,
-            engine_params={"batch_size": BATCH_SIZE},
-        )
-
-        # Save LULC-filtered, pre-SAM result
-        dinov3_gdf.to_file(dinov3_lulc_path, driver="GPKG", layer="fields")
-        print(f"  LULC-filtered: {len(dinov3_gdf)} fields → {dinov3_lulc_path.name}")
-
-        # ============================================================
-        # Phase 4: SAM2 boundary refinement
-        # ============================================================
-        print(f"\n{'=' * 70}")
-        print("Phase 4: SAM2 boundary refinement")
-        print(f"{'=' * 70}")
-
         try:
             from agribound.engines.samgeo_engine import refine_boundaries
+            from agribound.postprocess.simplify import (
+                simplify_polygons,
+                smooth_polygons,
+            )
 
-            raster_cache = OUTPUT_DIR / ".agribound_cache"
-            raster_candidates = sorted(raster_cache.glob(f"*sentinel2*{YEAR}*.tif"))
-
-            if raster_candidates:
-                print(f"  Refining {len(dinov3_gdf)} fields with SAM2...")
-                sam_config = AgriboundConfig(
-                    source="sentinel2",
-                    engine="dinov3",
-                    year=YEAR,
-                    study_area=study_area_path,
-                    output_path=str(dinov3_path),
-                    engine_params={
-                        "sam_model": SAM_MODEL,
-                        "sam_batch_size": SAM_BATCH_SIZE,
-                    },
-                    device="auto",
-                )
-                dinov3_gdf = refine_boundaries(dinov3_gdf, str(raster_candidates[0]), sam_config)
-
-                from agribound.postprocess.simplify import (
-                    simplify_polygons,
-                    smooth_polygons,
-                )
-
-                dinov3_gdf = smooth_polygons(dinov3_gdf, iterations=3)
-                dinov3_gdf = simplify_polygons(dinov3_gdf, tolerance=2.0)
-                print(f"  SAM2 refined → {len(dinov3_gdf)} fields")
-            else:
-                print("  No raster found for SAM2, skipping")
+            print(f"  Refining {len(pseudo_gdf)} crop polygons with SAM2...")
+            sam_config = AgriboundConfig(
+                source="sentinel2",
+                engine="embedding",
+                year=YEAR,
+                study_area=s2_study_area_path,
+                output_path=str(output_path),
+                engine_params={
+                    "sam_model": SAM_MODEL,
+                    "sam_batch_size": SAM_BATCH_SIZE,
+                },
+                device="auto",
+            )
+            refined_gdf = refine_boundaries(pseudo_gdf, s2_raster, sam_config)
+            refined_gdf = smooth_polygons(refined_gdf, iterations=3)
+            refined_gdf = simplify_polygons(refined_gdf, tolerance=2.0)
+            refined_gdf.to_file(output_path, driver="GPKG", layer="fields")
+            print(f"  SAM2 refined → {len(refined_gdf)} fields")
         except Exception as exc:
             print(f"  SAM2 failed: {exc}")
-
-        # Write final output only after all steps complete
-        dinov3_gdf.to_file(dinov3_path, driver="GPKG", layer="fields")
-
-        # Clean up pipeline temp file
-        if pipeline_path.exists():
-            pipeline_path.unlink()
+            refined_gdf = pseudo_gdf
 
     # ================================================================
     # Phase 5: Comparison
@@ -268,8 +271,8 @@ def main():
 
     for label, gdf in [
         ("All embedding clusters", all_clusters_gdf),
-        ("Crop-filtered pseudo-labels", pseudo_gdf),
-        ("DINOv3 + SAM2", dinov3_gdf),
+        ("Crop-filtered polygons", pseudo_gdf),
+        ("SAM2 refined", refined_gdf),
     ]:
         area = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
         print(f"  {label:<35} {len(gdf):>8} {area:>12,.1f}")
@@ -278,11 +281,11 @@ def main():
     from agribound.visualize import show_comparison
 
     show_comparison(
-        [all_clusters_gdf, pseudo_gdf, dinov3_gdf],
+        [all_clusters_gdf, pseudo_gdf, refined_gdf],
         labels=[
             "All Clusters",
-            "Crop-Filtered Pseudo-Labels",
-            "DINOv3 + SAM2 (final)",
+            "Crop-Filtered",
+            "SAM2 Refined (final)",
         ],
         basemap="Esri.WorldImagery",
         output_html=str(OUTPUT_DIR / "map_comparison.html"),
@@ -295,3 +298,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim's async runner hangs on cleanup

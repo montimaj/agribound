@@ -229,10 +229,13 @@ def _prepare_training_data(raster_path: str, config: AgriboundConfig, engine: st
             dtype=np.uint8,
         )
 
-        # Create boundary mask by eroding interior
+        # Create boundary mask by eroding interior.
+        # More erosion iterations produce thicker boundary strips, which
+        # helps the model learn field boundaries from noisy pseudo-labels.
         from scipy.ndimage import binary_erosion
 
-        eroded = binary_erosion(mask_interior > 0, iterations=2)
+        erosion_iters = config.engine_params.get("boundary_erosion", 2)
+        eroded = binary_erosion(mask_interior > 0, iterations=erosion_iters)
         mask = np.zeros_like(mask_interior)
         mask[mask_interior > 0] = 2  # boundary
         mask[eroded] = 1  # interior

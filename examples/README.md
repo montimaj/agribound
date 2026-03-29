@@ -67,7 +67,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 12 | `12_new_mexico_ensemble_timeseries.py` | Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (ensemble) | ~3--6 h | Multi-source, multi-model ensemble (2020--2022) with per-model fine-tuning (DA, GeoAI, DINOv3, Prithvi). Grand ensemble boundaries refined by SAM2 after majority-vote merging. Best run on HPC/cloud with GPU. |
 | 13 | `13_sam2_refine_dinov3.py` | Lea County, NM, USA | Sentinel-2 | SAM2 refinement | ~5--15 min | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries (555 fields). Crops each field from the raster and refines with SAM2 box prompts. Compares before/after metrics against NMOSE reference. |
 | 14 | `14_dinov3_sam2_ensemble.py` | Lea County, NM, USA | Sentinel-2, Landsat, HLS, NAIP, SPOT | DINOv3 + SAM2 ensemble | ~1--2 h | Focused DINOv3-only ensemble across 5 satellite sources (2020--2022). Fine-tunes DINOv3 per source, refines each source's boundaries with SAM2 using its native raster, then merges via majority vote. Saves pre-SAM outputs for comparison. Demonstrates that a single strong architecture + multi-source diversity outperforms multi-model ensembles. |
-| 15 | `15_pampas_semi_supervised.py` | Pampas (Pergamino), Argentina | Google embeddings + Dynamic World + Sentinel-2 | DINOv3 + SAM2 (semi-supervised) | ~30--60 min | Fully automated pipeline requiring **no reference boundaries**. Clusters Google embeddings, filters to crop-only polygons using Dynamic World crop probability, fine-tunes DINOv3 on Sentinel-2 using crop pseudo-labels, then refines with SAM2. ~10 km bbox (2020), GPU recommended. |
+| 15 | `15_pampas_semi_supervised.py` | Pampas (Pergamino), Argentina | Google embeddings + Dynamic World + Sentinel-2 | Embedding + SAM2 (no training) | ~15--30 min | Fully automated pipeline requiring **no reference boundaries or training**. Clusters Google embeddings, filters to crop-only polygons using Dynamic World, then refines boundaries with SAM2 using Sentinel-2 imagery. GPU recommended. |
 
 ## Notebooks
 
@@ -89,7 +89,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 | 12 | [`12_new_mexico_ensemble_timeseries.ipynb`](notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Lea County multi-source grand ensemble (2020--2022) | Same scope as script |
 | 13 | [`13_sam2_refine_dinov3.ipynb`](notebooks/13_sam2_refine_dinov3.ipynb) | SAM2 boundary refinement on DINOv3 output | Same scope as script |
 | 14 | [`14_dinov3_sam2_ensemble.ipynb`](notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source ensemble (Lea County) | Runs single year (2022) instead of 2020--2022 |
-| 15 | [`15_pampas_semi_supervised.ipynb`](notebooks/15_pampas_semi_supervised.ipynb) | Semi-supervised DINOv3 (Pampas, no reference data) | Same scope as script |
+| 15 | [`15_pampas_semi_supervised.ipynb`](notebooks/15_pampas_semi_supervised.ipynb) | Embedding + SAM2 (Pampas, no training required) | Same scope as script |
 
 ## Runtime Notes
 

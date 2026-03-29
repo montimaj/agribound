@@ -74,7 +74,7 @@ Agribound fills this gap with three key contributions:
 
 2. **Automatic LULC crop filtering.** Agribound is the first field boundary package to automatically remove non-agricultural polygons from the output. It leverages three land-use/land-cover datasets --- USGS Annual NLCD for the contiguous United States (1985--2024, 30 m) [@dewitz2024], Google Dynamic World globally (2015--present, 10 m) [@brown2022], and Copernicus C3S Land Cover for pre-2015 global coverage (1992--2022, 300 m) [@defourny2023] --- selecting the appropriate dataset based on study area location and year. All zonal statistics are computed server-side on Google Earth Engine, requiring no raster downloads.
 
-3. **Semi-supervised delineation pipeline.** By combining embedding-based unsupervised clustering [@brown2025; @feng2025] with Dynamic World crop probability filtering and DINOv3 fine-tuning, Agribound enables fully automated field boundary delineation without any human-labeled reference data.
+3. **Zero-training delineation pipeline.** By combining embedding-based unsupervised clustering [@brown2025; @feng2025] with Dynamic World crop probability filtering and SAM2 [@ravi2024] boundary refinement on Sentinel-2 imagery, Agribound enables fully automated field boundary delineation without any human-labeled reference data or model training.
 
 # State of the Field
 
@@ -113,7 +113,7 @@ The seven supported engines span complementary approaches:
 | Delineate-Anything | YOLO instance segmentation | RGB |
 | Fields of The World | Semantic segmentation (14+ models) | RGBN |
 | GeoAI | Mask R-CNN instance segmentation | RGB |
-| DINOv3 | Vision transformer + DPT decoder | RGB |
+| DINOv3 | Vision transformer (SAT-493M satellite-pretrained) + DPT decoder | RGB |
 | Prithvi-EO-2.0 | Foundation model + UPerNet | RGBN |
 | Embedding | Unsupervised K-means clustering | Embeddings |
 | Ensemble | Multi-engine consensus (vote/union/intersection) | Multiple |
@@ -171,7 +171,7 @@ Agribound enables several research workflows that were previously impractical:
 
 - **Multi-decadal field boundary time series.** The 40-year Landsat example (1985--2025) with automatic NLCD crop filtering produces annual field boundary maps for long-term agricultural change analysis across the contiguous United States.
 - **Multi-source ensemble delineation.** Running the same engine (e.g., DINOv3) across Sentinel-2, Landsat, HLS, NAIP, and SPOT with per-source SAM2 refinement and majority-vote merging produces boundaries that leverage the strengths of each sensor.
-- **Zero-reference-data field mapping.** The semi-supervised pipeline combines Google Satellite Embedding clusters, Dynamic World crop filtering, and DINOv3 fine-tuning to delineate crop fields anywhere in the world without human-labeled training data.
+- **Zero-reference-data field mapping.** The automated pipeline combines Google Satellite Embedding clusters, Dynamic World crop filtering, and SAM2 boundary refinement on Sentinel-2 to delineate crop fields anywhere in the world without human-labeled training data or model training.
 - **Global agricultural water use estimation.** At the Desert Research Institute, Agribound supports operational water use mapping for the New Mexico Office of the State Engineer, where accurate field boundaries are required for irrigation water accounting across Lea County and other agricultural regions.
 
 # Research Impact Statement

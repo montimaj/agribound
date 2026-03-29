@@ -67,31 +67,6 @@ BATCH_SIZE = 8
 YEARS = [2020, 2021, 2022]
 VOTE_THRESHOLD = 0.3  # Fraction of sources that must agree
 
-# For NAIP (1 m) and SPOT (1.5 m), inference over the full county is too slow.
-# Use a ~20×20 km bbox over eastern Lea County where center pivots are dense.
-# This keeps NAIP inference under ~1 hour on a single GPU.
-HIGHRES_INFERENCE_BBOX = {
-    "type": "FeatureCollection",
-    "features": [
-        {
-            "type": "Feature",
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [
-                    [
-                        [-103.25, 32.75],
-                        [-103.05, 32.75],
-                        [-103.05, 32.95],
-                        [-103.25, 32.95],
-                        [-103.25, 32.75],
-                    ]
-                ],
-            },
-            "properties": {"name": "Eastern Lea County (center pivots)"},
-        }
-    ],
-}
-
 # SAM2 refinement per source (each source refined against its own raster)
 SAM_REFINE = True
 SAM_MODEL = "large"  # Per-field cropping makes large model feasible
@@ -111,14 +86,18 @@ SOURCE_YEAR_RANGE = {
 
 
 def create_study_area(shapefile_path, county_code, output_dir):
-    """Extract Lea County study area and reference boundaries."""
+    """Extract eastern Lea County study area and reference boundaries.
+
+    Uses a ~20×22 km bbox over eastern Lea County where center pivots are
+    dense.  This keeps NAIP (1 m) and SPOT (1.5 m) runtimes practical
+    while still covering a diverse agricultural landscape.
+    """
     gdf = gpd.read_file(shapefile_path)
     county_gdf = gdf[gdf["County"] == county_code].copy()
     if len(county_gdf) == 0:
         raise ValueError(f"No records for County {county_code}")
 
-    county_4326 = county_gdf.to_crs(epsg=4326)
-    bounds = county_4326.total_bounds
+    # Eastern Lea County bbox (center pivot area)
     bbox_geojson = {
         "type": "FeatureCollection",
         "features": [
@@ -128,15 +107,15 @@ def create_study_area(shapefile_path, county_code, output_dir):
                     "type": "Polygon",
                     "coordinates": [
                         [
-                            [bounds[0], bounds[1]],
-                            [bounds[2], bounds[1]],
-                            [bounds[2], bounds[3]],
-                            [bounds[0], bounds[3]],
-                            [bounds[0], bounds[1]],
+                            [-103.25, 32.75],
+                            [-103.05, 32.75],
+                            [-103.05, 32.95],
+                            [-103.25, 32.95],
+                            [-103.25, 32.75],
                         ]
                     ],
                 },
-                "properties": {"name": f"Lea County (County {county_code})"},
+                "properties": {"name": f"Eastern Lea County (County {county_code})"},
             }
         ],
     }
@@ -144,11 +123,19 @@ def create_study_area(shapefile_path, county_code, output_dir):
     with open(study_area_path, "w") as f:
         json.dump(bbox_geojson, f)
 
+    # Clip reference boundaries to the study area bbox
+    from shapely.geometry import box
+
+    bbox_geom = box(-103.25, 32.75, -103.05, 32.95)
+    county_4326 = county_gdf.to_crs(epsg=4326)
+    ref_clipped = county_4326[county_4326.intersects(bbox_geom)].copy()
+    ref_clipped = ref_clipped.to_crs(county_gdf.crs)
+
     ref_path = output_dir / "reference.gpkg"
     if not ref_path.exists():
-        county_gdf.to_file(ref_path, driver="GPKG", layer="fields")
+        ref_clipped.to_file(ref_path, driver="GPKG", layer="fields")
 
-    return str(study_area_path), county_gdf, str(ref_path)
+    return str(study_area_path), ref_clipped, str(ref_path)
 
 
 def run_dinov3(source, year, study_area, gee_project, ref_path):
@@ -156,10 +143,6 @@ def run_dinov3(source, year, study_area, gee_project, ref_path):
 
     The pipeline's built-in LULC filter removes non-agricultural polygons
     automatically.  SAM2 then refines only the crop field boundaries.
-
-    For NAIP (1 m) and SPOT (1.5 m), inference uses a smaller bbox over
-    eastern Lea County to keep runtimes practical.  Fine-tuning still uses
-    the full county composite + reference boundaries.
 
     Saves two GPKGs per source/year:
       1. *_lulc.gpkg  — LULC-filtered model output (pre-SAM)
@@ -171,21 +154,12 @@ def run_dinov3(source, year, study_area, gee_project, ref_path):
     if output_path.exists():
         return gpd.read_file(output_path), output_path
 
-    # For high-res sources, use smaller study area for inference
-    inference_study_area = study_area
-    if source in ("naip", "spot"):
-        highres_path = OUTPUT_DIR / f"study_area_highres_{source}.geojson"
-        with open(highres_path, "w") as f:
-            json.dump(HIGHRES_INFERENCE_BBOX, f)
-        inference_study_area = str(highres_path)
-        print(f"    Using eastern Lea County subset for {source} inference")
-
     # Use a temp path for the pipeline so it doesn't write to final output_path.
     # The final file is only written after all steps (including SAM2) complete.
     pipeline_path = OUTPUT_DIR / f"fields_dinov3_{source}_{year}_pipeline.gpkg"
 
     kwargs = dict(
-        study_area=inference_study_area,
+        study_area=study_area,
         source=source,
         year=year,
         engine="dinov3",
@@ -437,3 +411,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim's async runner hangs on cleanup
