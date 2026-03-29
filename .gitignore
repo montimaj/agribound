@@ -212,3 +212,5 @@ outputs/
 weights/
 *.geojson
 global_*
+*.pdf
+test_nm_semi_supervised.py

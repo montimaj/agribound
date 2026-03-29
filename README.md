@@ -170,6 +170,7 @@ min_field_area_m2: 2500         # minimum field area in m²
 simplify_tolerance: 2.0         # simplification tolerance in meters
 lulc_filter: true               # remove non-agricultural polygons (default: true)
 lulc_crop_threshold: 0.3        # crop fraction threshold (default: 0.3)
+lulc_batch_size: 200            # polygons per GEE batch (default: 200)
 
 # Engine-specific parameters
 engine_params:

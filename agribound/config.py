@@ -150,6 +150,7 @@ class AgriboundConfig:
     simplify_tolerance: float = 2.0
     lulc_filter: bool = True
     lulc_crop_threshold: float = 0.3
+    lulc_batch_size: int = 200
 
     # Compute ------------------------------------------------------------------
     device: str = "auto"

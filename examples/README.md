@@ -67,7 +67,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 12 | `12_new_mexico_ensemble_timeseries.py` | Eastern Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (ensemble) | ~3--6 h | Multi-source, multi-model ensemble (2020--2022) over ~20 km center pivot area with per-model fine-tuning (DA, GeoAI, DINOv3, Prithvi). Grand ensemble boundaries refined by SAM2 after majority-vote merging. Best run on HPC/cloud with GPU. |
 | 13 | `13_sam2_refine_dinov3.py` | Lea County, NM, USA | Sentinel-2 | SAM2 refinement | ~5--15 min | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries (555 fields). Crops each field from the raster and refines with SAM2 box prompts. Compares before/after metrics against NMOSE reference. |
 | 14 | `14_dinov3_sam2_ensemble.py` | Eastern Lea County, NM, USA | Sentinel-2, Landsat, HLS, NAIP, SPOT | DINOv3 + SAM2 | ~1--2 h | Runs DINOv3 (SAT-493M) across 5 satellite sources with per-source SAM2 refinement. Compares per-source results against NMOSE reference boundaries. Uses a ~20 km bbox over the center pivot area to keep NAIP/SPOT runtimes practical. |
-| 15 | `15_pampas_semi_supervised.py` | Pampas (Pergamino), Argentina | Google + TESSERA embeddings + Dynamic World + Sentinel-2 | Embedding + SAM2 (no training) | ~15--30 min | Fully automated pipeline requiring **no reference boundaries or training**. Clusters both Google (64-D) and TESSERA (128-D) embeddings, LULC-filters to crops, then refines with SAM2 on Sentinel-2. 6-way comparison: 2 embeddings × (raw, LULC, SAM2). GPU recommended. |
+| 15 | `15_pampas_semi_supervised.py` | Pampas (Pergamino), Argentina | Google + TESSERA embeddings + Dynamic World + Sentinel-2 | Embedding + SAM2 (no training) | ~15--30 min | Fully automated pipeline requiring **no reference boundaries or training**. Clusters Google (64-D) and TESSERA (128-D) embeddings, LULC-filters to crops, then refines with SAM2 using both S2 and TESSERA native bands. Includes improved SAM2 with geometry fixes, polygon exploding, and large-field separation. TESSERA produces more accurate boundaries than Google (see [Embedding Comparison](#embedding-comparison-google-vs-tessera-example-15)). GPU recommended. |
 
 ## Notebooks
 
@@ -136,7 +136,21 @@ Based on testing over Lea County, NM, the **DINOv3 + SAM2 multi-source ensemble*
 - **Per-source SAM2 boundary refinement** produces pixel-accurate edges using each sensor's native raster at its own resolution, avoiding resolution mismatches from refining against a single raster. Pre-SAM outputs are saved for comparison.
 - **Multi-source diversity** (Sentinel-2, Landsat, HLS, NAIP, SPOT) provides more meaningful ensemble diversity than running multiple model architectures on the same image.
 
-For new study areas with reference boundaries available for fine-tuning, we recommend starting with example 14 (DINOv3 + SAM2 ensemble) rather than the full multi-model ensemble (example 12).
+For new study areas with reference boundaries available for fine-tuning, we recommend starting with example 14 (DINOv3 + SAM2) rather than the full multi-model ensemble (example 12).
+
+## Embedding Comparison: Google vs TESSERA (Example 15)
+
+Testing over the Argentine Pampas shows that **TESSERA embeddings produce more accurate field boundaries than Google AlphaEarth Embeddings** when used with the automated pipeline (embedding clustering + LULC filter + SAM2). The two embedding products differ fundamentally in architecture and input data:
+
+- **TESSERA** ([Feng et al., 2025](https://arxiv.org/abs/2506.20380)) is a pixel-wise foundation model trained on **multi-modal Sentinel-1/2 time series** using Barlow Twins self-supervision. It processes "d-pixels" — full temporal sequences of all spectral bands (S2) and SAR backscatter (S1) at each pixel — learning 128-D embeddings that are invariant to cloud-induced temporal gaps. Because it encodes the **complete phenological trajectory** (planting, growth, senescence) rather than a single composite, adjacent fields with different crop types, planting dates, or irrigation schedules produce distinct embeddings even when they appear spectrally similar in any single image.
+
+- **Google AlphaEarth** ([Brown et al., 2025](https://arxiv.org/abs/2507.22291)) uses a video summarization architecture with a "Space Time Precision" encoder that assimilates multiple EO sources into 64-D annual embeddings on the unit sphere S63. While it also incorporates temporal information through its support/valid period design, the released annual embedding fields are **static temporal summaries** that compress a full year into a single vector. The architecture prioritizes generality across diverse mapping tasks (land cover, biomass, evapotranspiration) rather than fine-grained agricultural phenology.
+
+- **Why TESSERA produces better field boundaries**: TESSERA's explicit modeling of temporal sampling invariance — training on random 40-observation subsets from the annual S1/S2 time series — makes it particularly sensitive to within-season crop dynamics. Two soybean fields planted two weeks apart produce different temporal profiles that TESSERA preserves in its embeddings. Google's annual summary tends to average out these intra-seasonal differences, causing adjacent fields with similar average reflectance to merge into single clusters.
+
+- **Trade-offs**: Google AlphaEarth has global coverage for 2017--2024 and is available as a GEE ImageCollection. TESSERA coverage varies by region/year (2017--2025) and requires the [geotessera](https://github.com/ucam-eo/geotessera) library for tile download and mosaicking.
+
+For new study areas **without reference boundaries**, we recommend the example 15 pipeline with TESSERA embeddings where available, falling back to Google embeddings for global coverage.
 
 ## NMOSE Reference Data
 

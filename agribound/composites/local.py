@@ -270,6 +270,11 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
                 "Install with: pip install agribound[tessera]"
             ) from None
 
+        mosaic_path = output_dir / f"tessera_embedding_{year}.tif"
+        if mosaic_path.exists():
+            logger.info("Using cached TESSERA mosaic: %s", mosaic_path)
+            return str(mosaic_path)
+
         logger.info("Downloading TESSERA embeddings (year=%d, bbox=%s)", year, bbox)
         paths = tessera_download(
             bbox=bbox,
@@ -279,7 +284,72 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
         )
         if not paths:
             raise RuntimeError(f"No TESSERA data found for year={year}, bbox={bbox}")
-        return paths[0]
+
+        # Mosaic tiles and clip to study area bbox
+        temp_mosaic = output_dir / f"tessera_mosaic_raw_{year}.tif"
+        if len(paths) == 1:
+            import shutil
+
+            shutil.copy2(paths[0], str(temp_mosaic))
+        else:
+            logger.info("Mosaicking %d TESSERA tiles...", len(paths))
+            self._mosaic_tiles(paths, str(temp_mosaic))
+
+        # Clip to study area bbox (reproject bbox to raster CRS)
+        import rasterio
+        from pyproj import Transformer
+        from shapely.geometry import box
+        from shapely.ops import transform as shapely_transform
+
+        from agribound.io.raster import clip_raster_to_geometry
+
+        with rasterio.open(str(temp_mosaic)) as src:
+            raster_crs = src.crs
+
+        clip_geom = box(*bbox)  # bbox is in EPSG:4326
+        if str(raster_crs) != "EPSG:4326":
+            proj = Transformer.from_crs("EPSG:4326", raster_crs, always_xy=True).transform
+            clip_geom = shapely_transform(proj, clip_geom)
+
+        logger.info("Clipping TESSERA mosaic to study area bbox")
+        clip_raster_to_geometry(str(temp_mosaic), str(mosaic_path), clip_geom)
+
+        # Clean up raw mosaic
+        if temp_mosaic.exists():
+            temp_mosaic.unlink()
+
+        logger.info("TESSERA mosaic: %s", mosaic_path)
+        return str(mosaic_path)
+
+    @staticmethod
+    def _mosaic_tiles(tile_paths: list[str], output_path: str) -> None:
+        """Mosaic multiple GeoTIFF tiles into a single file."""
+        import numpy as np
+        import rasterio
+        from rasterio.merge import merge
+
+        datasets = [rasterio.open(p) for p in tile_paths]
+        try:
+            mosaic, transform = merge(datasets)
+            # Replace any inf/nan nodata with 0
+            mosaic = np.where(np.isfinite(mosaic), mosaic, 0)
+
+            meta = datasets[0].meta.copy()
+            meta.update(
+                {
+                    "height": mosaic.shape[1],
+                    "width": mosaic.shape[2],
+                    "transform": transform,
+                    "count": mosaic.shape[0],
+                    "compress": "lzw",
+                    "BIGTIFF": "YES",
+                }
+            )
+            with rasterio.open(output_path, "w", **meta) as dst:
+                dst.write(mosaic)
+        finally:
+            for ds in datasets:
+                ds.close()
 
     def get_band_mapping(self, source: str) -> dict[str, str]:
         """Return band mapping for embedding sources.

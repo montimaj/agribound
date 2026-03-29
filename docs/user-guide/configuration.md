@@ -51,6 +51,7 @@ The `AgriboundConfig` dataclass controls every aspect of the delineation pipelin
 | `simplify_tolerance` | float | `2.0` | Ramer-Douglas-Peucker simplification tolerance in pixels. |
 | `lulc_filter` | bool | `True` | Automatically remove non-agricultural polygons using LULC data (NLCD for CONUS, Dynamic World for global ≥2015, C3S for global pre-2015). Disable for local files without GEE or unsupervised embeddings. |
 | `lulc_crop_threshold` | float | `0.3` | Minimum fraction of crop LULC pixels within a polygon to keep it. Lower values (0.2) retain more polygons in arid regions; higher values (0.5) are stricter. |
+| `lulc_batch_size` | int | `200` | Number of polygons per GEE `reduceRegions` call for LULC filtering. Reduce for complex polygons that exceed GEE's 10 MB payload limit. |
 
 ### Compute
 
@@ -102,6 +103,7 @@ min_field_area_m2: 5000
 simplify_tolerance: 1.5
 lulc_filter: true          # Remove non-agricultural polygons (default: true)
 lulc_crop_threshold: 0.3   # Crop fraction threshold (default: 0.3)
+lulc_batch_size: 200       # Polygons per GEE batch (reduce for complex geometries)
 
 # Compute
 device: auto
@@ -159,5 +161,6 @@ Each `AgriboundConfig` field maps to a CLI flag on the `agribound delineate` com
 | `fine_tune` | `--fine-tune` |
 | `lulc_filter` | `--lulc-filter` / `--no-lulc-filter` |
 | `lulc_crop_threshold` | `--lulc-crop-threshold` |
+| `lulc_batch_size` | `--lulc-batch-size` |
 
 Alternatively, pass a YAML file with `--config` to override all individual flags.

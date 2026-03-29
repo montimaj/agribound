@@ -93,15 +93,17 @@ def filter_by_lulc(
     is_conus = _CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2] and _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3]
     year = config.year
 
+    batch_size = config.lulc_batch_size
+
     if is_conus:
         logger.info("CONUS study area — using NLCD for LULC filtering")
-        return _filter_nlcd(gdf, gdf_4326, year, threshold)
+        return _filter_nlcd(gdf, gdf_4326, year, threshold, batch_size)
     elif year >= 2015:
         logger.info("Global, ≥2015 — using Dynamic World for LULC filtering")
-        return _filter_dynamic_world(gdf, gdf_4326, year, threshold)
+        return _filter_dynamic_world(gdf, gdf_4326, year, threshold, batch_size)
     else:
         logger.info("Global, <2015 — using C3S Land Cover for LULC filtering")
-        return _filter_c3s(gdf, gdf_4326, year, threshold)
+        return _filter_c3s(gdf, gdf_4326, year, threshold, batch_size)
 
 
 def _gdf_to_fc(gdf_4326: gpd.GeoDataFrame) -> Any:
@@ -156,6 +158,7 @@ def _filter_nlcd(
     gdf_4326: gpd.GeoDataFrame,
     year: int,
     threshold: float,
+    batch_size: int = 200,
 ) -> gpd.GeoDataFrame:
     """Filter using NLCD — server-side crop fraction via reduceRegions."""
     import ee
@@ -168,7 +171,7 @@ def _filter_nlcd(
     # Create binary crop mask: 1 where class is 81 or 82, else 0
     crop_mask = img.eq(81).Or(img.eq(82)).rename("crop")
 
-    return _reduce_and_filter(gdf, gdf_4326, crop_mask, threshold, scale=30)
+    return _reduce_and_filter(gdf, gdf_4326, crop_mask, threshold, scale=30, batch_size=batch_size)
 
 
 # ── Dynamic World (Global, ≥2015) ────────────────────────────────────────
@@ -179,6 +182,7 @@ def _filter_dynamic_world(
     gdf_4326: gpd.GeoDataFrame,
     year: int,
     threshold: float,
+    batch_size: int = 200,
 ) -> gpd.GeoDataFrame:
     """Filter using Dynamic World — server-side mean crop prob."""
     import ee
@@ -202,7 +206,7 @@ def _filter_dynamic_world(
         .rename("crop")
     )
 
-    return _reduce_and_filter(gdf, gdf_4326, crop_prob, threshold, scale=10)
+    return _reduce_and_filter(gdf, gdf_4326, crop_prob, threshold, scale=10, batch_size=batch_size)
 
 
 # ── C3S Land Cover (Global, <2015) ───────────────────────────────────────
@@ -213,6 +217,7 @@ def _filter_c3s(
     gdf_4326: gpd.GeoDataFrame,
     year: int,
     threshold: float,
+    batch_size: int = 200,
 ) -> gpd.GeoDataFrame:
     """Filter using C3S Land Cover — server-side crop fraction."""
     import ee
@@ -225,7 +230,7 @@ def _filter_c3s(
     # Binary crop mask: classes 10, 20, 30
     crop_mask = img.eq(10).Or(img.eq(20)).Or(img.eq(30)).rename("crop")
 
-    return _reduce_and_filter(gdf, gdf_4326, crop_mask, threshold, scale=300)
+    return _reduce_and_filter(gdf, gdf_4326, crop_mask, threshold, scale=300, batch_size=batch_size)
 
 
 # ── Shared reduce + filter logic ─────────────────────────────────────────
@@ -237,6 +242,7 @@ def _reduce_and_filter(
     crop_image: Any,
     threshold: float,
     scale: int,
+    batch_size: int = 200,
 ) -> gpd.GeoDataFrame:
     """Compute per-polygon mean crop value on GEE and filter locally.
 
@@ -261,17 +267,20 @@ def _reduce_and_filter(
     """
     import ee
 
-    # Process in batches to stay within GEE limits (~5000 features per call)
-    batch_size = 1000
+    # Process in batches to stay within GEE payload limit (10 MB).
     gdf = gdf.copy()
     gdf_4326 = gdf_4326.reset_index(drop=True)
+    # Simplify geometries for the GEE upload to reduce payload size
+    # (only for the zonal stats query — original geometries are preserved)
+    gdf_4326_simple = gdf_4326.copy()
+    gdf_4326_simple["geometry"] = gdf_4326_simple.geometry.simplify(0.0001)
     crop_values: dict[int, float] = {}  # global_idx → mean crop value
 
-    n_batches = (len(gdf_4326) + batch_size - 1) // batch_size
+    n_batches = (len(gdf_4326_simple) + batch_size - 1) // batch_size
     for batch_idx in range(n_batches):
         start = batch_idx * batch_size
-        end = min(start + batch_size, len(gdf_4326))
-        batch = gdf_4326.iloc[start:end]
+        end = min(start + batch_size, len(gdf_4326_simple))
+        batch = gdf_4326_simple.iloc[start:end]
 
         if batch_idx > 0 and batch_idx % 5 == 0:
             logger.info("LULC filter: processing batch %d/%d", batch_idx + 1, n_batches)
