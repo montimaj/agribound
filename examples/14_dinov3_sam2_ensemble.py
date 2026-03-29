@@ -1,26 +1,16 @@
 """
-14 — DINOv3 + SAM2 Multi-Source Ensemble (Lea County, NM)
+14 — DINOv3 + SAM2 Multi-Source Comparison (Eastern Lea County, NM)
 
-Focused ensemble using only DINOv3 (fine-tuned) across multiple satellite
-sources, with per-source SAM2 boundary refinement using each sensor's
-native raster.
-
-DINOv3's powerful ViT backbone adapts well to each sensor's characteristics
-via fine-tuning, and SAM2 produces pixel-accurate boundaries.  Running the
-same architecture across Sentinel-2, Landsat, HLS, NAIP, and SPOT provides
-diversity through the imagery itself rather than through different model
-architectures.
+Runs DINOv3 (fine-tuned, SAT-493M satellite-pretrained) across five
+satellite sources with per-source SAM2 boundary refinement, then
+compares per-source results against NMOSE reference boundaries.
 
 Pipeline per source:
     1. Download composite from GEE
     2. Fine-tune DINOv3 on NMOSE reference boundaries
-    3. Run DINOv3 inference → field polygons
+    3. Run DINOv3 inference → field polygons (LULC-filtered)
     4. SAM2 boundary refinement (per-source, using native raster)
-    5. (Repeat for each source)
-
-Then:
-    6. Grand ensemble: majority-vote merge across all sources
-    7. Evaluate against NMOSE reference
+    5. Evaluate against NMOSE reference
 
 Estimated runtime: ~1–2 hours (5 sources × fine-tuning + inference, GPU
 recommended).
@@ -65,8 +55,6 @@ COUNTY_CODE = "25"  # Lea County
 FINE_TUNE_EPOCHS = 30  # DINOv3 full fine-tuning; early stopping patience=10
 BATCH_SIZE = 8
 YEARS = [2020, 2021, 2022]
-VOTE_THRESHOLD = 0.3  # Fraction of sources that must agree
-
 # SAM2 refinement per source (each source refined against its own raster)
 SAM_REFINE = True
 SAM_MODEL = "large"  # Per-field cropping makes large model feasible
@@ -287,58 +275,10 @@ def main():
                 print(f"  {tag}: FAILED — {exc}")
 
     # ================================================================
-    # Phase 2: Grand ensemble + SAM2 refinement
+    # Phase 2: Evaluation
     # ================================================================
     print(f"\n{'=' * 70}")
-    print(f"Phase 2: Grand ensemble (vote threshold={VOTE_THRESHOLD})")
-    print(f"{'=' * 70}")
-
-    from agribound.engines.ensemble import EnsembleEngine
-    from agribound.postprocess import filter_polygons
-
-    ensemble_results = {}
-
-    for year in YEARS:
-        year_results = all_results.get(year, {})
-        if len(year_results) < 2:
-            print(f"\n  {year}: only {len(year_results)} source(s), skipping ensemble.")
-            if year_results:
-                # Use single source result directly
-                ensemble_results[year] = next(iter(year_results.values()))
-            continue
-
-        output_path = OUTPUT_DIR / f"fields_ensemble_dinov3_{year}.gpkg"
-
-        if output_path.exists():
-            print(f"\n  {year}: already exists, loading.")
-            ensemble_results[year] = gpd.read_file(output_path)
-            continue
-
-        print(f"\n  {year}: merging {len(year_results)} sources...", end=" ")
-        try:
-            gdf = EnsembleEngine._merge_vote(year_results, VOTE_THRESHOLD)
-            gdf = filter_polygons(gdf, min_area_m2=2500)
-            print(f"{len(gdf)} fields")
-
-            # Smooth and simplify ensemble boundaries
-            from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
-
-            gdf = smooth_polygons(gdf, iterations=3)
-            gdf = simplify_polygons(gdf, tolerance=2.0)
-
-            # Reproject and save
-            if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
-                gdf = gdf.to_crs(OUTPUT_CRS)
-            gdf.to_file(output_path, driver="GPKG", layer="fields")
-            ensemble_results[year] = gdf
-        except Exception as exc:
-            print(f"FAILED — {exc}")
-
-    # ================================================================
-    # Phase 3: Evaluation
-    # ================================================================
-    print(f"\n{'=' * 70}")
-    print("Phase 3: Evaluation against NMOSE reference")
+    print("Phase 2: Evaluation against NMOSE reference")
     print(f"{'=' * 70}")
 
     header = f"  {'Year':<6} {'Source':<20} {'Fields':>6} {'F1':>6} {'IoU':>6} {'P':>6} {'R':>6}"
@@ -346,7 +286,6 @@ def main():
     print(f"  {'-' * 6} {'-' * 20} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6}")
 
     for year in YEARS:
-        # Individual sources
         for source, gdf in sorted(all_results.get(year, {}).items()):
             try:
                 m = evaluate(gdf, ref_gdf)
@@ -358,21 +297,8 @@ def main():
             except Exception:
                 pass
 
-        # Ensemble
-        gdf = ensemble_results.get(year)
-        if gdf is not None:
-            try:
-                m = evaluate(gdf, ref_gdf)
-                print(
-                    f"  {year:<6} {'** ENSEMBLE **':<20} {len(gdf):>6} "
-                    f"{m['f1']:.3f} {m['iou_mean']:.3f} "
-                    f"{m['precision']:.3f} {m['recall']:.3f}"
-                )
-            except Exception:
-                pass
-
     # ================================================================
-    # Phase 4: Visualization
+    # Phase 3: Visualization
     # ================================================================
     print(f"\n{'=' * 70}")
     print("Generating maps...")
@@ -380,30 +306,19 @@ def main():
 
     from agribound.visualize import show_comparison
 
-    if ensemble_results:
-        latest_year = max(ensemble_results.keys())
-
-        # Ensemble vs reference
+    latest_year = max(all_results.keys())
+    latest_sources = all_results.get(latest_year, {})
+    if latest_sources:
+        # Per-source comparison + reference
+        comp_gdfs = list(latest_sources.values()) + [ref_gdf]
+        comp_labels = list(latest_sources.keys()) + ["NMOSE Reference"]
         show_comparison(
-            [ensemble_results[latest_year], ref_gdf],
-            labels=[f"DINOv3+SAM2 Ensemble ({latest_year})", "NMOSE Reference"],
+            comp_gdfs,
+            labels=comp_labels,
             basemap="Esri.WorldImagery",
-            output_html=str(OUTPUT_DIR / "map_ensemble_vs_reference.html"),
+            output_html=str(OUTPUT_DIR / "map_source_comparison.html"),
         )
-        print(f"  Ensemble vs Reference: {OUTPUT_DIR / 'map_ensemble_vs_reference.html'}")
-
-        # Per-source comparison
-        latest_sources = all_results.get(latest_year, {})
-        if latest_sources:
-            comp_gdfs = list(latest_sources.values()) + [ensemble_results[latest_year]]
-            comp_labels = list(latest_sources.keys()) + ["Ensemble"]
-            show_comparison(
-                comp_gdfs,
-                labels=comp_labels,
-                basemap="Esri.WorldImagery",
-                output_html=str(OUTPUT_DIR / "map_source_comparison.html"),
-            )
-            print(f"  Source comparison: {OUTPUT_DIR / 'map_source_comparison.html'}")
+        print(f"  Source comparison: {OUTPUT_DIR / 'map_source_comparison.html'}")
 
     elapsed = time.time() - start_time
     print(f"\nTotal runtime: {elapsed / 60:.1f} minutes")

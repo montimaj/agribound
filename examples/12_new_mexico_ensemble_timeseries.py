@@ -15,10 +15,10 @@ is independently fine-tuned on NMOSE reference boundaries before inference.
 For Sentinel-2, DA automatically routes through FTW's instance segmentation
 with proper S2 preprocessing and native MPS support.
 
-Study area: Lea County (County 25) from NMOSE WUCB agricultural polygon
-boundaries.  The ensemble runs every compatible source–engine–model
-combination per year and merges via majority-vote overlap, producing
-higher-confidence boundaries than any single run alone.
+Study area: Eastern Lea County (County 25), a ~20×22 km bbox over the
+center pivot irrigation area.  The ensemble runs every compatible
+source–engine–model combination per year and merges via majority-vote
+overlap, producing higher-confidence boundaries than any single run alone.
 
 Estimated runtime: ~3–6 hours (3 years × up to 20+ source–engine–model
 combos + per-model fine-tuning, GPU recommended).  Best run on HPC/cloud
@@ -118,8 +118,13 @@ SOURCE_YEAR_RANGE = {
 
 
 def create_county_study_area(shapefile_path, county_code):
-    """Extract study area GeoJSON and reference boundaries for a county."""
+    """Extract eastern Lea County study area and reference boundaries.
+
+    Uses a ~20×22 km bbox over eastern Lea County where center pivots are
+    dense.  This keeps NAIP (1 m) and SPOT (1.5 m) runtimes practical.
+    """
     import geopandas as gpd
+    from shapely.geometry import box
 
     gdf = gpd.read_file(shapefile_path)
 
@@ -131,9 +136,7 @@ def create_county_study_area(shapefile_path, county_code):
             f"Available counties: {sorted(gdf['County'].unique())}"
         )
 
-    # Reproject to WGS84 for GeoJSON (bounds must be in lon/lat)
-    county_4326 = county_gdf.to_crs(epsg=4326)
-    bounds = county_4326.total_bounds  # [minx, miny, maxx, maxy]
+    # Eastern Lea County bbox (center pivot area)
     bbox_geojson = {
         "type": "FeatureCollection",
         "features": [
@@ -143,15 +146,15 @@ def create_county_study_area(shapefile_path, county_code):
                     "type": "Polygon",
                     "coordinates": [
                         [
-                            [bounds[0], bounds[1]],
-                            [bounds[2], bounds[1]],
-                            [bounds[2], bounds[3]],
-                            [bounds[0], bounds[3]],
-                            [bounds[0], bounds[1]],
+                            [-103.25, 32.75],
+                            [-103.05, 32.75],
+                            [-103.05, 32.95],
+                            [-103.25, 32.95],
+                            [-103.25, 32.75],
                         ]
                     ],
                 },
-                "properties": {"name": f"Lea County (County {county_code})"},
+                "properties": {"name": f"Eastern Lea County (County {county_code})"},
             }
         ],
     }
@@ -159,12 +162,18 @@ def create_county_study_area(shapefile_path, county_code):
     with open(out_path, "w") as f:
         json.dump(bbox_geojson, f)
 
+    # Clip reference boundaries to the study area bbox
+    bbox_geom = box(-103.25, 32.75, -103.05, 32.95)
+    county_4326 = county_gdf.to_crs(epsg=4326)
+    ref_clipped = county_4326[county_4326.intersects(bbox_geom)].copy()
+    ref_clipped = ref_clipped.to_crs(county_gdf.crs)
+
     # Save reference boundaries for fine-tuning
     ref_path = OUTPUT_DIR / "lea_county_reference.gpkg"
     if not ref_path.exists():
-        county_gdf.to_file(ref_path, driver="GPKG")
+        ref_clipped.to_file(ref_path, driver="GPKG")
 
-    return str(out_path), county_gdf, str(ref_path)
+    return str(out_path), ref_clipped, str(ref_path)
 
 
 def run_delineation(source, engine, year, study_area, gee_project, model=None, ref_path=None):

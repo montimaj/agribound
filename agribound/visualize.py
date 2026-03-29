@@ -7,7 +7,6 @@ using leafmap. Supports static plots and interactive HTML maps.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -167,56 +166,101 @@ def show_comparison(
     leafmap.Map
         Interactive map with toggle-able layers.
     """
-    try:
-        import leafmap
-    except ImportError:
-        raise ImportError("leafmap is required for visualization.") from None
+    import folium
+    import numpy as np
 
     colors = ["#ff6600", "#0066ff", "#00cc44", "#cc00ff", "#ffcc00"]
 
     if labels is None:
         labels = [f"Layer {i + 1}" for i in range(len(boundaries_list))]
 
-    m = leafmap.Map()
-
-    with contextlib.suppress(Exception):
-        m.add_basemap(basemap)
-
-    for i, (gdf, label) in enumerate(zip(boundaries_list, labels, strict=False)):
-        if gdf.crs is not None and not gdf.crs.equals("EPSG:4326"):
-            gdf = gdf.to_crs("EPSG:4326")
-
-        color = colors[i % len(colors)]
-        style = {
-            "color": color,
-            "weight": 2,
-            "opacity": 0.8,
-            "fillColor": color,
-            "fillOpacity": 0.15,
-        }
-
-        if len(gdf) > 0:
-            m.add_gdf(gdf, layer_name=label, style=style)
-
-    # Fit to all bounds
+    # Reproject everything to EPSG:4326 upfront and collect bounds
+    layers_4326 = []
     all_bounds = []
+
     for gdf in boundaries_list:
-        if len(gdf) > 0:
-            gdf_4326 = gdf.to_crs("EPSG:4326") if gdf.crs != "EPSG:4326" else gdf
-            all_bounds.append(gdf_4326.total_bounds)
+        if len(gdf) == 0:
+            layers_4326.append(gdf)
+            continue
+        gdf_4326 = gdf.to_crs(epsg=4326) if gdf.crs is not None else gdf
+        gdf_4326 = gdf_4326.explode(index_parts=False).reset_index(drop=True)
+        gdf_4326 = gdf_4326[gdf_4326.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
+        gdf_4326 = gdf_4326[["geometry"]].copy()
+        layers_4326.append(gdf_4326)
+        all_bounds.append(gdf_4326.total_bounds)
 
+    # Compute center and zoom from combined bounds
     if all_bounds:
-        import numpy as np
-
         bounds = np.array(all_bounds)
-        m.fit_bounds(
-            [
-                [bounds[:, 1].min(), bounds[:, 0].min()],
-                [bounds[:, 3].max(), bounds[:, 2].max()],
-            ]
-        )
+        min_lon, min_lat = bounds[:, 0].min(), bounds[:, 1].min()
+        max_lon, max_lat = bounds[:, 2].max(), bounds[:, 3].max()
+        center_lat = (min_lat + max_lat) / 2
+        center_lon = (min_lon + max_lon) / 2
+        extent = max(max_lon - min_lon, max_lat - min_lat)
+        zoom = 14 if extent < 0.1 else 12 if extent < 1 else 9 if extent < 10 else 6
+    else:
+        center_lon, center_lat, zoom = 0, 0, 2
+
+    # Pure folium map for clean HTML export and stable layer toggling
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom,
+        tiles=None,
+    )
+
+    # Satellite basemap
+    basemap_urls = {
+        "Esri.WorldImagery": (
+            "https://server.arcgisonline.com/ArcGIS/rest/services/"
+            "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        ),
+        "OpenStreetMap": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    }
+    tile_url = basemap_urls.get(basemap, basemap_urls["Esri.WorldImagery"])
+    folium.TileLayer(
+        tiles=tile_url,
+        attr="Esri" if "esri" in tile_url.lower() else "OpenStreetMap",
+        name="Basemap",
+    ).add_to(m)
+
+    # Add each layer
+    def _make_style_func(c: str):
+        def _style(_feature):
+            return {
+                "color": c,
+                "weight": 1,
+                "opacity": 0.9,
+                "fillColor": c,
+                "fillOpacity": 0.1,
+            }
+
+        return _style
+
+    for i, (gdf_4326, label) in enumerate(zip(layers_4326, labels, strict=False)):
+        if len(gdf_4326) == 0:
+            continue
+        color = colors[i % len(colors)]
+        folium.GeoJson(
+            gdf_4326.__geo_interface__,
+            name=label,
+            style_function=_make_style_func(color),
+        ).add_to(m)
+
+    folium.LayerControl(collapsed=False).add_to(m)
+
+    # Simple HTML legend
+    legend_html = '<div style="position:fixed;bottom:30px;left:30px;z-index:1000;'
+    legend_html += "background:white;padding:10px;border-radius:5px;"
+    legend_html += 'box-shadow:0 0 5px rgba(0,0,0,0.3);font-size:13px;">'
+    legend_html += "<b>Layers</b><br>"
+    for i, label in enumerate(labels):
+        color = colors[i % len(colors)]
+        legend_html += f'<span style="color:{color};font-size:16px;">&#9632;</span> {label}<br>'
+    legend_html += "</div>"
+    m.get_root().html.add_child(folium.Element(legend_html))
 
     if output_html:
-        m.to_html(output_html)
+        Path(output_html).parent.mkdir(parents=True, exist_ok=True)
+        m.save(output_html)
 
     return m

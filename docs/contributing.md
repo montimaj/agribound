@@ -155,7 +155,7 @@ agribound/
     config.py            # AgriboundConfig dataclass
     pipeline.py          # Main pipeline orchestrator
     evaluate.py          # Accuracy metrics
-    visualize.py         # leafmap visualization
+    visualize.py         # Interactive map visualization (folium/leafmap)
     composites/
         __init__.py
         base.py          # CompositeBuilder ABC + source registry

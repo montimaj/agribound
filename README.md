@@ -202,7 +202,7 @@ agribound/
 │   ├── config.py               # AgriboundConfig dataclass
 │   ├── evaluate.py             # IoU / F1 / precision / recall metrics
 │   ├── pipeline.py             # Main delineate() orchestrator
-│   ├── visualize.py            # Interactive map generation (leafmap)
+│   ├── visualize.py            # Interactive map generation (folium/leafmap)
 │   ├── composites/             # Satellite composite builders
 │   │   ├── base.py             # Source registry and abstract builder
 │   │   ├── gee.py              # GEE composites (Landsat, S2, HLS, NAIP, SPOT)
@@ -269,7 +269,7 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [11_mississippi_alluvial_plain_spot.py](examples/11_mississippi_alluvial_plain_spot.py) | [notebook](examples/notebooks/11_mississippi_alluvial_plain_spot.ipynb) | SPOT 6/7 field delineation in the Mississippi Alluvial Plain with cross-year stability analysis |
 | [12_new_mexico_ensemble_timeseries.py](examples/12_new_mexico_ensemble_timeseries.py) | [notebook](examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Multi-source, multi-model grand ensemble (2020–2022) over Lea County, NM with per-model fine-tuning. Grand ensemble boundaries are refined by SAM2 after majority-vote merging |
 | [13_sam2_refine_dinov3.py](examples/13_sam2_refine_dinov3.py) | [notebook](examples/notebooks/13_sam2_refine_dinov3.ipynb) | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries |
-| [14_dinov3_sam2_ensemble.py](examples/14_dinov3_sam2_ensemble.py) | [notebook](examples/notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source ensemble with per-source refinement (Lea County, NM) |
+| [14_dinov3_sam2_ensemble.py](examples/14_dinov3_sam2_ensemble.py) | [notebook](examples/notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source comparison across 5 sensors (Eastern Lea County, NM) |
 | [15_pampas_semi_supervised.py](examples/15_pampas_semi_supervised.py) | [notebook](examples/notebooks/15_pampas_semi_supervised.ipynb) | Automated pipeline: embedding clusters + Dynamic World crop filter + SAM2 on Sentinel-2 (no training or reference data needed) |
 
 ## Google Earth Engine Authentication
