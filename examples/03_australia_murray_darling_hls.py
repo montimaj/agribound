@@ -9,6 +9,13 @@ using Harmonized Landsat-Sentinel (HLS) imagery:
 
 Both run on the same AOI for 2022–2024.
 
+Note: The ViT embedding mode (without fine-tuning) tends to produce very
+few, over-merged fields because the raw encoder features do not
+distinguish individual field boundaries well. PCA mode typically produces
+far more realistic results out of the box. For production use with ViT
+embeddings, fine-tuning on reference boundaries (``fine_tune=True``) is
+recommended — see Example 01 for a fine-tuning workflow.
+
 Estimated runtime: ~45–90 minutes (3 years, GPU recommended for ViT mode).
 
 Prerequisites:
@@ -37,7 +44,7 @@ OUTPUT_DIR = Path("outputs/australia_murray_darling")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 YEARS = range(2022, 2025)
-YEARS = range(2022, 2023)  # quick test for 1 year
+YEARS = range(2022, 2023)  # quick test for 1 year; comment this out for full 3-year run
 SOURCE = "hls"
 ENGINE = "prithvi"
 

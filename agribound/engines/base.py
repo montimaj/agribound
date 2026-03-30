@@ -47,7 +47,7 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
         "install_extra": "ftw",
     },
     "geoai": {
-        "name": "GeoAI Field Delineator",
+        "name": "GeoAI Field Boundary",
         "approach": "Mask R-CNN instance segmentation",
         "strengths": "Built-in NDVI, flexible multi-spectral input",
         "gpu_required": True,
@@ -68,7 +68,7 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "dinov3": {
         "name": "DINOv3",
-        "approach": "DINOv2/v3 ViT backbone + DPT segmentation head",
+        "approach": "DINOv3 ViT backbone + DPT segmentation head",
         "strengths": "Powerful ViT features, LoRA fine-tuning, resolution-agnostic",
         "gpu_required": True,
         "requires_bands": ["R", "G", "B"],

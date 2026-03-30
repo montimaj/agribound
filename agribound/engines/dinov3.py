@@ -1,7 +1,7 @@
 """
 DINOv3 semantic segmentation engine.
 
-Uses the DINOv2/v3 Vision Transformer backbone with a DPT segmentation
+Uses the DINOv3 Vision Transformer backbone with a DPT segmentation
 decoder from the ``geoai`` package.  Supports LoRA-efficient fine-tuning
 on reference field boundaries (field / boundary / background classes) and
 inference via sliding-window tiled prediction on GeoTIFFs.
@@ -35,7 +35,7 @@ DINOV3_MODELS = {
 class DINOv3Engine(DelineationEngine):
     """Field boundary delineation using DINOv3 semantic segmentation.
 
-    Uses DINOv2/v3 ViT backbone with a DPT decoder head for pixel-wise
+    Uses DINOv3 ViT backbone with a DPT decoder head for pixel-wise
     segmentation into field / boundary / background classes.  Requires
     fine-tuning on reference boundaries for best results.
 

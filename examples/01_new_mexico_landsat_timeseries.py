@@ -47,13 +47,14 @@ OUTPUT_DIR = Path("outputs/new_mexico_timeseries")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_CRS = "EPSG:26913"  # Match NMOSE reference CRS (NAD83 / UTM zone 13N)
 
-YEARS = range(2025, 2026)
+YEARS = range(1985, 2026)
+YEARS = range(2025, 2026)  # quick test for 1 year; comment this out for full 40-year run
 SOURCE = "landsat"
 ENGINE = "delineate-anything"
 
 # Set to True to fine-tune the engine on NMOSE boundaries before inference
 FINE_TUNE = True
-FINE_TUNE_EPOCHS = 1
+FINE_TUNE_EPOCHS = 1  # Use more epochs (e.g. 10-20) for better results, but longer runtime
 
 
 def create_study_area_from_shapefile(shapefile_path):

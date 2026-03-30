@@ -12,7 +12,7 @@ All spectral bands are downloaded for each sensor. Engines automatically extract
 | Landsat | `landsat` | 30 m | SR_B2--SR_B7 (6 bands) | `LANDSAT/LC08/C02/T1_L2`, `LANDSAT/LC09/C02/T1_L2` | Long time-series; L5/7 bands harmonized to L8/9 naming |
 | HLS | `hls` | 30 m | B1--B7 (7 bands) | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
 | NAIP | `naip` | 1 m | R, G, B, N (4 bands) | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields. **Very slow over large areas** |
-| SPOT 6/7 | `spot` | 1.5 m | R, G, B (3 bands) | Restricted -- see below | Restricted GEE collection. **Very slow over large areas** |
+| SPOT 6/7 | `spot` | 6 m | R, G, B (3 bands) | Restricted -- see below | Restricted GEE collection. **Very slow over large areas** |
 | SPOT 6/7 Panchromatic | `spot-pan` | 1.5 m | P (1 band → pseudo-RGB) | Restricted -- see below | Panchromatic band triplicated as pseudo-RGB. Restricted access |
 | Local GeoTIFF | `local` | Any | All bands | N/A | Bring your own imagery via `--local-tif` |
 | Google Embeddings | `google-embedding` | 10 m | 64-D embeddings | `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Pre-computed satellite embeddings |
@@ -22,7 +22,7 @@ All spectral bands are downloaded for each sensor. Engines automatically extract
     SPOT 6/7 imagery (`AIRBUS/SPOT6_7`) is restricted to select GEE users and is for internal DRI use only. This applies to both `spot` (multispectral RGB) and `spot-pan` (panchromatic). External users who need SPOT-based field boundaries should contact the package author.
 
 !!! warning "High-Resolution Source Performance"
-    NAIP (1 m) and SPOT (1.5 m) produce rasters that are 100–900x larger in pixel count than Sentinel-2 (10 m) for the same study area. Composite download, fine-tuning, and inference on these sources over county-scale or larger areas can take hours even on GPU. Consider subsetting the study area for high-resolution sources, or use Sentinel-2/Landsat for large-area mapping.
+    NAIP (1 m) and SPOT (6 m) produce rasters that are 100–900x larger in pixel count than Sentinel-2 (10 m) for the same study area. Composite download, fine-tuning, and inference on these sources over county-scale or larger areas can take hours even on GPU. Consider subsetting the study area for high-resolution sources, or use Sentinel-2/Landsat for large-area mapping.
 
 ## Canonical Band Mappings
 

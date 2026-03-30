@@ -118,7 +118,7 @@ def create_county_study_area(shapefile_path, county_code):
     """Extract eastern Lea County study area and reference boundaries.
 
     Uses a ~20×22 km bbox over eastern Lea County where center pivots are
-    dense.  This keeps NAIP (1 m) and SPOT (1.5 m) runtimes practical.
+    dense.  This keeps NAIP (1 m) and SPOT (6 m) runtimes practical.
     """
     import geopandas as gpd
     from shapely.geometry import box

@@ -55,9 +55,17 @@ Visual results from agribound's example scripts across different regions, satell
 
 ---
 
+## Australia, Murray-Darling Basin — Prithvi PCA on HLS
+
+**Example 03** · HLS (30 m) · Prithvi PCA baseline · Large-scale irrigated agriculture in the Murray-Darling Basin (2022). PCA mode produces realistic field boundaries without a GPU. The ViT embedding mode (without fine-tuning) tends to over-merge fields into very few large polygons — fine-tuning on reference boundaries is recommended for ViT.
+
+<img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/Australia_example.png" alt="Australia — Prithvi PCA on HLS" width="700">
+
+---
+
 ## North China Plain — Delineate-Anything on SPOT
 
-**Example 08** · SPOT 6/7 (1.5 m) · Delineate-Anything · Smallholder wheat/maize fields (2023). Restricted SPOT access.
+**Example 08** · SPOT 6/7 (6 m) · Delineate-Anything · Smallholder wheat/maize fields (2023). Restricted SPOT access.
 
 <img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/China_example.png" alt="China — DA on SPOT" width="700">
 
@@ -73,6 +81,6 @@ Visual results from agribound's example scripts across different regions, satell
 
 ## Mississippi Alluvial Plain, USA — Delineate-Anything on SPOT
 
-**Example 11** · SPOT 6/7 (1.5 m) · Delineate-Anything · Row-crop agriculture with cross-year stability analysis (2021–2023). Restricted SPOT access.
+**Example 11** · SPOT 6/7 (6 m) · Delineate-Anything · Row-crop agriculture with cross-year stability analysis (2021–2023). Restricted SPOT access.
 
 <img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/MAP_example.png" alt="Mississippi Alluvial Plain — DA on SPOT" width="700">

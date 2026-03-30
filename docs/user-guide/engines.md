@@ -7,10 +7,10 @@ Agribound provides seven delineation engines, each suited to different use cases
 | Engine | Key | Approach | Strengths | GPU Required | Reference |
 |---|---|---|---|---|---|
 | Delineate-Anything | `delineate-anything` | YOLO instance segmentation (2 model variants) | Fast; resolution-agnostic (1--10 m+); routes through FTW for S2 with native MPS support | Recommended | [Lavreniuk et al. (2025)](https://arxiv.org/abs/2504.02534) |
-| Fields of The World | `ftw` | Semantic segmentation (14+ models: EfficientNet-B3/B5/B7, UNet, UPerNet) | Strong generalization; 25-country training set; bi-temporal input (planting + harvest); all models via `list_ftw_models()` | Yes | [Kerner et al. (2024)](https://fieldsofthe.world/) |
+| Fields of The World | `ftw` | Semantic segmentation (14+ models: EfficientNet-B3/B5/B7, UNet, UPerNet) | Strong generalization; 25-country training set; bi-temporal input (planting + harvest); all models via `list_ftw_models()` | Yes | [Kerner et al. (2025)](https://fieldsofthe.world/) |
 | GeoAI Field Boundary | `geoai` | Mask R-CNN instance segmentation | Built-in NDVI support; auto-falls back to CPU on Apple Silicon (MPS). **Without fine-tuning on region-specific reference data, GeoAI typically does not delineate any fields** | No | [Wu (2026)](https://github.com/opengeos/geoai) |
 | DINOv3 | `dinov3` | DINOv3 ViT backbone (SAT-493M satellite-pretrained) + DPT segmentation head | Satellite-native ViT features pretrained on 493M satellite images; LoRA fine-tuning; resolution-agnostic | Yes | [Siméoni et al. (2025)](https://arxiv.org/abs/2508.10104) |
-| Prithvi-EO-2.0 | `prithvi` | NASA/IBM ViT foundation model (embed / PCA / segment modes) | 1024-D ViT embeddings from 6 HLS bands; PCA baseline for comparison | Recommended (embed); No (PCA) | [Szwarcman et al. (2024)](https://arxiv.org/abs/2412.02732) |
+| Prithvi-EO-2.0 | `prithvi` | NASA/IBM ViT foundation model (embed / PCA / segment modes) | 1024-D ViT embeddings from 6 HLS bands; PCA baseline for comparison. **ViT embed mode requires fine-tuning for good results** | Recommended (embed); No (PCA) | [Szwarcman et al. (2024)](https://arxiv.org/abs/2412.02732) |
 | Embedding | `embedding` | Unsupervised clustering of pre-computed embeddings | No GPU needed; no labeled data required | No | [Brown et al. (2025)](https://arxiv.org/abs/2507.22291), [Feng et al. (2025)](https://arxiv.org/abs/2506.20380) |
 | Ensemble | `ensemble` | Multi-engine or multi-model consensus (vote / union / intersection) | Best accuracy; supports running same engine with different models | Depends on engines | -- |
 
@@ -46,7 +46,7 @@ pip install agribound[ftw]
 
 **Reference**: Fields of The World (FTW) dataset
 
-### GeoAI Field Delineator
+### GeoAI Field Boundary
 
 Mask R-CNN instance segmentation from the `geoai-py` package. Includes built-in NDVI computation for enhanced multi-spectral input.
 
@@ -63,7 +63,7 @@ pip install agribound[geoai]
 
 ### DINOv3
 
-DINOv2/v3 Vision Transformer backbone with a DPT (Dense Prediction Transformer) segmentation head. Uses LoRA-efficient fine-tuning with a frozen backbone for fast adaptation on reference boundaries. Resolution-agnostic — works across all satellite sources.
+DINOv3 Vision Transformer backbone with a DPT (Dense Prediction Transformer) segmentation head. Uses LoRA-efficient fine-tuning with a frozen backbone for fast adaptation on reference boundaries. Resolution-agnostic — works across all satellite sources.
 
 ```bash
 pip install agribound[geoai]
@@ -79,7 +79,7 @@ pip install agribound[geoai]
 
 NASA/IBM foundation model (300M-parameter Vision Transformer) pretrained on HLS imagery with masked autoencoders. Supports three modes:
 
-- **`embed`** (default) — Extracts 1024-D ViT encoder embeddings from 224×224 patches, then K-means clusters them to delineate fields. Uses all 6 HLS bands (Blue, Green, Red, NIR, SWIR1, SWIR2) with Prithvi's pre-training normalization. GPU recommended.
+- **`embed`** (default) — Extracts 1024-D ViT encoder embeddings from 224×224 patches, then K-means clusters them to delineate fields. Uses all 6 HLS bands (Blue, Green, Red, NIR, SWIR1, SWIR2) with Prithvi's pre-training normalization. GPU recommended. **Without fine-tuning, ViT embeddings tend to produce very few, over-merged fields.** Fine-tuning on reference boundaries is recommended for production use.
 - **`pca`** — Lightweight baseline that clusters PCA-reduced spectral bands (R, G, B, NIR) without running the ViT encoder. No GPU or `transformers` needed. Useful for comparison.
 - **`segment`** — Fine-tuned UPerNet decoder via terratorch. Requires a checkpoint from fine-tuning on reference boundaries.
 
@@ -108,7 +108,8 @@ agribound.delineate(..., engine="prithvi",
 Unsupervised approach using K-means or spectral clustering on pre-computed pixel embeddings. Does not require a GPU. Designed for use with the Google Satellite Embedding V1 and TESSERA embedding datasets.
 
 ```bash
-pip install agribound[geoai]
+pip install agribound                # Google Embeddings (no extra deps)
+pip install agribound[tessera]       # TESSERA Embeddings
 ```
 
 **Supported sources**: `google-embedding`, `tessera-embedding`

@@ -77,7 +77,7 @@ def create_study_area(shapefile_path, county_code, output_dir):
     """Extract eastern Lea County study area and reference boundaries.
 
     Uses a ~20×22 km bbox over eastern Lea County where center pivots are
-    dense.  This keeps NAIP (1 m) and SPOT (1.5 m) runtimes practical
+    dense.  This keeps NAIP (1 m) and SPOT (6 m) runtimes practical
     while still covering a diverse agricultural landscape.
     """
     gdf = gpd.read_file(shapefile_path)
