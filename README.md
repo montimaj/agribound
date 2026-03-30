@@ -26,7 +26,7 @@ The result is a single `agribound.delineate()` call or CLI command that replaces
 
 ### Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)
 
-DINOv3 (SAT-493M satellite-pretrained) fine-tuned on NMOSE reference boundaries, with LULC crop filtering (NLCD) and per-field SAM2 refinement on 1 m NAIP imagery (2020). Blue polygons are model-predicted boundaries; yellow polygons are NMOSE reference boundaries.
+DINOv3 (SAT-493M satellite-pretrained) fine-tuned on NMOSE reference boundaries, with LULC crop filtering (NLCD) and per-field SAM2 refinement on 1 m NAIP imagery (2020). Blue polygons are model-predicted boundaries; yellow polygons are NMOSE reference boundaries. Note: Fields in Texas bordering New Mexico are also present.
 
 <img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/NM_example.png" alt="DINOv3 + SAM2 on NAIP — Eastern Lea County, New Mexico, USA" width="700">
 

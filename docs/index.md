@@ -30,7 +30,7 @@ Disable with `lulc_filter=False` for local files without GEE access or unsupervi
 
 ### Example Results
 
-**Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)** — Fine-tuned on NMOSE reference boundaries, LULC-filtered (NLCD), SAM2-refined on 1 m NAIP. Blue = predicted, yellow = reference.
+**Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)** — Fine-tuned on NMOSE reference boundaries, LULC-filtered (NLCD), SAM2-refined on 1 m NAIP. Blue = predicted, yellow = reference. Note: Fields in Texas bordering New Mexico are also present.
 
 <img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/NM_example.png" alt="DINOv3 + SAM2 on NAIP" width="700">
 

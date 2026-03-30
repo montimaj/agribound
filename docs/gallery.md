@@ -1,7 +1,6 @@
 # Example Gallery
 
-Visual results from agribound's example scripts across different regions, satellites, and engines. Blue polygons are model-predicted field boundaries; yellow polygons (where shown) are reference boundaries.
-
+Visual results from agribound's example scripts across different regions, satellites, and engines.
 !!! note
     The satellite basemap in these screenshots may not correspond to the same acquisition date as the imagery used for delineation. Field boundaries and crop patterns may differ between the basemap and the analysis period.
 
@@ -9,7 +8,7 @@ Visual results from agribound's example scripts across different regions, satell
 
 ## New Mexico, USA — DINOv3 + SAM2 on NAIP
 
-**Example 14** · NAIP (1 m) · DINOv3 (SAT-493M) fine-tuned on NMOSE reference boundaries · LULC crop filter (NLCD) · SAM2 per-field refinement · Eastern Lea County (2020).
+**Example 14** · NAIP (1 m) · DINOv3 (SAT-493M) fine-tuned on NMOSE reference boundaries · LULC crop filter (NLCD) · SAM2 per-field refinement · Eastern Lea County (2020). Note: Fields in Texas bordering New Mexico are also present.
 
 <img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/NM_example.png" alt="New Mexico — DINOv3 + SAM2 on NAIP" width="700">
 
