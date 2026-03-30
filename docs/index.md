@@ -2,7 +2,7 @@
 
 **Unified agricultural field boundary delineation toolkit** combining satellite foundation models, embeddings, and global training data.
 
-[![Release](https://img.shields.io/badge/release-v0.1.0-green.svg)](https://github.com/montimaj/agribound/releases)
+[![Release](https://img.shields.io/badge/release-v0.1.1-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)
 [![CI](https://github.com/montimaj/agribound/actions/workflows/ci.yml/badge.svg)](https://github.com/montimaj/agribound/actions/workflows/ci.yml)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://montimaj.github.io/agribound)

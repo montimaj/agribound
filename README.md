@@ -2,7 +2,7 @@
 
 **Unified agricultural field boundary delineation toolkit**
 
-[![Release](https://img.shields.io/badge/release-v0.1.0-green.svg)](https://github.com/montimaj/agribound/releases)
+[![Release](https://img.shields.io/badge/release-v0.1.1-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)
 [![CI](https://github.com/montimaj/agribound/actions/workflows/ci.yml/badge.svg)](https://github.com/montimaj/agribound/actions/workflows/ci.yml)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://montimaj.github.io/agribound)
@@ -28,13 +28,13 @@ The result is a single `agribound.delineate()` call or CLI command that replaces
 
 DINOv3 (SAT-493M satellite-pretrained) fine-tuned on NMOSE reference boundaries, with LULC crop filtering (NLCD) and per-field SAM2 refinement on 1 m NAIP imagery (2020). Blue polygons are model-predicted boundaries; yellow polygons are NMOSE reference boundaries.
 
-<img src="assets/NM_example.png" alt="DINOv3 + SAM2 on NAIP — Eastern Lea County, New Mexico, USA" width="700">
+<img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/NM_example.png" alt="DINOv3 + SAM2 on NAIP — Eastern Lea County, New Mexico, USA" width="700">
 
 ### Unsupervised: TESSERA Embeddings + LULC Filter + SAM2 (Pampas, Argentina)
 
 Fully automated pipeline with no reference boundaries or training. TESSERA (128-D) embedding clustering, LULC crop filtering (Dynamic World), and SAM2 boundary refinement on Sentinel-2 (2024).
 
-<img src="assets/Pampas_example.png" alt="TESSERA + LULC + SAM2 — Pampas, Argentina" width="700">
+<img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/Pampas_example.png" alt="TESSERA + LULC + SAM2 — Pampas, Argentina" width="700">
 
 *Note: The satellite basemap shown in these screenshots may not correspond to the same acquisition date as the imagery used for delineation. See the [docs gallery](https://montimaj.github.io/agribound/gallery/) for results across all regions and engines.*
 
