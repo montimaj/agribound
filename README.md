@@ -228,7 +228,7 @@ agribound/
 │   │   └── dynamic_world.py    # Dynamic World crop probability downloads
 │   ├── engines/                # Delineation engines
 │   │   ├── base.py             # Engine registry and abstract base class
-│   │   ├── delineate_anything.py  # YOLO + SAM instance segmentation
+│   │   ├── delineate_anything.py  # YOLO instance segmentation
 │   │   ├── ftw.py              # Fields of The World semantic segmentation
 │   │   ├── geoai_field.py      # GeoAI Mask R-CNN
 │   │   ├── dinov3.py           # DINOv3 ViT + DPT semantic segmentation
@@ -248,11 +248,13 @@ agribound/
 │       ├── polygonize.py       # Raster mask → vector polygons
 │       ├── regularize.py       # Polygon regularization
 │       └── simplify.py         # Douglas-Peucker simplification
+├── assets/                     # Gallery screenshots and example images
 ├── examples/                   # Example scripts (15) and Jupyter notebooks
 │   ├── 01–15_*.py              # Runnable Python scripts
-│   ├── notebooks/              # Interactive notebook versions
-│   └── NMOSE Field Boundaries/ # Reference shapefile (NM, not public)
+│   └── notebooks/              # Interactive notebook versions
 ├── tests/                      # Pytest suite
+│   ├── conftest.py             # Shared fixtures and test data
+│   ├── data/                   # Test data (GeoTIFFs, GeoJSONs)
 │   ├── unit/                   # Unit tests (config, evaluate, I/O, postprocess, LULC)
 │   └── integration/            # Integration tests (CLI, local pipeline)
 ├── paper/                      # JOSS paper (not included in PyPI distribution)
@@ -260,10 +262,14 @@ agribound/
 │   └── paper.bib               # References
 ├── docs/                       # MkDocs documentation source
 │   ├── api/                    # API reference (auto-generated from docstrings)
+│   ├── gallery.md              # Visual results across regions and engines
 │   └── user-guide/             # Quickstart, engines, satellite sources, etc.
 ├── CITATION.cff                # Citation metadata (JOSS / Zenodo)
 ├── CONTRIBUTING.md             # Developer guide
+├── DISCLAIMER.md               # AI usage and funding disclosure
+├── LICENSE                     # Apache 2.0
 ├── MANIFEST.in                 # Source distribution inclusions/exclusions
+├── mkdocs.yml                  # MkDocs site configuration
 ├── pyproject.toml              # Build config, dependencies, optional extras
 └── README.md
 ```
@@ -337,7 +343,9 @@ The **GeoAI engine** (Mask R-CNN) is unstable on Apple Silicon GPUs via MPS (Met
 
 If you use agribound in your research, please cite:
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data* [Software]. Zenodo. https://doi.org/10.5281/zenodo.19229666
+> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data* [Software]. _Zenodo_. https://doi.org/10.5281/zenodo.19229666
+
+> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data*. In prep. for _Journal of Open Source Software_.
 
 
 Please also cite the underlying engines and models as appropriate:
