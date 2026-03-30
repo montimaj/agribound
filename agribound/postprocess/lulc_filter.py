@@ -177,9 +177,7 @@ def _get_nearest_year(
 
     try:
         year_list = (
-            ic.aggregate_array("system:time_start")
-            .map(lambda t: ee.Date(t).get("year"))
-            .distinct()
+            ic.aggregate_array("system:time_start").map(lambda t: ee.Date(t).get("year")).distinct()
         )
         available_years = sorted(set(_gee_call_with_retry(year_list.getInfo)))
         if available_years:

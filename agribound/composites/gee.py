@@ -483,9 +483,7 @@ def _download_tile_local(
                     # Halve concurrency on each rate-limit retry (min 1)
                     prev = max_requests or 32
                     max_requests = max(1, prev // 2)
-                    logger.info(
-                        "  Reducing max_requests to %d", max_requests
-                    )
+                    logger.info("  Reducing max_requests to %d", max_requests)
                 logger.info("  Retrying in %ds...", wait)
                 time.sleep(wait)
             else:
@@ -785,9 +783,7 @@ class GEECompositeBuilder(CompositeBuilder):
 
             gdal.UseExceptions()
             vrt = gdal.BuildVRT("", tile_paths)
-            gdal.Translate(
-                output_path, vrt, creationOptions=["COMPRESS=DEFLATE", "BIGTIFF=YES"]
-            )
+            gdal.Translate(output_path, vrt, creationOptions=["COMPRESS=DEFLATE", "BIGTIFF=YES"])
             del vrt
         except ImportError:
             import rasterio

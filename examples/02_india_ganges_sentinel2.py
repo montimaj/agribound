@@ -126,7 +126,7 @@ def main():
         output_path=str(google_path),
         gee_project=gee_project,
         device="cpu",
-        min_area=MIN_AREA
+        min_area=MIN_AREA,
     )
     results["Google (unsupervised)"] = gdf_google
     print(f"  Google: {len(gdf_google)} fields")

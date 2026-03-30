@@ -37,7 +37,7 @@ OUTPUT_DIR = Path("outputs/australia_murray_darling")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 YEARS = range(2022, 2025)
-YEARS = range(2022, 2023) # quick test for 1 year
+YEARS = range(2022, 2023)  # quick test for 1 year
 SOURCE = "hls"
 ENGINE = "prithvi"
 

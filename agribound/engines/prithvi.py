@@ -236,9 +236,7 @@ class PrithviEngine(DelineationEngine):
             from agribound.io.raster import read_raster
 
             if config.source != "local":
-                band_indices = get_canonical_band_indices(
-                    config.source, ["R", "G", "B", "NIR"]
-                )
+                band_indices = get_canonical_band_indices(config.source, ["R", "G", "B", "NIR"])
             else:
                 band_indices = [1, 2, 3, 4]
 
@@ -426,7 +424,11 @@ class PrithviEngine(DelineationEngine):
 
         logger.info(
             "Prithvi: embed_dim=%d, token_grid=%dx%d per %dx%d patch",
-            embed_dim, token_h, token_w, patch_size, patch_size,
+            embed_dim,
+            token_h,
+            token_w,
+            patch_size,
+            patch_size,
         )
 
         # Pad raster to be divisible by patch_size
@@ -442,9 +444,7 @@ class PrithviEngine(DelineationEngine):
         logger.info("Tiling: %d×%d = %d patches", n_rows, n_cols, total_patches)
 
         # Allocate output embedding map at token resolution
-        embed_map = np.zeros(
-            (n_rows * token_h, n_cols * token_w, embed_dim), dtype=np.float32
-        )
+        embed_map = np.zeros((n_rows * token_h, n_cols * token_w, embed_dim), dtype=np.float32)
 
         # Collect patch coordinates
         patches_coords = []
@@ -461,7 +461,7 @@ class PrithviEngine(DelineationEngine):
 
             # Build batch tensor: (B, C, T=1, H, W)
             batch_data = np.stack(
-                [data[:, y:y + patch_size, x:x + patch_size] for _, _, y, x in batch_coords]
+                [data[:, y : y + patch_size, x : x + patch_size] for _, _, y, x in batch_coords]
             )
             # (B, C, H, W) → (B, C, 1, H, W)
             batch_tensor = torch.from_numpy(batch_data[:, :, np.newaxis, :, :]).to(device)
@@ -479,7 +479,7 @@ class PrithviEngine(DelineationEngine):
                 tokens = feat.reshape(token_h, token_w, embed_dim)
                 tr = r * token_h
                 tc = c * token_w
-                embed_map[tr:tr + token_h, tc:tc + token_w, :] = tokens
+                embed_map[tr : tr + token_h, tc : tc + token_w, :] = tokens
 
             if (b_start // batch_size) % 10 == 0 and b_start > 0:
                 logger.info("  Processed %d/%d patches", b_end, total_patches)
@@ -564,9 +564,7 @@ class PrithviEngine(DelineationEngine):
                 km = KMeans(n_clusters=k, n_init=3, random_state=42)
                 labels = km.fit_predict(sample)
                 if len(np.unique(labels)) > 1:
-                    score = silhouette_score(
-                        sample, labels, sample_size=min(5000, len(sample))
-                    )
+                    score = silhouette_score(sample, labels, sample_size=min(5000, len(sample)))
                     if score > best_score:
                         best_score = score
                         best_k = k

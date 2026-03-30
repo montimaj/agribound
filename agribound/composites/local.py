@@ -246,8 +246,7 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
                     prev = max_requests or 32
                     max_requests = max(1, prev // 2)
                     logger.warning(
-                        "GEE rate limit hit (attempt %d/%d) — "
-                        "retrying in %.0f s with %d threads",
+                        "GEE rate limit hit (attempt %d/%d) — retrying in %.0f s with %d threads",
                         attempt + 1,
                         _GEE_MAX_RETRIES,
                         wait,
