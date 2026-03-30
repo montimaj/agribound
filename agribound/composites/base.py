@@ -80,6 +80,16 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "requires_gee": True,
         "restricted": True,
     },
+    "spot-pan": {
+        "name": "SPOT 6/7 Panchromatic",
+        "collection": "AIRBUS/SPOT6_7",
+        "resolution_m": 1.5,
+        "all_bands": ["P"],
+        "canonical_bands": {"R": "P", "G": "P", "B": "P"},
+        "coverage": "Global (restricted access), 2012–2023",
+        "requires_gee": True,
+        "restricted": True,
+    },
     "local": {
         "name": "Local GeoTIFF",
         "collection": None,

@@ -109,7 +109,6 @@ def main():
             device="cpu",
             min_area=5000,
             lulc_filter=False,  # Unsupervised clusters — no semantic filtering
-            engine_params={},
         )
         all_results[f"google_{year}"] = gdf
         print(f"  {year}: {len(gdf)} fields delineated")
@@ -133,7 +132,6 @@ def main():
             device="cpu",
             min_area=5000,
             lulc_filter=False,  # Unsupervised clusters — no semantic filtering
-            engine_params={},
         )
         all_results[f"tessera_{year}"] = gdf
         print(f"  {year}: {len(gdf)} fields delineated")
@@ -181,3 +179,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

@@ -10,16 +10,26 @@ Prerequisites:
     pip install agribound[delineate-anything]
 """
 
+import logging
 from pathlib import Path
 
 import agribound
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 # Replace with path to your GeoTIFF
 LOCAL_TIF = "path/to/your/satellite_image.tif"
 STUDY_AREA = "path/to/your/study_area.geojson"
 OUTPUT_DIR = Path("outputs/local_quickstart")
-SAM_REFINE = True
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -35,7 +45,6 @@ def main():
         local_tif_path=LOCAL_TIF,
         output_path=str(output_path),
         lulc_filter=False,  # No GEE access for local files
-        engine_params={"sam_refine": SAM_REFINE},
     )
 
     print(f"Delineated {len(gdf)} field boundaries")

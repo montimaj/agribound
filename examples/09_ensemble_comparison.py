@@ -13,9 +13,22 @@ Prerequisites:
 """
 
 import argparse
+import logging
 from pathlib import Path
 
+import geopandas as gpd
+
 import agribound
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/ensemble_comparison")
@@ -23,8 +36,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 SOURCE = "sentinel2"
 YEAR = 2024
-ENGINES = ["delineate-anything", "ftw", "geoai"]
-SAM_REFINE = True
+ENGINES = ["delineate-anything", "ftw"]
 
 
 def create_study_area():
@@ -92,7 +104,6 @@ def main():
                 engine=engine_name,
                 output_path=str(output_path),
                 gee_project=gee_project,
-                engine_params={"sam_refine": SAM_REFINE},
                 min_area=2500,
                 simplify=2.0,
             )
@@ -101,30 +112,30 @@ def main():
         except Exception as exc:
             print(f"  {engine_name} failed: {exc}")
 
-    # --- Run ensemble engine ---
+    # --- Run ensemble (reuse Phase 1 results, no re-running engines) ---
     print(f"\n{'=' * 60}")
     print("Running ensemble (vote strategy)")
     print(f"{'=' * 60}")
 
-    try:
-        ensemble_gdf = agribound.delineate(
-            study_area=study_area,
-            source=SOURCE,
-            year=YEAR,
-            engine="ensemble",
-            output_path=str(OUTPUT_DIR / "fields_ensemble.gpkg"),
-            gee_project=gee_project,
-            engine_params={
-                "engines": ENGINES,
-                "merge_strategy": "vote",
-                "sam_refine": SAM_REFINE,
-            },
-            min_area=2500,
-        )
+    ensemble_path = OUTPUT_DIR / "fields_ensemble.gpkg"
+    if ensemble_path.exists():
+        ensemble_gdf = gpd.read_file(ensemble_path)
         results["ensemble"] = ensemble_gdf
-        print(f"  ensemble: {len(ensemble_gdf)} fields")
-    except Exception as exc:
-        print(f"  Ensemble failed: {exc}")
+        print(f"  ensemble: {len(ensemble_gdf)} fields (cached)")
+    elif len(results) >= 2:
+        try:
+            from agribound.engines.ensemble import EnsembleEngine
+            from agribound.postprocess import filter_polygons
+
+            ensemble_gdf = EnsembleEngine._merge_vote(results, threshold=0.3)
+            ensemble_gdf = filter_polygons(ensemble_gdf, min_area_m2=2500)
+            ensemble_gdf.to_file(ensemble_path, driver="GPKG", layer="fields")
+            results["ensemble"] = ensemble_gdf
+            print(f"  ensemble: {len(ensemble_gdf)} fields")
+        except Exception as exc:
+            print(f"  Ensemble failed: {exc}")
+    else:
+        print("  Not enough engine results for ensemble (need >= 2)")
 
     # --- Comparison summary ---
     print(f"\n{'=' * 60}")
@@ -150,3 +161,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim's async runner hangs on cleanup

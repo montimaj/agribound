@@ -280,6 +280,9 @@ def select_and_reorder_bands(
     if nodata is not None and not np.isfinite(nodata):
         data = np.where(np.isfinite(data), data, 0)
         nodata = 0
+    # Cast float64 to float32 — MPS (Apple Silicon) doesn't support float64 tensors
+    if data.dtype == np.float64:
+        data = data.astype(np.float32)
     return write_raster(
         dst_path,
         data,

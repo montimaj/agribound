@@ -9,12 +9,17 @@ pre-computed data rather than building composites from GEE.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from agribound.composites.base import SOURCE_REGISTRY, CompositeBuilder
 from agribound.config import AgriboundConfig
 
 logger = logging.getLogger(__name__)
+
+# GEE rate-limit retry defaults
+_GEE_MAX_RETRIES = 5
+_GEE_INITIAL_WAIT = 10  # seconds
 
 
 class LocalCompositeBuilder(CompositeBuilder):
@@ -210,17 +215,48 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
         ic = ee.ImageCollection("GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL")
         img = ic.filter(ee.Filter.calendarRange(year, year, "year")).mosaic().clip(region)
 
-        # Export via geedim which handles tiling automatically
+        # Export via geedim which handles tiling automatically.
+        # Reduce download concurrency on each rate-limit retry so we
+        # don't immediately re-trigger the limit.
         try:
             import warnings
 
             import geedim as gd
 
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=FutureWarning)
-                warnings.filterwarnings("ignore", category=RuntimeWarning)
-                gd_img = gd.MaskedImage(img)
-                gd_img.download(str(out_path), region=region, crs="EPSG:4326", scale=10)
+            wait = _GEE_INITIAL_WAIT
+            max_requests = None  # geedim default (32)
+            for attempt in range(_GEE_MAX_RETRIES + 1):
+                try:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", category=FutureWarning)
+                        warnings.filterwarnings("ignore", category=RuntimeWarning)
+                        gd_img = gd.MaskedImage(img)
+                        gd_img.download(
+                            str(out_path),
+                            region=region,
+                            crs="EPSG:4326",
+                            scale=10,
+                            max_requests=max_requests or 32,
+                        )
+                    break  # success
+                except ee.ee_exception.EEException as exc:
+                    if "Too Many Requests" not in str(exc) or attempt == _GEE_MAX_RETRIES:
+                        raise
+                    # Halve concurrency on each retry (min 1)
+                    prev = max_requests or 32
+                    max_requests = max(1, prev // 2)
+                    logger.warning(
+                        "GEE rate limit hit (attempt %d/%d) — "
+                        "retrying in %.0f s with %d threads",
+                        attempt + 1,
+                        _GEE_MAX_RETRIES,
+                        wait,
+                        max_requests,
+                    )
+                    if out_path.exists():
+                        out_path.unlink()
+                    time.sleep(wait)
+                    wait *= 2
         except ImportError:
             import urllib.request
 

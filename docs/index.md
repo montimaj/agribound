@@ -20,13 +20,15 @@ Disable with `lulc_filter=False` for local files without GEE access or unsupervi
 
 ### Example Results
 
-**Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)** — Fine-tuned on NMOSE reference boundaries, LULC-filtered (NLCD), SAM2-refined on 1 m NAIP. Blue = predicted, yellow = reference. The study area bbox extends slightly into Texas, so fields along the NM–TX border are also delineated.
+**Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)** — Fine-tuned on NMOSE reference boundaries, LULC-filtered (NLCD), SAM2-refined on 1 m NAIP. Blue = predicted, yellow = reference.
 
-![DINOv3 + SAM2 on NAIP](https://raw.githubusercontent.com/montimaj/agribound/main/assets/NM_example.png)
+<img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/NM_example.png" alt="DINOv3 + SAM2 on NAIP" width="700">
 
 **Unsupervised: TESSERA + LULC Filter + SAM2 (Pampas, Argentina)** — No training, no reference data. TESSERA embedding clustering + LULC crop filter (Dynamic World) + SAM2 on Sentinel-2.
 
-![TESSERA + LULC + SAM2](https://raw.githubusercontent.com/montimaj/agribound/main/assets/Pampas_example.png)
+<img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/Pampas_example.png" alt="TESSERA + LULC + SAM2" width="700">
+
+See the [Gallery](gallery.md) for results across all regions and engines.
 
 *Note: The satellite basemap shown in these screenshots may not correspond to the same acquisition date as the imagery used for delineation.*
 
@@ -77,6 +79,7 @@ The returned `GeoDataFrame` contains field boundary polygons with area, perimete
 | [Configuration](user-guide/configuration.md) | Full reference for `AgriboundConfig` |
 | [CLI Usage](user-guide/cli.md) | Command-line interface reference |
 | [API Reference](api/pipeline.md) | Python API documentation |
+| [Gallery](gallery.md) | Visual results across 9 regions, 5 satellites, and all engines |
 | [Contributing](contributing.md) | Developer guide for adding engines and sources |
 | [Citation & References](citation.md) | How to cite agribound, funding sources, and disclaimer |
 

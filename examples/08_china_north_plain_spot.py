@@ -19,9 +19,27 @@ Note:
 """
 
 import argparse
+import warnings
 from pathlib import Path
 
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*STAC entry.*")
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*export size.*")
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*MaskedImage.*deprecated.*")
+warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
+
+import logging
+
 import agribound
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/china_north_plain")
@@ -30,7 +48,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SOURCE = "spot"
 ENGINE = "delineate-anything"
 YEAR = 2022
-SAM_REFINE = True
 
 
 def create_study_area():
@@ -93,7 +110,6 @@ def main():
             engine=ENGINE,
             output_path=str(output_path),
             gee_project=gee_project,
-            engine_params={"sam_refine": SAM_REFINE},
             cloud_cover_max=15,
             min_area=3000,
             simplify=2.0,
@@ -113,12 +129,19 @@ def main():
         print(f"\nMap saved to {OUTPUT_DIR / 'map_north_china.html'}")
 
     except Exception as exc:
-        print(f"\nSPOT access error: {exc}")
-        print(
-            "SPOT 6/7 is restricted to select GEE users. "
-            "Contact the agribound author for processing assistance."
-        )
+        import traceback
+
+        print(f"\nError: {exc}")
+        traceback.print_exc()
+        if "restricted" in str(exc).lower() or "permission" in str(exc).lower():
+            print(
+                "\nSPOT 6/7 is restricted to select GEE users. "
+                "Contact the agribound author for processing assistance."
+            )
 
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

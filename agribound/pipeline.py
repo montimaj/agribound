@@ -119,6 +119,16 @@ def delineate(
         config.year,
     )
 
+    # Check if output already exists — skip the full pipeline
+    from pathlib import Path
+
+    output_file = Path(config.output_path)
+    if output_file.exists() and output_file.stat().st_size > 0:
+        logger.info("Output already exists: %s — loading cached result", config.output_path)
+        gdf = gpd.read_file(config.output_path)
+        logger.info("Loaded %d cached field boundaries from %s", len(gdf), config.output_path)
+        return gdf
+
     # Step 1: Build composite (or load local TIF / download embeddings)
     logger.info("Step 1: Building composite")
     from agribound.composites import get_composite_builder

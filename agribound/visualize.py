@@ -123,12 +123,16 @@ def show_boundaries(
             info_mode="on_click",
         )
 
-    # Set view
+    # Set view — use set_center which persists to HTML (fit_bounds doesn't)
     if center is not None:
         m.set_center(center[1], center[0], zoom or 12)
     elif len(boundaries) > 0:
         bounds = boundaries.total_bounds  # minx, miny, maxx, maxy
-        m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        center_lon = (bounds[0] + bounds[2]) / 2
+        center_lat = (bounds[1] + bounds[3]) / 2
+        extent = max(bounds[2] - bounds[0], bounds[3] - bounds[1])
+        auto_zoom = 14 if extent < 0.1 else 12 if extent < 1 else 9 if extent < 10 else 6
+        m.set_center(center_lon, center_lat, zoom or auto_zoom)
 
     # Save to HTML if requested
     if output_html is not None:

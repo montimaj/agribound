@@ -1,31 +1,42 @@
 """
-04 — France Beauce Region, Sentinel-2 with GeoAI Engine
+04 — France Beauce Region, Sentinel-2 with FTW Engine
 
 Delineates large-field European agriculture in the Beauce region of France
-using Sentinel-2 imagery and geoai's AgricultureFieldDelineator (Mask R-CNN).
+using Sentinel-2 imagery and the Fields of The World (FTW) engine.
+
+FTW's pre-trained models cover France and produce good results without
+fine-tuning on European large-field agriculture.
 
 Estimated runtime: ~15–30 minutes (1 year, GPU).
 
 Prerequisites:
-    pip install agribound[gee,geoai]
+    pip install agribound[gee,ftw]
     agribound auth --project YOUR_GEE_PROJECT
 """
 
 import argparse
+import logging
 from pathlib import Path
 
 import agribound
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/france_beauce")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 SOURCE = "sentinel2"
-ENGINE = "geoai"
+ENGINE = "ftw"
 YEAR = 2023
-
-# Set to True to refine boundaries with SAM2
-SAM_REFINE = True
 
 
 def create_study_area():
@@ -89,7 +100,6 @@ def main():
         # European large fields
         min_area=5000,
         simplify=2.5,
-        engine_params={"sam_refine": SAM_REFINE},
     )
 
     print(f"\nDelineated {len(gdf)} fields")
@@ -110,3 +120,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

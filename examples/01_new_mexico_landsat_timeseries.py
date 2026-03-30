@@ -26,7 +26,19 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore", message=".*organizePolygons.*")
 
+import logging
+
 import agribound
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 from agribound.evaluate import evaluate
 
 # --- Configuration ---
@@ -35,15 +47,13 @@ OUTPUT_DIR = Path("outputs/new_mexico_timeseries")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_CRS = "EPSG:26913"  # Match NMOSE reference CRS (NAD83 / UTM zone 13N)
 
-YEARS = range(1985, 2026)
+YEARS = range(2025, 2026)
 SOURCE = "landsat"
 ENGINE = "delineate-anything"
 
 # Set to True to fine-tune the engine on NMOSE boundaries before inference
 FINE_TUNE = True
-
-# Set to True to refine boundaries with SAM2
-SAM_REFINE = True
+FINE_TUNE_EPOCHS = 1
 
 
 def create_study_area_from_shapefile(shapefile_path):
@@ -142,7 +152,7 @@ def main():
                 device="auto",
                 reference_boundaries=NMOSE_SHAPEFILE,
                 fine_tune=True,
-                engine_params={"sam_refine": SAM_REFINE},
+                fine_tune_epochs=FINE_TUNE_EPOCHS,
             )
 
             # Reproject to match NMOSE reference CRS
@@ -174,7 +184,7 @@ def main():
         print(f"  Using fine-tuned checkpoint: {checkpoint_path}")
     print(f"{'=' * 60}")
 
-    engine_params = {"sam_refine": SAM_REFINE}
+    engine_params = {}
     if checkpoint_path:
         engine_params["checkpoint_path"] = checkpoint_path
 
@@ -293,3 +303,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

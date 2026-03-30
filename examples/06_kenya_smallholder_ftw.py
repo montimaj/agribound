@@ -13,9 +13,20 @@ Prerequisites:
 """
 
 import argparse
+import logging
 from pathlib import Path
 
 import agribound
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/kenya_smallholder")
@@ -24,9 +35,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SOURCE = "sentinel2"
 ENGINE = "ftw"
 YEAR = 2023
-
-# Set to True to refine boundaries with SAM2
-SAM_REFINE = True
 
 
 def create_study_area():
@@ -95,7 +103,6 @@ def main():
             composite_method="median",
             min_area=min_area,
             simplify=1.0,
-            engine_params={"sam_refine": SAM_REFINE},
         )
         results[min_area] = gdf
         print(f"  min_area={min_area}: {len(gdf)} fields detected")
@@ -122,3 +129,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

@@ -1,115 +1,216 @@
 """
-02 — India Ganges Plain, Sentinel-2 with FTW Engine
+02 — India Nadia District (West Bengal), Multi-Approach Comparison
 
-Delineates smallholder agricultural fields in the Ganges Plain using
-Sentinel-2 imagery and the FTW (Fields of the World) engine with a
-country-specific model for India.
+Compares field boundary delineation in Nadia district, West Bengal using
+four approaches:
+    1. FTW (Sentinel-2) — supervised, country-specific model for India
+    2. Google embeddings (64-D) — unsupervised clustering + LULC filtering
+    3. TESSERA embeddings (128-D) — unsupervised clustering + LULC filtering
+    4. SPOT Panchromatic (1.5 m) — high-res grayscale with Delineate-Anything
 
-Estimated runtime: ~30–60 minutes (5 years, small AOI, GPU).
+All run on the same study area for 2024.
+
+Estimated runtime: ~15–30 minutes (GPU recommended).
 
 Prerequisites:
-    pip install agribound[gee,ftw]
+    pip install agribound[gee,ftw,tessera,delineate-anything]
     agribound auth --project YOUR_GEE_PROJECT
 """
 
 import argparse
+import json
+import logging
+import warnings
 from pathlib import Path
 
 import agribound
 
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"geedim\..*")
+warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"geedim\..*")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # --- Configuration ---
-OUTPUT_DIR = Path("outputs/india_ganges")
+OUTPUT_DIR = Path("outputs/india_nadia")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Small AOI in the Ganges Plain (Uttar Pradesh)
-STUDY_AREA_GEOJSON = OUTPUT_DIR / "ganges_aoi.geojson"
+YEAR = 2024
+MIN_AREA = 100  # Smallholder fields — lower minimum area
 
-YEARS = range(2020, 2025)
-SOURCE = "sentinel2"
-ENGINE = "ftw"
-
-# Set to True to refine boundaries with SAM2
-SAM_REFINE = True
-
-
-def create_study_area():
-    """Create a small study area GeoJSON in the Ganges Plain."""
-    import json
-
-    aoi = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [
-                        [
-                            [80.90, 26.80],
-                            [81.00, 26.80],
-                            [81.00, 26.90],
-                            [80.90, 26.90],
-                            [80.90, 26.80],
-                        ]
-                    ],
-                },
-                "properties": {"name": "Ganges Plain AOI"},
-            }
-        ],
-    }
-    with open(STUDY_AREA_GEOJSON, "w") as f:
-        json.dump(aoi, f)
-    return str(STUDY_AREA_GEOJSON)
+# Study area: Nadia district, West Bengal (dense rice paddies)
+STUDY_AREA_BBOX = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [88.35, 23.35],
+                        [88.50, 23.35],
+                        [88.50, 23.50],
+                        [88.35, 23.50],
+                        [88.35, 23.35],
+                    ]
+                ],
+            },
+            "properties": {"name": "Nadia District, West Bengal"},
+        }
+    ],
+}
 
 
 def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="India Ganges Plain Sentinel-2 field boundary delineation."
-    )
+    parser = argparse.ArgumentParser(description="India Nadia District: FTW vs TESSERA comparison.")
     parser.add_argument("--gee-project", default=None, help="GEE project ID.")
     return parser.parse_args()
 
 
 def main():
-    """Run field boundary delineation for the Ganges Plain."""
     args = parse_args()
     gee_project = args.gee_project
 
-    study_area = create_study_area()
-    all_results = {}
+    study_area_path = str(OUTPUT_DIR / "nadia_aoi.geojson")
+    with open(study_area_path, "w") as f:
+        json.dump(STUDY_AREA_BBOX, f)
 
-    for year in YEARS:
-        print(f"\nProcessing {year}...")
-        output_path = OUTPUT_DIR / f"fields_s2_{year}.gpkg"
+    results = {}
 
-        gdf = agribound.delineate(
-            study_area=study_area,
-            source=SOURCE,
-            year=year,
-            engine=ENGINE,
-            output_path=str(output_path),
+    # ================================================================
+    # Approach 1: FTW (Sentinel-2, supervised)
+    # ================================================================
+    print(f"{'=' * 60}")
+    print("Approach 1: FTW on Sentinel-2 (supervised)")
+    print(f"{'=' * 60}")
+
+    ftw_path = OUTPUT_DIR / f"fields_ftw_s2_{YEAR}.gpkg"
+
+    gdf_ftw = agribound.delineate(
+        study_area=study_area_path,
+        source="sentinel2",
+        year=YEAR,
+        engine="ftw",
+        output_path=str(ftw_path),
+        gee_project=gee_project,
+        composite_method="median",
+        cloud_cover_max=30,
+        min_area=MIN_AREA,
+        simplify=1.0,
+    )
+    results["FTW (Sentinel-2)"] = gdf_ftw
+    print(f"  FTW: {len(gdf_ftw)} fields")
+
+    # ================================================================
+    # Approach 2: Google embeddings (unsupervised + LULC filter)
+    # ================================================================
+    print(f"\n{'=' * 60}")
+    print("Approach 2: Google embeddings (unsupervised + LULC filter)")
+    print(f"{'=' * 60}")
+
+    google_path = OUTPUT_DIR / f"fields_google_{YEAR}.gpkg"
+
+    gdf_google = agribound.delineate(
+        study_area=study_area_path,
+        source="google-embedding",
+        year=YEAR,
+        engine="embedding",
+        output_path=str(google_path),
+        gee_project=gee_project,
+        device="cpu",
+        min_area=MIN_AREA
+    )
+    results["Google (unsupervised)"] = gdf_google
+    print(f"  Google: {len(gdf_google)} fields")
+
+    # ================================================================
+    # Approach 3: TESSERA embeddings (unsupervised + LULC filter)
+    # ================================================================
+    print(f"\n{'=' * 60}")
+    print("Approach 3: TESSERA embeddings (unsupervised + LULC filter)")
+    print(f"{'=' * 60}")
+
+    tessera_path = OUTPUT_DIR / f"fields_tessera_{YEAR}.gpkg"
+
+    gdf_tessera = agribound.delineate(
+        study_area=study_area_path,
+        source="tessera-embedding",
+        year=YEAR,
+        engine="embedding",
+        output_path=str(tessera_path),
+        gee_project=gee_project,
+        device="cpu",
+        min_area=MIN_AREA,
+        engine_params={"n_clusters": 8},
+    )
+    results["TESSERA (unsupervised)"] = gdf_tessera
+    print(f"  TESSERA: {len(gdf_tessera)} fields")
+
+    # ================================================================
+    # Approach 4: SPOT Panchromatic (1.5 m, restricted access)
+    # ================================================================
+    print(f"\n{'=' * 60}")
+    print("Approach 4: SPOT Panchromatic (1.5 m) + Delineate-Anything")
+    print(f"{'=' * 60}")
+
+    spot_pan_path = OUTPUT_DIR / "fields_spot_pan_2023.gpkg"
+
+    try:
+        gdf_spot = agribound.delineate(
+            study_area=study_area_path,
+            source="spot-pan",
+            year=2020,  # SPOT available through 2023
+            engine="delineate-anything",
+            output_path=str(spot_pan_path),
             gee_project=gee_project,
             composite_method="median",
-            cloud_cover_max=30,
-            # Smallholder fields — lower minimum area
-            min_area=500,
+            cloud_cover_max=15,
+            min_area=MIN_AREA,
             simplify=1.0,
-            engine_params={"sam_refine": SAM_REFINE},
         )
-        all_results[year] = gdf
-        print(f"  {year}: {len(gdf)} fields delineated")
+        results["SPOT Pan (1.5 m)"] = gdf_spot
+        print(f"  SPOT Pan: {len(gdf_spot)} fields")
+    except Exception as exc:
+        print(f"  SPOT Pan failed (restricted access): {exc}")
 
-    # --- Visualization ---
-    if all_results:
-        latest_year = max(all_results.keys())
-        agribound.show_boundaries(
-            all_results[latest_year],
-            basemap="Google.Satellite",
-            output_html=str(OUTPUT_DIR / "map_ganges.html"),
-        )
-        print(f"\nMap saved to {OUTPUT_DIR / 'map_ganges.html'}")
+    # ================================================================
+    # Comparison
+    # ================================================================
+    print(f"\n{'=' * 60}")
+    print("Comparison")
+    print(f"{'=' * 60}")
+
+    print(f"\n  {'Method':<30} {'Fields':>8} {'Area (ha)':>12}")
+    print(f"  {'-' * 30} {'-' * 8} {'-' * 12}")
+
+    for label, gdf in results.items():
+        area = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
+        print(f"  {label:<30} {len(gdf):>8} {area:>12,.1f}")
+
+    # ================================================================
+    # Visualization
+    # ================================================================
+    from agribound.visualize import show_comparison
+
+    show_comparison(
+        list(results.values()),
+        labels=list(results.keys()),
+        basemap="Esri.WorldImagery",
+        output_html=str(OUTPUT_DIR / "map_ftw_google_tessera_spot.html"),
+    )
+    print(f"\n  Map: {OUTPUT_DIR / 'map_ftw_google_tessera_spot.html'}")
 
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim's async runner hangs on cleanup

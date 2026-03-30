@@ -27,6 +27,7 @@ VALID_SOURCES = (
     "hls",
     "naip",
     "spot",
+    "spot-pan",
     "local",
     "google-embedding",
     "tessera-embedding",
@@ -203,7 +204,7 @@ class AgriboundConfig:
             )
 
         # GEE-based sources need a project ID — auto-detect if not set
-        gee_sources = {"landsat", "sentinel2", "hls", "naip", "spot"}
+        gee_sources = {"landsat", "sentinel2", "hls", "naip", "spot", "spot-pan"}
         if self.source in gee_sources and self.gee_project is None:
             import os
 
@@ -234,7 +235,7 @@ class AgriboundConfig:
             raise ValueError("reference_boundaries is required when fine_tune=True.")
 
         # SPOT access warning
-        if self.source == "spot":
+        if self.source in ("spot", "spot-pan"):
             import warnings
 
             warnings.warn(

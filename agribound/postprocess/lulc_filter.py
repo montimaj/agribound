@@ -19,6 +19,7 @@ year is unavailable.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import geopandas as gpd
@@ -26,6 +27,10 @@ import geopandas as gpd
 from agribound.config import AgriboundConfig
 
 logger = logging.getLogger(__name__)
+
+# GEE rate-limit retry defaults
+_GEE_MAX_RETRIES = 5
+_GEE_INITIAL_WAIT = 10  # seconds
 
 # NLCD agriculture classes
 NLCD_CROP_CLASSES = [81, 82]  # Pasture/Hay, Cultivated Crops
@@ -106,6 +111,48 @@ def filter_by_lulc(
         return _filter_c3s(gdf, gdf_4326, year, threshold, batch_size)
 
 
+def _gee_call_with_retry(
+    fn: Any,
+    max_retries: int = _GEE_MAX_RETRIES,
+    initial_wait: float = _GEE_INITIAL_WAIT,
+) -> Any:
+    """Execute a GEE server call with exponential-backoff retry on rate limits.
+
+    Parameters
+    ----------
+    fn : callable
+        Zero-argument callable that performs the GEE request (e.g.,
+        ``lambda: reduced.getInfo()``).
+    max_retries : int
+        Maximum number of retries before raising.
+    initial_wait : float
+        Seconds to wait after the first rate-limit error.  Doubles on
+        each subsequent retry.
+
+    Returns
+    -------
+    Any
+        The return value of *fn*.
+    """
+    import ee
+
+    wait = initial_wait
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except ee.ee_exception.EEException as exc:
+            if "Too Many Requests" not in str(exc) or attempt == max_retries:
+                raise
+            logger.warning(
+                "GEE rate limit hit (attempt %d/%d) — retrying in %.0f s",
+                attempt + 1,
+                max_retries,
+                wait,
+            )
+            time.sleep(wait)
+            wait *= 2
+
+
 def _gdf_to_fc(gdf_4326: gpd.GeoDataFrame) -> Any:
     """Convert a GeoDataFrame (EPSG:4326) to an ee.FeatureCollection.
 
@@ -129,14 +176,12 @@ def _get_nearest_year(
     import ee
 
     try:
-        available_years = sorted(
-            set(
-                ic.aggregate_array("system:time_start")
-                .map(lambda t: ee.Date(t).get("year"))
-                .distinct()
-                .getInfo()
-            )
+        year_list = (
+            ic.aggregate_array("system:time_start")
+            .map(lambda t: ee.Date(t).get("year"))
+            .distinct()
         )
+        available_years = sorted(set(_gee_call_with_retry(year_list.getInfo)))
         if available_years:
             nearest = min(available_years, key=lambda y: abs(y - year))
             if nearest != year:
@@ -293,7 +338,7 @@ def _reduce_and_filter(
             scale=scale,
         )
 
-        results = reduced.select(["_idx", "mean"]).getInfo()
+        results = _gee_call_with_retry(reduced.select(["_idx", "mean"]).getInfo)
 
         for feat in results["features"]:
             props = feat["properties"]

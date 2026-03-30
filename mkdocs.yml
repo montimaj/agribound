@@ -79,5 +79,6 @@ nav:
       - I/O Utilities: api/io.md
       - Evaluation: api/evaluate.md
       - Visualization: api/visualize.md
+  - Gallery: gallery.md
   - Contributing: contributing.md
   - Citation & References: citation.md

@@ -8,9 +8,9 @@ Agribound provides seven delineation engines, each suited to different use cases
 |---|---|---|---|---|---|
 | Delineate-Anything | `delineate-anything` | YOLO instance segmentation (2 model variants) | Fast; resolution-agnostic (1--10 m+); routes through FTW for S2 with native MPS support | Recommended | [Lavreniuk et al. (2025)](https://arxiv.org/abs/2504.02534) |
 | Fields of The World | `ftw` | Semantic segmentation (14+ models: EfficientNet-B3/B5/B7, UNet, UPerNet) | Strong generalization; 25-country training set; bi-temporal input (planting + harvest); all models via `list_ftw_models()` | Yes | [Kerner et al. (2024)](https://fieldsofthe.world/) |
-| GeoAI Field Boundary | `geoai` | Mask R-CNN instance segmentation | Easy to use; built-in NDVI support; auto-falls back to CPU on Apple Silicon (MPS) | No | [Wu (2026)](https://github.com/opengeos/geoai) |
+| GeoAI Field Boundary | `geoai` | Mask R-CNN instance segmentation | Built-in NDVI support; auto-falls back to CPU on Apple Silicon (MPS). **Without fine-tuning on region-specific reference data, GeoAI typically does not delineate any fields** | No | [Wu (2026)](https://github.com/opengeos/geoai) |
 | DINOv3 | `dinov3` | DINOv3 ViT backbone (SAT-493M satellite-pretrained) + DPT segmentation head | Satellite-native ViT features pretrained on 493M satellite images; LoRA fine-tuning; resolution-agnostic | Yes | [Siméoni et al. (2025)](https://arxiv.org/abs/2508.10104) |
-| Prithvi-EO-2.0 | `prithvi` | NASA/IBM geospatial foundation model with TerraTorch fine-tuning | State-of-the-art foundation model; multi-temporal | Yes | [Jakubik et al. (2024)](https://huggingface.co/ibm-nasa-geospatial) |
+| Prithvi-EO-2.0 | `prithvi` | NASA/IBM ViT foundation model (embed / PCA / segment modes) | 1024-D ViT embeddings from 6 HLS bands; PCA baseline for comparison | Recommended (embed); No (PCA) | [Szwarcman et al. (2024)](https://arxiv.org/abs/2412.02732) |
 | Embedding | `embedding` | Unsupervised clustering of pre-computed embeddings | No GPU needed; no labeled data required | No | [Brown et al. (2025)](https://arxiv.org/abs/2507.22291), [Feng et al. (2025)](https://arxiv.org/abs/2506.20380) |
 | Ensemble | `ensemble` | Multi-engine or multi-model consensus (vote / union / intersection) | Best accuracy; supports running same engine with different models | Depends on engines | -- |
 
@@ -77,15 +77,31 @@ pip install agribound[geoai]
 
 ### Prithvi-EO-2.0
 
-NASA/IBM foundation model (Vision Transformer) fine-tuned for Earth observation. Uses terratorch for segmentation with a UPerNet decoder. Requires 4-band input (R, G, B, NIR).
+NASA/IBM foundation model (300M-parameter Vision Transformer) pretrained on HLS imagery with masked autoencoders. Supports three modes:
+
+- **`embed`** (default) — Extracts 1024-D ViT encoder embeddings from 224×224 patches, then K-means clusters them to delineate fields. Uses all 6 HLS bands (Blue, Green, Red, NIR, SWIR1, SWIR2) with Prithvi's pre-training normalization. GPU recommended.
+- **`pca`** — Lightweight baseline that clusters PCA-reduced spectral bands (R, G, B, NIR) without running the ViT encoder. No GPU or `transformers` needed. Useful for comparison.
+- **`segment`** — Fine-tuned UPerNet decoder via terratorch. Requires a checkpoint from fine-tuning on reference boundaries.
 
 ```bash
 pip install agribound[prithvi]
 ```
 
+```python
+# ViT embedding mode (default)
+agribound.delineate(..., engine="prithvi", engine_params={"mode": "embed"})
+
+# PCA baseline
+agribound.delineate(..., engine="prithvi", engine_params={"mode": "pca"})
+
+# Fine-tuned segmentation
+agribound.delineate(..., engine="prithvi",
+                    engine_params={"mode": "segment", "checkpoint_path": "..."})
+```
+
 **Supported sources**: `landsat`, `sentinel2`, `hls`, `local`
 
-**Reference**: NASA/IBM Prithvi-EO-2.0
+**Reference**: [Szwarcman et al. (2024), Prithvi-EO-2.0](https://arxiv.org/abs/2412.02732)
 
 ### Embedding Clustering
 
@@ -153,7 +169,7 @@ SAM2 model variants: `"tiny"`, `"small"`, `"base_plus"`, `"large"` (default). Ba
 | Sentinel-2 in a country covered by FTW pre-trained models | `ftw` |
 | General-purpose Sentinel-2 or NAIP with NDVI | `geoai` |
 | Fine-tuning on reference boundaries (any sensor) | `dinov3` (SAT-493M) |
-| Multi-temporal Landsat/HLS analysis | `prithvi` |
+| Multi-temporal Landsat/HLS analysis (6 bands) | `prithvi` (embed mode) |
 | No GPU, no reference data, global coverage | `embedding` + LULC filter |
 | Maximum accuracy, multiple engines on same sensor | `ensemble` |
 

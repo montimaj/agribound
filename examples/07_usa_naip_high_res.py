@@ -12,9 +12,20 @@ Prerequisites:
 """
 
 import argparse
+import logging
 from pathlib import Path
 
 import agribound
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/usa_central_valley")
@@ -23,7 +34,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SOURCE = "naip"
 ENGINE = "delineate-anything"
 YEAR = 2022
-SAM_REFINE = True
 
 
 def create_study_area():
@@ -84,7 +94,6 @@ def main():
         engine=ENGINE,
         output_path=str(output_path),
         gee_project=gee_project,
-        engine_params={"sam_refine": SAM_REFINE},
         # Large commercial fields
         min_area=10000,
         simplify=3.0,
@@ -108,3 +117,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

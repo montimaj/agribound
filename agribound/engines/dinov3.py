@@ -44,7 +44,7 @@ class DINOv3Engine(DelineationEngine):
     """
 
     name = "dinov3"
-    supported_sources = ["landsat", "sentinel2", "hls", "naip", "spot", "local"]
+    supported_sources = ["landsat", "sentinel2", "hls", "naip", "spot", "spot-pan", "local"]
     requires_bands = ["R", "G", "B"]
 
     def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:

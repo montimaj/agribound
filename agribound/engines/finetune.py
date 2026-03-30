@@ -808,7 +808,7 @@ def _prepare_yolo_dataset(train_dir: Path, output_dir: Path) -> Path:
             h, w = mask_data.shape
 
         label_lines = []
-        for geom, val in rio_shapes(mask_data, transform=None):
+        for geom, val in rio_shapes(mask_data):
             if val > 0:
                 poly = shapely_shape(geom)
                 if poly.is_valid and not poly.is_empty:

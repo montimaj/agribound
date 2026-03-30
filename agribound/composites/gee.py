@@ -241,15 +241,29 @@ def _build_spot_collection(config: AgriboundConfig, geometry):
 
     start_date, end_date = _get_date_range(config)
 
-    spot_bands = SOURCE_REGISTRY["spot"]["all_bands"]
-    collection = (
-        ee.ImageCollection("AIRBUS/SPOT6_7")
-        .filterDate(start_date, end_date)
-        .filterBounds(geometry)
-        .select(spot_bands)
-    )
-
-    return collection, 6
+    if config.source == "spot-pan":
+        # Panchromatic band only — triplicated as pseudo-RGB
+        collection = (
+            ee.ImageCollection("AIRBUS/SPOT6_7")
+            .filterDate(start_date, end_date)
+            .filterBounds(geometry)
+            .select(["P"])
+            .map(
+                lambda img: img.addBands(img.select("P").rename("P2")).addBands(
+                    img.select("P").rename("P3")
+                )
+            )
+        )
+        return collection, 1.5
+    else:
+        spot_bands = SOURCE_REGISTRY["spot"]["all_bands"]
+        collection = (
+            ee.ImageCollection("AIRBUS/SPOT6_7")
+            .filterDate(start_date, end_date)
+            .filterBounds(geometry)
+            .select(spot_bands)
+        )
+        return collection, 6
 
 
 # ---------------------------------------------------------------------------
@@ -418,20 +432,44 @@ def _download_tile_local(
 
     logger.info("Downloading composite to %s", output_path)
 
+    # Start with default concurrency; reduce on rate-limit retries so we
+    # don't re-trigger the limit immediately.
+    max_requests = None  # geedim default (32)
+
     for attempt in range(1, max_retries + 1):
         try:
             prepared = composite.gd.prepareForExport(
                 region=geometry,
                 scale=resolution_m,
                 crs=crs,
+                dtype="float32",
             )
-            prepared.gd.toGeoTIFF(output_path, overwrite=True)
+            prepared.gd.toGeoTIFF(
+                output_path,
+                overwrite=True,
+                max_requests=max_requests or 32,
+            )
 
-            # Validate the downloaded file
+            # Validate and fix the downloaded file
             with rasterio.open(output_path) as ds:
                 if ds.width == 0 or ds.height == 0:
                     raise RuntimeError("Downloaded raster has zero dimensions")
+                needs_fix = ds.dtypes[0] == "float64"
             logger.info("  Download OK: %d×%d, %d bands", ds.width, ds.height, ds.count)
+
+            # Convert float64 → float32 (MPS doesn't support float64 tensors)
+            if needs_fix:
+                import numpy as np
+
+                logger.info("  Converting float64 → float32")
+                with rasterio.open(output_path) as src:
+                    data = src.read().astype(np.float32)
+                    data = np.where(np.isfinite(data), data, 0)
+                    meta = src.meta.copy()
+                meta.update(dtype="float32", nodata=0)
+                with rasterio.open(output_path, "w", **meta) as dst:
+                    dst.write(data)
+
             return output_path
 
         except Exception as exc:
@@ -439,7 +477,15 @@ def _download_tile_local(
             if Path(output_path).exists():
                 Path(output_path).unlink()
             if attempt < max_retries:
-                wait = 2**attempt
+                is_rate_limit = "Too Many Requests" in str(exc)
+                wait = 10 * 2 ** (attempt - 1) if is_rate_limit else 2**attempt
+                if is_rate_limit:
+                    # Halve concurrency on each rate-limit retry (min 1)
+                    prev = max_requests or 32
+                    max_requests = max(1, prev // 2)
+                    logger.info(
+                        "  Reducing max_requests to %d", max_requests
+                    )
                 logger.info("  Retrying in %ds...", wait)
                 time.sleep(wait)
             else:
@@ -556,6 +602,7 @@ _COLLECTION_BUILDERS = {
     "hls": _build_hls_collection,
     "naip": _build_naip_collection,
     "spot": _build_spot_collection,
+    "spot-pan": _build_spot_collection,
 }
 
 
@@ -738,7 +785,9 @@ class GEECompositeBuilder(CompositeBuilder):
 
             gdal.UseExceptions()
             vrt = gdal.BuildVRT("", tile_paths)
-            gdal.Translate(output_path, vrt, creationOptions=["COMPRESS=DEFLATE"])
+            gdal.Translate(
+                output_path, vrt, creationOptions=["COMPRESS=DEFLATE", "BIGTIFF=YES"]
+            )
             del vrt
         except ImportError:
             import rasterio
@@ -756,6 +805,7 @@ class GEECompositeBuilder(CompositeBuilder):
                 transform=transform,
                 count=merged.shape[0],
                 compress="deflate",
+                BIGTIFF="YES",
             )
             with rasterio.open(output_path, "w", **profile) as dst:
                 dst.write(merged)

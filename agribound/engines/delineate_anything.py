@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import warnings
 from pathlib import Path
 
 import geopandas as gpd
@@ -21,6 +22,10 @@ from agribound.config import AgriboundConfig
 from agribound.engines.base import DelineationEngine
 
 logger = logging.getLogger(__name__)
+
+# Suppress GDAL Memory driver deprecation warning (GDAL >= 3.11)
+warnings.filterwarnings("ignore", message=".*Memory.*driver.*deprecated.*")
+logging.getLogger("rasterio._env").setLevel(logging.ERROR)
 
 # Default configuration template matching Delineate-Anything's conf_sample.yaml
 _DEFAULT_CONFIG = {
@@ -227,6 +232,12 @@ class DelineateAnythingEngine(DelineationEngine):
             da_model,
             mps_mode,
         )
+
+        # MPS doesn't support float64 — force float32 default
+        if mps_mode:
+            import torch
+
+            torch.set_default_dtype(torch.float32)
 
         run_instance_segmentation(
             input=rgb_raster,

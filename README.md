@@ -23,17 +23,17 @@ The result is a single `agribound.delineate()` call or CLI command that replaces
 
 ### Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)
 
-DINOv3 (SAT-493M satellite-pretrained) fine-tuned on NMOSE reference boundaries, with LULC crop filtering (NLCD) and per-field SAM2 refinement on 1 m NAIP imagery (2020). Blue polygons are model-predicted boundaries; yellow polygons are NMOSE reference boundaries. The study area bbox extends slightly into Texas, so fields along the NM–TX border are also delineated.
+DINOv3 (SAT-493M satellite-pretrained) fine-tuned on NMOSE reference boundaries, with LULC crop filtering (NLCD) and per-field SAM2 refinement on 1 m NAIP imagery (2020). Blue polygons are model-predicted boundaries; yellow polygons are NMOSE reference boundaries.
 
-![DINOv3 + SAM2 on NAIP — Eastern Lea County, New Mexico, USA](assets/NM_example.png)
+<img src="assets/NM_example.png" alt="DINOv3 + SAM2 on NAIP — Eastern Lea County, New Mexico, USA" width="700">
 
 ### Unsupervised: TESSERA Embeddings + LULC Filter + SAM2 (Pampas, Argentina)
 
 Fully automated pipeline with no reference boundaries or training. TESSERA (128-D) embedding clustering, LULC crop filtering (Dynamic World), and SAM2 boundary refinement on Sentinel-2 (2024).
 
-![TESSERA + LULC + SAM2 — Pampas, Argentina](assets/Pampas_example.png)
+<img src="assets/Pampas_example.png" alt="TESSERA + LULC + SAM2 — Pampas, Argentina" width="700">
 
-*Note: The satellite basemap shown in these screenshots may not correspond to the same acquisition date as the imagery used for delineation. Field boundaries and crop patterns may differ between the basemap and the analysis period.*
+*Note: The satellite basemap shown in these screenshots may not correspond to the same acquisition date as the imagery used for delineation. See the [docs gallery](https://montimaj.github.io/agribound/gallery/) for results across all regions and engines.*
 
 ## Features
 
@@ -64,6 +64,7 @@ All spectral bands are downloaded for each sensor. Engines automatically select 
 | HLS | `hls` | 30 m | B1–B7 (7 bands) | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
 | NAIP | `naip` | 1 m | R, G, B, N (4 bands) | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields. **Very slow over large areas** (100–900x more pixels than S2) |
 | SPOT 6/7 | `spot` | 1.5 m | R, G, B (3 bands) | Restricted – see [SPOT Access](#spot-access) | Restricted GEE collection. **Very slow over large areas**; see note below |
+| SPOT 6/7 Panchromatic | `spot-pan` | 1.5 m | P (1 band, triplicated as pseudo-RGB) | Restricted – see [SPOT Access](#spot-access) | Panchromatic band at 1.5 m; triplicated to 3-band pseudo-RGB for engines that expect RGB input. Restricted access |
 | Local GeoTIFF | `local` | Any | All bands | N/A | Bring your own imagery via `--local-tif` |
 | Google Embeddings | `google-embedding` | 10 m | 64-D embeddings | `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` | Pre-computed satellite embeddings |
 | TESSERA Embeddings | `tessera-embedding` | 10 m | 128-D embeddings | N/A | TESSERA foundation model embeddings. Coverage varies by region/year (2017–2025); see [geotessera](https://github.com/ucam-eo/geotessera) |
@@ -74,9 +75,9 @@ All spectral bands are downloaded for each sensor. Engines automatically select 
 |---|---|---|---|---|---|
 | Delineate-Anything | `delineate-anything` | YOLO instance segmentation (2 model variants) | Fast; resolution-agnostic (1–10 m+); routes through FTW for S2 with native MPS support | Recommended | [Lavreniuk et al. (2025)](https://arxiv.org/abs/2504.02534) |
 | Fields of The World | `ftw` | Semantic segmentation (14+ models: EfficientNet-B3/B5/B7, UNet, UPerNet) | Strong generalization; 25-country training set; all models via `list_ftw_models()` | Yes | [Kerner et al. (2024)](https://fieldsofthe.world/) |
-| GeoAI Field Boundary | `geoai` | Mask R-CNN instance segmentation | Easy to use; built-in NDVI support; auto-falls back to CPU on Apple Silicon (see [MPS note](#apple-silicon-mps-note)) | No | [Wu (2026)](https://github.com/opengeos/geoai) |
+| GeoAI Field Boundary | `geoai` | Mask R-CNN instance segmentation | Built-in NDVI support; auto-falls back to CPU on Apple Silicon. **Without fine-tuning on region-specific reference data, GeoAI typically does not delineate any fields** | No | [Wu (2026)](https://github.com/opengeos/geoai) |
 | DINOv3 | `dinov3` | DINOv3 ViT backbone (SAT-493M satellite-pretrained) + DPT segmentation head | Satellite-native ViT features pretrained on 493M satellite images; LoRA fine-tuning; resolution-agnostic | Yes | [Siméoni et al. (2025)](https://arxiv.org/abs/2508.10104) |
-| Prithvi-EO-2.0 | `prithvi` | NASA/IBM geospatial foundation model with TerraTorch fine-tuning | State-of-the-art foundation model; multi-temporal | Yes | [Jakubik et al. (2024)](https://huggingface.co/ibm-nasa-geospatial) |
+| Prithvi-EO-2.0 | `prithvi` | NASA/IBM ViT foundation model (embed / PCA / segment modes) | 1024-D ViT embeddings from 6 HLS bands; PCA baseline for comparison | Recommended (embed); No (PCA) | [Szwarcman et al. (2024)](https://arxiv.org/abs/2412.02732) |
 | Embedding | `embedding` | Unsupervised clustering of pre-computed embeddings | No GPU needed; no labeled data required | No | [Brown et al. (2025)](https://arxiv.org/abs/2507.22291), [Feng et al. (2025)](https://arxiv.org/abs/2506.20380) |
 | Ensemble | `ensemble` | Multi-engine or multi-model consensus (vote / union / intersection) | Best accuracy; supports running same engine with different models | Depends on engines | –|
 
@@ -274,8 +275,8 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | Script | Notebook | Description |
 |---|---|---|
 | [01_new_mexico_landsat_timeseries.py](examples/01_new_mexico_landsat_timeseries.py) | [notebook](examples/notebooks/01_new_mexico_landsat_timeseries.ipynb) | 40-year annual field boundaries using Landsat 5-9 time-series over New Mexico |
-| [02_india_ganges_sentinel2.py](examples/02_india_ganges_sentinel2.py) | [notebook](examples/notebooks/02_india_ganges_sentinel2.ipynb) | Smallholder field delineation in the Ganges River basin, India |
-| [03_australia_murray_darling_hls.py](examples/03_australia_murray_darling_hls.py) | [notebook](examples/notebooks/03_australia_murray_darling_hls.ipynb) | Irrigated agriculture mapping in Murray-Darling Basin using HLS |
+| [02_india_ganges_sentinel2.py](examples/02_india_ganges_sentinel2.py) | [notebook](examples/notebooks/02_india_ganges_sentinel2.ipynb) | Smallholder rice field delineation in Nadia District (West Bengal), India |
+| [03_australia_murray_darling_hls.py](examples/03_australia_murray_darling_hls.py) | [notebook](examples/notebooks/03_australia_murray_darling_hls.ipynb) | Prithvi ViT embeddings vs PCA baseline on irrigated agriculture in Murray-Darling Basin (HLS) |
 | [04_france_beauce_sentinel2.py](examples/04_france_beauce_sentinel2.py) | [notebook](examples/notebooks/04_france_beauce_sentinel2.ipynb) | Large-field European agriculture in the Beauce region, France |
 | [05_pampas_embeddings.py](examples/05_pampas_embeddings.py) | [notebook](examples/notebooks/05_pampas_embeddings.ipynb) | CPU-only unsupervised delineation in the Argentine Pampas using Google/TESSERA embeddings |
 | [06_kenya_smallholder_ftw.py](examples/06_kenya_smallholder_ftw.py) | [notebook](examples/notebooks/06_kenya_smallholder_ftw.ipynb) | East Africa smallholder fields with the Fields of The World engine |

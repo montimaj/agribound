@@ -54,14 +54,14 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | # | Script | Region | Satellite | Engine | Est. Runtime | Description |
 |---|--------|--------|-----------|--------|-------------|-------------|
 | 01 | `01_new_mexico_landsat_timeseries.py` | New Mexico, USA | Landsat 5--9 | delineate-anything | ~8--12 h | 40-year annual field boundaries (1985--2025). Fine-tunes on NMOSE reference boundaries and evaluates per-year accuracy. Best run on HPC/cloud with GPU. |
-| 02 | `02_india_ganges_sentinel2.py` | Ganges Plain, India | Sentinel-2 | ftw | ~30--60 min | Smallholder field delineation using FTW's country-specific model for India. Runs 2020--2024. |
-| 03 | `03_australia_murray_darling_hls.py` | Murray-Darling Basin, Australia | HLS | prithvi | ~45--90 min | Large-scale irrigated agriculture using the Prithvi foundation model in embedding mode. Runs 2022--2024. |
-| 04 | `04_france_beauce_sentinel2.py` | Beauce, France | Sentinel-2 | geoai | ~15--30 min | European large-field agriculture using geoai's Mask R-CNN. Single year (2023). |
+| 02 | `02_india_ganges_sentinel2.py` | Nadia District (West Bengal), India | Sentinel-2 + Google + TESSERA + SPOT Pan | ftw + embedding + DA | ~15--30 min | Compares FTW (supervised, S2), Google AlphaEarth (64-D) and TESSERA (128-D) embeddings (unsupervised), and SPOT panchromatic (1.5 m) for smallholder rice field delineation (2024). |
+| 03 | `03_australia_murray_darling_hls.py` | Murray-Darling Basin, Australia | HLS | prithvi | ~45--90 min | Compares Prithvi ViT embeddings (full encoder) vs PCA baseline on large-scale irrigated agriculture. Runs 2022--2024. |
+| 04 | `04_france_beauce_sentinel2.py` | Beauce, France | Sentinel-2 | ftw | ~15--30 min | European large-field agriculture using FTW's pre-trained models (covers France). Single year (2023). |
 | 05 | `05_pampas_embeddings.py` | Argentine Pampas (Pergamino) | Google + TESSERA | embedding | ~5--10 min | CPU-only unsupervised clustering from pre-computed satellite embeddings (64-D Google, 128-D TESSERA). ~50 km bbox over the Pampas agricultural heartland (2020). |
 | 06 | `06_kenya_smallholder_ftw.py` | Central Kenya | Sentinel-2 | ftw | ~10--20 min | Demonstrates `min_field_area` tuning for smallholder agriculture. Compares results at 100, 500, 1000, and 2500 m2 thresholds. |
 | 07 | `07_usa_naip_high_res.py` | Central Valley, California, USA | NAIP | delineate-anything | ~20--40 min | 1 m resolution field extraction from NAIP imagery. Large commercial fields. |
 | 08 | `08_china_north_plain_spot.py` | North China Plain | SPOT 6/7 | delineate-anything | ~15--30 min | 6 m resolution SPOT imagery. **Restricted access** -- see note below. |
-| 09 | `09_ensemble_comparison.py` | Andalusia, Spain | Sentinel-2 | ensemble | ~30--60 min | Runs delineate-anything, FTW, and geoai on the same AOI, then runs the ensemble engine with vote strategy. Visualizes per-engine and consensus results. |
+| 09 | `09_ensemble_comparison.py` | Andalusia, Spain | Sentinel-2 | ensemble | ~30--60 min | Runs delineate-anything and FTW on the same AOI, then vote-merges for ensemble consensus. Visualizes per-engine and consensus results. |
 | 10 | `10_local_tif_quickstart.py` | User-provided | Local GeoTIFF | delineate-anything | ~2--5 min | Minimal 5-line quickstart using a local file. No GEE required. Edit `LOCAL_TIF` and `STUDY_AREA` paths before running. |
 | 11 | `11_mississippi_alluvial_plain_spot.py` | Mississippi Alluvial Plain, USA | SPOT 6/7 | delineate-anything | ~15--30 min | SPOT-based delineation of row-crop agriculture (2021--2023). Includes cross-year stability analysis using IoU/F1. **Restricted access** -- see note below. |
 | 12 | `12_new_mexico_ensemble_timeseries.py` | Eastern Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (per-source ensemble) | ~3--6 h | Multi-model **per-source** ensemble (2024) over ~20 km center pivot area. Runs all engines per sensor and vote-merges within each source (not across sensors). SAM2 refines each per-source ensemble. Best run on HPC/cloud with GPU. |
@@ -76,9 +76,9 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 | # | Notebook | Description | Key Difference from Script |
 |---|----------|-------------|---------------------------|
 | 01 | [`01_new_mexico_landsat_timeseries.ipynb`](notebooks/01_new_mexico_landsat_timeseries.ipynb) | New Mexico Landsat time series with fine-tuning | Runs 2023--2025 (3 years) instead of the full 40-year range, suitable for interactive use |
-| 02 | [`02_india_ganges_sentinel2.ipynb`](notebooks/02_india_ganges_sentinel2.ipynb) | India Ganges Plain smallholder fields (FTW) | Same scope as script |
-| 03 | [`03_australia_murray_darling_hls.ipynb`](notebooks/03_australia_murray_darling_hls.ipynb) | Australia Murray-Darling Basin (Prithvi + HLS) | Same scope as script |
-| 04 | [`04_france_beauce_sentinel2.ipynb`](notebooks/04_france_beauce_sentinel2.ipynb) | France Beauce region (GeoAI Mask R-CNN) | Same scope as script |
+| 02 | [`02_india_ganges_sentinel2.ipynb`](notebooks/02_india_ganges_sentinel2.ipynb) | India Nadia District (West Bengal): FTW vs Google vs TESSERA vs SPOT Pan | Same scope as script |
+| 03 | [`03_australia_murray_darling_hls.ipynb`](notebooks/03_australia_murray_darling_hls.ipynb) | Australia Murray-Darling Basin: Prithvi ViT vs PCA (HLS) | Same scope as script |
+| 04 | [`04_france_beauce_sentinel2.ipynb`](notebooks/04_france_beauce_sentinel2.ipynb) | France Beauce region (FTW) | Same scope as script |
 | 05 | [`05_pampas_embeddings.ipynb`](notebooks/05_pampas_embeddings.ipynb) | Pampas embeddings (CPU-only, Google + TESSERA) | Same scope as script |
 | 06 | [`06_kenya_smallholder_ftw.ipynb`](notebooks/06_kenya_smallholder_ftw.ipynb) | Kenya smallholder `min_area` tuning (FTW) | Same scope as script |
 | 07 | [`07_usa_naip_high_res.ipynb`](notebooks/07_usa_naip_high_res.ipynb) | USA Central Valley NAIP 1 m (Delineate-Anything) | Same scope as script |
@@ -100,6 +100,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 - SAM2 boundary refinement (example 12) runs once on the final grand ensemble output per year. Example 14 runs SAM2 per source using each sensor's native raster for accurate per-field segmentation. With the `large` model and per-field cropping, refinement takes ~2--5 minutes per source per year depending on field count.
 - **NAIP and SPOT over large areas:** NAIP (1 m) and SPOT (1.5 m) produce rasters that are 100–900x larger in pixel count than Sentinel-2 (10 m) for the same study area. Inference on these high-resolution sources over county-scale or larger areas can take hours even on GPU. Consider subsetting the study area or using `tile_size` to process in chunks. Fine-tuning on NAIP/SPOT is also significantly slower due to the larger training chips.
 - **Apple Silicon (MPS):** The GeoAI engine (Mask R-CNN) crashes on MPS due to Metal command buffer errors. Agribound automatically falls back to CPU for GeoAI training and inference. All other engines (FTW, Delineate-Anything, Prithvi) work correctly on MPS.
+- **GeoAI requires fine-tuning:** Without fine-tuning on region-specific reference boundaries, GeoAI's Mask R-CNN typically does not delineate any fields. For out-of-the-box delineation without reference data, use FTW (pre-trained models for 25 countries) or Delineate-Anything (resolution-agnostic).
 - The 40-year New Mexico script (01) is best run as an overnight batch job or on HPC. The notebook version runs only 2023--2025.
 
 ## LULC Crop Filtering
@@ -176,10 +177,12 @@ outputs/
 │   ├── map_predicted_vs_reference.html
 │   ├── map_timeseries_comparison.html
 │   └── map_latest.html
-├── india_ganges/
-│   ├── fields_s2_2020.gpkg
-│   ├── ...
-│   └── map_ganges.html
+├── india_nadia/
+│   ├── fields_ftw_s2_2024.gpkg
+│   ├── fields_google_2024.gpkg
+│   ├── fields_tessera_2024.gpkg
+│   ├── fields_spot_pan_2023.gpkg
+│   └── map_ftw_vs_tessera.html
 └── ...
 ```
 

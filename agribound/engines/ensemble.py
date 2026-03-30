@@ -188,10 +188,20 @@ class EnsembleEngine(DelineationEngine):
         from rasterio.features import rasterize, shapes
         from shapely.geometry import shape as shapely_shape
 
-        gdfs = list(results.values())
+        # Drop empty results — models that detected no fields
+        gdfs = [gdf for gdf in results.values() if len(gdf) > 0]
+        if len(gdfs) == 0:
+            return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+
+        dropped = len(results) - len(gdfs)
+        if dropped > 0:
+            logger.info("Dropped %d engine(s) with no detections from ensemble", dropped)
+
         target_crs = gdfs[0].crs
         n_engines = len(gdfs)
-        min_votes = max(1, int(np.ceil(threshold * n_engines)))
+        # Require at least 2 votes when multiple engines are available,
+        # otherwise a single engine's false positives leak through
+        min_votes = max(2 if n_engines >= 2 else 1, int(np.ceil(threshold * n_engines)))
 
         # Determine raster extent from all results
         all_bounds = []
@@ -206,8 +216,8 @@ class EnsembleEngine(DelineationEngine):
         maxx = bounds[:, 2].max()
         maxy = bounds[:, 3].max()
 
-        # Use 10m resolution for voting raster
-        res = 10.0
+        # For geographic CRS (degrees), use ~0.0001° ≈ 10m; for projected, use 10m
+        res = 0.0001 if target_crs and target_crs.is_geographic else 10.0
         width = int(np.ceil((maxx - minx) / res))
         height = int(np.ceil((maxy - miny) / res))
 

@@ -19,9 +19,27 @@ Note:
 """
 
 import argparse
+import warnings
 from pathlib import Path
 
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*STAC entry.*")
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*export size.*")
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*MaskedImage.*deprecated.*")
+warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
+
+import logging
+
 import agribound
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
+logging.getLogger("geedim").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 from agribound.evaluate import evaluate
 
 # --- Configuration ---
@@ -31,7 +49,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SOURCE = "spot"
 ENGINE = "delineate-anything"
 YEARS = [2021, 2022, 2023]
-SAM_REFINE = True
 
 
 def create_study_area():
@@ -98,7 +115,6 @@ def main():
                 engine=ENGINE,
                 output_path=str(output_path),
                 gee_project=gee_project,
-                engine_params={"sam_refine": SAM_REFINE},
                 cloud_cover_max=15,
                 # Large row-crop fields in the MAP
                 min_area=10000,
@@ -172,3 +188,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    import os
+
+    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

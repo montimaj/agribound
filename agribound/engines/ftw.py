@@ -193,14 +193,25 @@ def _build_bitemporal_ftw_input(
         config_a.date_range = (f"{year}-04-01", f"{year}-04-30")
         config_a.composite_method = "median"
         builder = get_composite_builder(config.source)
-        # Temporarily change output name to avoid cache collision
-        config_a.output_path = str(cache_dir / f"fields_{config.source}_{year}_win_a.gpkg")
-        built = builder.build(config_a)
-        # Copy to our expected path if different
-        if str(built) != str(win_a_path):
+        # Use parent dir for output_path to avoid nested .agribound_cache
+        output_dir = Path(config.output_path).parent
+        config_a.output_path = str(output_dir / f"fields_{config.source}_{year}_win_a.gpkg")
+        try:
+            built = builder.build(config_a)
+            if str(built) != str(win_a_path):
+                import shutil
+
+                shutil.copy2(built, str(win_a_path))
+        except Exception as exc:
+            logger.warning("Window A (Apr) failed: %s — using main composite", exc)
             import shutil
 
-            shutil.copy2(built, str(win_a_path))
+            # Fall back to the main annual composite
+            main_composite = cache_dir / f"{config.source}_{year}_composite.tif"
+            if main_composite.exists():
+                shutil.copy2(str(main_composite), str(win_a_path))
+            else:
+                raise
 
     # Window B: harvest season (October)
     win_b_path = cache_dir / f"{config.source}_{year}_window_b.tif"
@@ -210,12 +221,22 @@ def _build_bitemporal_ftw_input(
         config_b.date_range = (f"{year}-10-01", f"{year}-10-31")
         config_b.composite_method = "median"
         builder = get_composite_builder(config.source)
-        config_b.output_path = str(cache_dir / f"fields_{config.source}_{year}_win_b.gpkg")
-        built = builder.build(config_b)
-        if str(built) != str(win_b_path):
+        config_b.output_path = str(output_dir / f"fields_{config.source}_{year}_win_b.gpkg")
+        try:
+            built = builder.build(config_b)
+            if str(built) != str(win_b_path):
+                import shutil
+
+                shutil.copy2(built, str(win_b_path))
+        except Exception as exc:
+            logger.warning("Window B (Oct) failed: %s — using main composite", exc)
             import shutil
 
-            shutil.copy2(built, str(win_b_path))
+            main_composite = cache_dir / f"{config.source}_{year}_composite.tif"
+            if main_composite.exists():
+                shutil.copy2(str(main_composite), str(win_b_path))
+            else:
+                raise
 
     # Read RGBN from each window and stack
     data_a, meta = read_raster(str(win_a_path), bands=rgbn_indices)
