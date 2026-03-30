@@ -127,7 +127,7 @@ def _get_model_key(engine: str, config: AgriboundConfig) -> str:
 
 def _get_cached_checkpoint(engine: str, model_key: str, config: AgriboundConfig) -> str | None:
     """Return the path to a cached fine-tuned checkpoint, or None."""
-    cache_dir = config.get_working_dir()
+    cache_dir = config.get_working_dir().resolve()
     # Sanitize model_key for filesystem
     safe_key = model_key.replace("/", "_").replace(" ", "_")
 
@@ -378,7 +378,7 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
     model = YOLO(model_path)
 
     safe_key = model_key.replace("/", "_").replace(" ", "_")
-    checkpoint_dir = config.get_working_dir() / "checkpoints" / "yolo"
+    checkpoint_dir = (config.get_working_dir() / "checkpoints" / "yolo").resolve()
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     # Convert masks to YOLO segmentation format (shared across DA variants)
@@ -389,26 +389,35 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         model_key,
         config.fine_tune_epochs,
     )
-    model.train(
+    results = model.train(
         data=str(data_yaml),
         epochs=config.fine_tune_epochs,
         imgsz=config.engine_params.get("chip_size", 256),
         project=str(checkpoint_dir),
         name=safe_key,
+        exist_ok=True,
         device=config.resolve_device(),
     )
 
-    best_path = Path(checkpoint_dir / safe_key / "weights" / "best.pt")
-    if not best_path.exists():
-        # Fall back to last.pt if best.pt wasn't saved
-        last_path = best_path.parent / "last.pt"
-        if last_path.exists():
-            best_path = last_path
-        else:
-            raise RuntimeError(
-                f"YOLO fine-tuning produced no checkpoint at {best_path}. "
-                "Check training logs for errors (corrupt images, empty labels)."
-            )
+    # Use the actual save directory reported by YOLO (avoids auto-increment
+    # naming issues like DA-large2, DA-large3, etc.)
+    save_dir = Path(results.save_dir) if results and hasattr(results, "save_dir") else None
+    if save_dir and (save_dir / "weights" / "best.pt").exists():
+        best_path = save_dir / "weights" / "best.pt"
+    elif save_dir and (save_dir / "weights" / "last.pt").exists():
+        best_path = save_dir / "weights" / "last.pt"
+    else:
+        # Fallback to expected path
+        best_path = Path(checkpoint_dir / safe_key / "weights" / "best.pt")
+        if not best_path.exists():
+            last_path = best_path.parent / "last.pt"
+            if last_path.exists():
+                best_path = last_path
+            else:
+                raise RuntimeError(
+                    f"YOLO fine-tuning produced no checkpoint at {best_path}. "
+                    "Check training logs for errors (corrupt images, empty labels)."
+                )
     logger.info("YOLO fine-tuned weights saved to %s", best_path)
     return str(best_path)
 
