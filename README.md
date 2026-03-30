@@ -2,12 +2,15 @@
 
 **Unified agricultural field boundary delineation toolkit**
 
+[![Release](https://img.shields.io/badge/release-v0.1.0-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)
 [![CI](https://github.com/montimaj/agribound/actions/workflows/ci.yml/badge.svg)](https://github.com/montimaj/agribound/actions/workflows/ci.yml)
-[![Documentation](https://img.shields.io/badge/docs-mkdocs-blue)](https://montimaj.github.io/agribound)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://montimaj.github.io/agribound)
+[![GEE](https://img.shields.io/badge/Google%20Earth%20Engine-4285F4?logo=google-earth&logoColor=white)](https://earthengine.google.com/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19229666.svg)](https://doi.org/10.5281/zenodo.19229666)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19229665.svg)](https://doi.org/10.5281/zenodo.19229665)
+[![GitHub stars](https://img.shields.io/github/stars/montimaj/agribound)](https://github.com/montimaj/agribound/stargazers)
 
 ---
 
