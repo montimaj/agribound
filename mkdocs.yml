@@ -1,5 +1,5 @@
 site_name: Agribound
-site_description: Unified agricultural field boundary delineation toolkit combining satellite foundation models, embeddings, and global training data.
+site_description: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings.
 site_url: https://montimaj.github.io/agribound
 repo_url: https://github.com/montimaj/agribound
 repo_name: montimaj/agribound

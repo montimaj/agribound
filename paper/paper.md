@@ -1,5 +1,5 @@
 ---
-title: 'Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data'
+title: 'Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings'
 tags:
   - Python
   - agriculture

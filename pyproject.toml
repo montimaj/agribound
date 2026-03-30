@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agribound"
 dynamic = ["version"]
-description = "Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data."
+description = "Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings."
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"

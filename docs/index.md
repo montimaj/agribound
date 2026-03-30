@@ -1,6 +1,6 @@
 # Agribound
 
-**Unified agricultural field boundary delineation toolkit** combining satellite foundation models, embeddings, and global training data.
+**Unified agricultural field boundary delineation from satellite imagery** using geospatial foundation models, pre-trained segmentation, and embeddings.
 
 [![Release](https://img.shields.io/badge/release-v0.1.1-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)

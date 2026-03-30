@@ -1,12 +1,12 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "Agribound: Unified agricultural field boundary delineation combining satellite foundation models, embeddings, and global training data"
+title: "Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings"
 type: software
 license: Apache-2.0
 url: "https://github.com/montimaj/agribound"
 repository-code: "https://github.com/montimaj/agribound"
-doi: "10.5281/zenodo.19229666"
-version: "0.1.0"
+doi: "10.5281/zenodo.19229665"
+version: "0.1.1"
 date-released: "2026-03-28"
 authors:
   - family-names: Majumdar
