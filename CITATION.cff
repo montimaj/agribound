@@ -6,7 +6,7 @@ license: Apache-2.0
 url: "https://github.com/montimaj/agribound"
 repository-code: "https://github.com/montimaj/agribound"
 doi: "10.5281/zenodo.19229665"
-version: "0.1.1"
+version: "0.1.1-post1"
 date-released: "2026-03-28"
 authors:
   - family-names: Majumdar
