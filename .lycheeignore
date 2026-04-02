@@ -11,5 +11,8 @@ https://console.cloud.google.com/
 # Earth Engine Code Editor (requires authentication)
 https://code.earthengine.google.com/
 
+# TESSERA blog (blocks automated requests)
+https://geotessera.org/
+
 # Own GitHub Pages (may not be deployed yet during CI)
 https://montimaj.github.io/agribound/
