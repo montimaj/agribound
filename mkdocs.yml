@@ -31,6 +31,12 @@ theme:
 
 plugins:
   - search
+  - blog:
+      blog_dir: blog
+      post_date_format: long
+      post_readtime: true
+      archive: true
+      categories: true
   - mkdocstrings:
       handlers:
         python:
@@ -80,5 +86,6 @@ nav:
       - Evaluation: api/evaluate.md
       - Visualization: api/visualize.md
   - Gallery: gallery.md
+  - Blog: blog/index.md
   - Contributing: contributing.md
   - Citation & References: citation.md

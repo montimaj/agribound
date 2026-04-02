@@ -265,6 +265,10 @@ agribound/
 │   └── paper.bib               # References
 ├── docs/                       # MkDocs documentation source
 │   ├── api/                    # API reference (auto-generated from docstrings)
+│   ├── blog/                   # Blog (MkDocs Material blog plugin)
+│   │   ├── .authors.yml        # Blog author profiles
+│   │   ├── index.md            # Blog landing page
+│   │   └── posts/              # Blog posts (Markdown with frontmatter)
 │   ├── gallery.md              # Visual results across regions and engines
 │   └── user-guide/             # Quickstart, engines, satellite sources, etc.
 ├── CITATION.cff                # Citation metadata (JOSS / Zenodo)
