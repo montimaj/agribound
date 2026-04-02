@@ -129,3 +129,119 @@ def sample_reference_gdf():
         crs="EPSG:32611",
     )
     return gdf
+
+# ---------------------------------------------------------------------------
+# USGS fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sample_usgs_service_metadata():
+    """Minimal ImageServer metadata used by mocked USGS tests."""
+    return {
+        "maxImageWidth": 4000,
+        "maxImageHeight": 4000,
+        "maxMosaicImageCount": 50,
+    }
+
+
+@pytest.fixture
+def sample_usgs_query_features():
+    """Mock ArcGIS ImageServer query response with two adjacent footprints in EPSG:3857."""
+    return {
+        "features": [
+            {
+                "attributes": {
+                    "OBJECTID": 101,
+                    "Name": "tile_a",
+                    "State": "MI",
+                    "Year": 2023,
+                    "Category": 1,
+                    "download_url": None,
+                    "acquisition_date": 1688169600000,
+                    "resolution_value": 1.0,
+                    "resolution_units": "Meters",
+                    "band_count": 4,
+                },
+                "geometry": {
+                    "xmin": -13024450.0,
+                    "ymin": 5160950.0,
+                    "xmax": -13023850.0,
+                    "ymax": 5161750.0,
+                },
+            },
+            {
+                "attributes": {
+                    "OBJECTID": 102,
+                    "Name": "tile_b",
+                    "State": "MI",
+                    "Year": 2023,
+                    "Category": 1,
+                    "download_url": None,
+                    "acquisition_date": 1688256000000,
+                    "resolution_value": 1.0,
+                    "resolution_units": "Meters",
+                    "band_count": 4,
+                },
+                "geometry": {
+                    "xmin": -13023850.0,
+                    "ymin": 5160950.0,
+                    "xmax": -13023250.0,
+                    "ymax": 5161750.0,
+                },
+            },
+        ]
+    }
+
+
+@pytest.fixture
+def sample_usgs_aoi_geojson(tmp_path):
+    """Create a small GeoJSON AOI file in EPSG:4326 for USGS pipeline tests."""
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"name": "test_usgs_aoi"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [-117.0000, 42.0000],
+                            [-117.0000, 42.0050],
+                            [-116.9950, 42.0050],
+                            [-116.9950, 42.0000],
+                            [-117.0000, 42.0000],
+                        ]
+                    ],
+                },
+            }
+        ],
+    }
+    path = tmp_path / "usgs_aoi.geojson"
+    path.write_text(json.dumps(geojson))
+    return str(path)
+
+
+@pytest.fixture
+def sample_export_tif(tmp_path):
+    """Create a tiny 4-band exported TIFF in EPSG:3857."""
+    path = tmp_path / "export.tif"
+    height, width, bands = 64, 64, 4
+    transform = from_bounds(-13024450, 5160950, -13023250, 5161750, width, height)
+    data = np.random.randint(0, 255, (bands, height, width), dtype=np.uint8)
+
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=bands,
+        dtype="uint8",
+        crs="EPSG:3857",
+        transform=transform,
+    ) as dst:
+        dst.write(data)
+
+    return str(path)
