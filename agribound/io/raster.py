@@ -1,5 +1,4 @@
-"""
-Raster I/O utilities.
+"""Raster I/O utilities.
 
 Functions for reading, writing, and inspecting GeoTIFF files used throughout
 the Agribound pipeline.
@@ -56,23 +55,7 @@ class RasterInfo:
 
 
 def get_raster_info(path: str | Path) -> RasterInfo:
-    """Read metadata from a raster file without loading pixel data.
-
-    Parameters
-    ----------
-    path : str or Path
-        Path to the raster file (GeoTIFF).
-
-    Returns
-    -------
-    RasterInfo
-        Raster metadata.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the file does not exist.
-    """
+    """Read metadata from a raster file without loading pixel data."""
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Raster file not found: {path}")
@@ -97,30 +80,16 @@ def read_raster(
     bands: list[int] | None = None,
     window: rasterio.windows.Window | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """Read a raster file into a NumPy array.
-
-    Parameters
-    ----------
-    path : str or Path
-        Path to the raster file.
-    bands : list[int] or None
-        1-based band indices to read. *None* reads all bands.
-    window : rasterio.windows.Window or None
-        Spatial sub-window to read. *None* reads the full extent.
-
-    Returns
-    -------
-    data : numpy.ndarray
-        Pixel data with shape ``(bands, height, width)``.
-    meta : dict
-        Rasterio metadata dictionary (crs, transform, width, height, etc.).
-    """
+    """Read a raster file into a NumPy array."""
     path = Path(path)
+
     with rasterio.open(path) as src:
         if bands is None:
             bands = list(range(1, src.count + 1))
+
         data = src.read(bands, window=window)
         meta = src.meta.copy()
+
         if window is not None:
             meta.update(
                 {
@@ -129,8 +98,9 @@ def read_raster(
                     "transform": src.window_transform(window),
                 }
             )
+
         meta["count"] = len(bands)
-    return data, meta
+        return data, meta
 
 
 def write_raster(
@@ -142,30 +112,7 @@ def write_raster(
     dtype: str | None = None,
     compress: str = "lzw",
 ) -> str:
-    """Write a NumPy array as a GeoTIFF.
-
-    Parameters
-    ----------
-    path : str or Path
-        Destination file path.
-    data : numpy.ndarray
-        Pixel data with shape ``(bands, height, width)`` or ``(height, width)``.
-    crs : rasterio.crs.CRS or str
-        Coordinate reference system.
-    transform : rasterio.transform.Affine
-        Affine transform.
-    nodata : float or None
-        Nodata value to encode in the file.
-    dtype : str or None
-        Output data type. Defaults to the array dtype.
-    compress : str
-        Compression method (default ``"lzw"``).
-
-    Returns
-    -------
-    str
-        Path to the written file.
-    """
+    """Write a NumPy array as a GeoTIFF."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -213,28 +160,35 @@ def clip_raster_to_geometry(
     dst_path : str or Path
         Destination clipped raster.
     geometry : dict or shapely.geometry
-        Clipping geometry (GeoJSON-like dict or Shapely geometry).
+        Clipping geometry.
     crs : CRS or None
-        CRS of the geometry. If *None*, assumed to match the raster CRS.
-
-    Returns
-    -------
-    str
-        Path to the clipped raster.
+        CRS of the geometry. If None, geometry is assumed to match raster CRS.
     """
     from rasterio.mask import mask as rio_mask
+    from rasterio.warp import transform_geom
     from shapely.geometry import mapping
 
     src_path = Path(src_path)
     dst_path = Path(dst_path)
     dst_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Ensure geometry is a GeoJSON-like dict
     if hasattr(geometry, "__geo_interface__"):
         geometry = mapping(geometry)
 
     with rasterio.open(src_path) as src:
-        out_image, out_transform = rio_mask(src, [geometry], crop=True)
+        geom_for_mask = geometry
+
+        if crs is not None and src.crs is not None:
+            src_crs_str = src.crs.to_string()
+            geom_crs_str = rasterio.crs.CRS.from_user_input(crs).to_string()
+            if geom_crs_str != src_crs_str:
+                geom_for_mask = transform_geom(
+                    geom_crs_str,
+                    src_crs_str,
+                    geometry,
+                )
+
+        out_image, out_transform = rio_mask(src, [geom_for_mask], crop=True)
         out_meta = src.meta.copy()
         out_meta.update(
             {
@@ -245,6 +199,7 @@ def clip_raster_to_geometry(
                 "BIGTIFF": "YES",
             }
         )
+
         with rasterio.open(dst_path, "w", **out_meta) as dst:
             dst.write(out_image)
 
@@ -256,33 +211,17 @@ def select_and_reorder_bands(
     dst_path: str | Path,
     band_indices: list[int],
 ) -> str:
-    """Extract and reorder specific bands from a raster.
-
-    Parameters
-    ----------
-    src_path : str or Path
-        Source multi-band raster.
-    dst_path : str or Path
-        Destination raster with selected bands.
-    band_indices : list[int]
-        1-based band indices in desired output order.
-
-    Returns
-    -------
-    str
-        Path to the output raster.
-    """
-    import numpy as np
-
+    """Extract and reorder specific bands from a raster."""
     data, meta = read_raster(src_path, bands=band_indices)
-    # Sanitize nodata: replace inf/nan in data and use 0 if nodata is non-finite
+
     nodata = meta.get("nodata")
     if nodata is not None and not np.isfinite(nodata):
         data = np.where(np.isfinite(data), data, 0)
         nodata = 0
-    # Cast float64 to float32 — MPS (Apple Silicon) doesn't support float64 tensors
+
     if data.dtype == np.float64:
         data = data.astype(np.float32)
+
     return write_raster(
         dst_path,
         data,
