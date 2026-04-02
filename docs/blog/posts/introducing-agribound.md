@@ -1,7 +1,7 @@
 ---
 date: 2026-04-02
 authors:
-  - Sayantan "Monty" Majumdar
+  - montimaj
 categories:
   - Release
   - Announcements
