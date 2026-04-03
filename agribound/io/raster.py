@@ -55,7 +55,23 @@ class RasterInfo:
 
 
 def get_raster_info(path: str | Path) -> RasterInfo:
-    """Read metadata from a raster file without loading pixel data."""
+    """Read metadata from a raster file without loading pixel data.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the raster file (GeoTIFF).
+
+    Returns
+    -------
+    RasterInfo
+        Raster metadata.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the file does not exist.
+    """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Raster file not found: {path}")
@@ -80,7 +96,24 @@ def read_raster(
     bands: list[int] | None = None,
     window: rasterio.windows.Window | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """Read a raster file into a NumPy array."""
+    """Read a raster file into a NumPy array.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the raster file.
+    bands : list[int] or None
+        1-based band indices to read. *None* reads all bands.
+    window : rasterio.windows.Window or None
+        Spatial sub-window to read. *None* reads the full extent.
+
+    Returns
+    -------
+    data : numpy.ndarray
+        Pixel data with shape ``(bands, height, width)``.
+    meta : dict
+        Rasterio metadata dictionary (crs, transform, width, height, etc.).
+    """
     path = Path(path)
 
     with rasterio.open(path) as src:
@@ -112,7 +145,30 @@ def write_raster(
     dtype: str | None = None,
     compress: str = "lzw",
 ) -> str:
-    """Write a NumPy array as a GeoTIFF."""
+    """Write a NumPy array as a GeoTIFF.
+
+    Parameters
+    ----------
+    path : str or Path
+        Destination file path.
+    data : numpy.ndarray
+        Pixel data with shape ``(bands, height, width)`` or ``(height, width)``.
+    crs : rasterio.crs.CRS or str
+        Coordinate reference system.
+    transform : rasterio.transform.Affine
+        Affine transform.
+    nodata : float or None
+        Nodata value to encode in the file.
+    dtype : str or None
+        Output data type. Defaults to the array dtype.
+    compress : str
+        Compression method (default ``"lzw"``).
+
+    Returns
+    -------
+    str
+        Path to the written file.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -211,7 +267,22 @@ def select_and_reorder_bands(
     dst_path: str | Path,
     band_indices: list[int],
 ) -> str:
-    """Extract and reorder specific bands from a raster."""
+    """Extract and reorder specific bands from a raster.
+
+    Parameters
+    ----------
+    src_path : str or Path
+        Source multi-band raster.
+    dst_path : str or Path
+        Destination raster with selected bands.
+    band_indices : list[int]
+        1-based band indices in desired output order.
+
+    Returns
+    -------
+    str
+        Path to the output raster.
+    """
     data, meta = read_raster(src_path, bands=band_indices)
 
     nodata = meta.get("nodata")
