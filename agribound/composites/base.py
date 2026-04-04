@@ -70,6 +70,15 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "coverage": "Continental US, ~2-3 year cycle",
         "requires_gee": True,
     },
+    "usgs-naip-plus": {
+        "name": "USGS NAIP Plus ImageServer",
+        "collection": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer",
+        "resolution_m": None,
+        "all_bands": ["R", "G", "B", "N"],
+        "canonical_bands": {"R": "R", "G": "G", "B": "B", "NIR": "N"},
+        "coverage": "USGS The National Map USGSNAIPPlus ImageServer",
+        "requires_gee": False,
+    },
     "spot": {
         "name": "SPOT 6/7",
         "collection": "AIRBUS/SPOT6_7",
@@ -215,10 +224,17 @@ def get_composite_builder(source: str) -> CompositeBuilder:
         from agribound.composites.local import LocalCompositeBuilder
 
         return LocalCompositeBuilder()
+
     elif source in ("google-embedding", "tessera-embedding"):
         from agribound.composites.local import EmbeddingCompositeBuilder
 
         return EmbeddingCompositeBuilder()
+
+    elif source == "usgs-naip-plus":
+        from agribound.composites.usgs import USGSNAIPPlusCompositeBuilder
+
+        return USGSNAIPPlusCompositeBuilder()
+
     else:
         from agribound.composites.gee import GEECompositeBuilder
 

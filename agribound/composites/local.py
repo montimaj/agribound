@@ -64,13 +64,20 @@ class LocalCompositeBuilder(CompositeBuilder):
             try:
                 study_gdf = read_study_area(config.study_area)
                 geometry = get_study_area_geometry(study_gdf)
+                geometry_crs = study_gdf.crs
 
                 cache_dir = config.get_working_dir()
                 clipped_path = cache_dir / f"local_clipped_{src_path.stem}.tif"
 
                 if not clipped_path.exists():
                     logger.info("Clipping local TIF to study area")
-                    clip_raster_to_geometry(str(src_path), str(clipped_path), geometry)
+                    clip_raster_to_geometry(
+                        str(src_path),
+                        str(clipped_path),
+                        geometry,
+                        crs=geometry_crs,
+                    )
+
                 return str(clipped_path)
             except Exception as exc:
                 logger.warning("Could not clip to study area, using full raster: %s", exc)

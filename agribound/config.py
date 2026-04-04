@@ -31,6 +31,7 @@ VALID_SOURCES = (
     "local",
     "google-embedding",
     "tessera-embedding",
+    "usgs-naip-plus",
 )
 
 VALID_ENGINES = (
@@ -136,6 +137,15 @@ class AgriboundConfig:
     gee_project: str | None = None
     export_method: str = "local"
     gcs_bucket: str | None = None
+
+    # USGS
+    usgs_service_url: str = (
+        "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer"
+    )
+    usgs_state: str | None = None
+    usgs_allow_year_fallback: bool = False
+    usgs_timeout_s: int = 120
+    usgs_retries: int = 3
 
     # Compositing --------------------------------------------------------------
     composite_method: str = "median"
