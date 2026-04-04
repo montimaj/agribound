@@ -2,7 +2,7 @@
 
 **Unified agricultural field boundary delineation toolkit**
 
-[![Release](https://img.shields.io/badge/release-v0.1.1--post1-green.svg)](https://github.com/montimaj/agribound/releases)
+[![Release](https://img.shields.io/badge/release-v0.1.2-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)
 [![CI](https://github.com/montimaj/agribound/actions/workflows/ci.yml/badge.svg)](https://github.com/montimaj/agribound/actions/workflows/ci.yml)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://montimaj.github.io/agribound)
@@ -20,7 +20,7 @@ Agribound is a Python package that provides a unified framework for agricultural
 
 Unlike other field boundary tools that detect *all* visual boundaries (roads, water, forests, buildings), agribound **automatically removes non-agricultural polygons** using LULC data: NLCD for CONUS (1985–2024), Dynamic World globally (2015–present), or C3S Land Cover for pre-2015 coverage, with all zonal statistics computed server-side on GEE. It also supports a fully automated pipeline that combines embedding clusters, Dynamic World crop filtering, and SAM2 boundary refinement on Sentinel-2 to delineate fields anywhere in the world without human-labeled reference data or model training.
 
-The result is a single `agribound.delineate()` call or CLI command that replaces dozens of ad hoc scripts with a reproducible, configurable workflow. Fifteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, eight satellite sources, and all delineation engines.
+The result is a single `agribound.delineate()` call or CLI command that replaces dozens of ad hoc scripts with a reproducible, configurable workflow. Sixteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, nine satellite sources, and all delineation engines.
 
 ## Results
 
@@ -252,8 +252,8 @@ agribound/
 │       ├── regularize.py       # Polygon regularization
 │       └── simplify.py         # Douglas-Peucker simplification
 ├── assets/                     # Gallery screenshots and example images
-├── examples/                   # Example scripts (15) and Jupyter notebooks
-│   ├── 01–15_*.py              # Runnable Python scripts
+├── examples/                   # Example scripts (16) and Jupyter notebooks
+│   ├── 01–16_*.py              # Runnable Python scripts
 │   └── notebooks/              # Interactive notebook versions
 ├── tests/                      # Pytest suite
 │   ├── conftest.py             # Shared fixtures and test data
@@ -302,7 +302,7 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [13_sam2_refine_dinov3.py](examples/13_sam2_refine_dinov3.py) | [notebook](examples/notebooks/13_sam2_refine_dinov3.ipynb) | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries |
 | [14_dinov3_sam2_ensemble.py](examples/14_dinov3_sam2_ensemble.py) | [notebook](examples/notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source comparison across 5 sensors (Eastern Lea County, New Mexico, USA) |
 | [15_pampas_semi_supervised.py](examples/15_pampas_semi_supervised.py) | [notebook](examples/notebooks/15_pampas_semi_supervised.ipynb) | Automated pipeline: Google + TESSERA embeddings → LULC filter → SAM2 on S2. 6-way comparison, no training needed |
-| [16_usa_usgs_naip_plus.py](examples/16_usa_usgs_naip_plus.py) | [notebook](examples/notebooks/16_usa_usgs_naip_plus.ipynb) | High-resolution field extraction using the non-GEE `usgs-naip-plus` source with direct ImageServer acquisition. |
+| [16_usa_usgs_naip_plus.py](examples/16_usa_usgs_naip_plus.py) | [notebook](examples/notebooks/16_usa_usgs_naip_plus.ipynb) | High-resolution field extraction using the non-GEE `usgs-naip-plus` source -- same NAIP data as GEE, acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer). No GEE authentication required. |
 
 ## Google Earth Engine Authentication
 
@@ -349,9 +349,9 @@ The **GeoAI engine** (Mask R-CNN) is unstable on Apple Silicon GPUs via MPS (Met
 
 If you use agribound in your research, please cite:
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* [Software]. _Zenodo_. https://doi.org/10.5281/zenodo.19229665
+> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Rapp, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* [Software]. _Zenodo_. https://doi.org/10.5281/zenodo.19229665
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings*. In prep. for _Journal of Open Source Software_.
+> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Rapp, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings*. In prep. for _Journal of Open Source Software_.
 
 
 Please also cite the underlying engines and models as appropriate:

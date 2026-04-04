@@ -2,7 +2,9 @@
 16 — USA Central Valley (California), USGS NAIP Plus with Delineate-Anything
 
 Delineates large commercial agricultural fields in California's Central Valley
-using the USGS NAIP Plus ImageServer rather than the GEE-backed NAIP source.
+using the USGS NAIP Plus ImageServer (same NAIP data as GEE, from
+https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer)
+rather than the GEE-backed NAIP source.
 
 This example is intended to demonstrate agribound's non-GEE high-resolution
 local-raster acquisition path: the AOI is queried from the USGS ImageServer,

@@ -2,6 +2,16 @@
 
 All notable changes to agribound will be documented in this file.
 
+## [0.1.2] - 2026-04-04
+
+### Added
+- Example 16: USGS NAIP Plus ImageServer support -- same NAIP data as GEE, acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) -- for non-GEE high-resolution field delineation (contributed by Jeremy Rapp, Michigan State University)
+- Jeremy Rapp added to project authors and citations
+
+### Changed
+- Updated all citations to include Jeremy Rapp
+- Updated example documentation to highlight USGS NAIP Plus workflow
+
 ## [0.1.1] - 2026-03-30
 
 ### Fixed
@@ -30,6 +40,6 @@ All notable changes to agribound will be documented in this file.
 - Google Earth Engine composite generation
 - Fine-tuning support for DA (YOLO), GeoAI (Mask R-CNN), DINOv3 (LoRA), Prithvi (terratorch)
 - CLI (`agribound delineate`) and Python API (`agribound.delineate()`)
-- 15 example scripts and Jupyter notebooks
+- 16 example scripts and Jupyter notebooks
 - MkDocs documentation site
 - Pytest suite (unit + integration)

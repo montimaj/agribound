@@ -70,9 +70,9 @@ This single call handles GEE authentication, cloud-free composite generation, en
 | Embedding | Unsupervised clustering | No |
 | Ensemble | Multi-engine consensus | Depends |
 
-### Eight Satellite Sources
+### Nine Satellite Sources
 
-Agribound supports Landsat, Sentinel-2, HLS, NAIP, SPOT 6/7, local GeoTIFFs, and pre-computed embedding datasets (Google Satellite Embeddings, TESSERA) -- all through a consistent interface.
+Agribound supports Landsat, Sentinel-2, HLS, NAIP, USGS NAIP Plus, SPOT 6/7, local GeoTIFFs, and pre-computed embedding datasets (Google Satellite Embeddings, TESSERA) -- all through a consistent interface. The USGS NAIP Plus source provides the same NAIP imagery available on GEE but acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer), enabling high-resolution field delineation without GEE authentication.
 
 ### Automatic LULC Crop Filtering
 
@@ -131,6 +131,14 @@ Agribound was [highlighted by the TESSERA team](https://geotessera.org/blog/2026
 
 The [launch announcement on LinkedIn](https://www.linkedin.com/posts/sayantanmajumdar_opensource-opensource-activity-7444461276329836544-n2PF) received over 500 reactions and 55 reposts from the geospatial and remote sensing community within two days of its release.
 
+## First Community Contribution
+
+We are thrilled to highlight agribound's **first community contribution** from **Jeremy Rapp** at the Department of Earth and Environmental Sciences, Michigan State University. Jeremy contributed [Example 16](https://github.com/montimaj/agribound/blob/main/examples/16_usa_usgs_naip_plus.py), which adds support for the **USGS NAIP Plus ImageServer** -- the same NAIP imagery available on GEE but acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) -- as a non-GEE high-resolution imagery source.
+
+This example demonstrates agribound's local-raster acquisition path: the AOI is queried directly from the USGS ImageServer, exported to a local GeoTIFF, and then passed into the Delineate-Anything engine pipeline -- all **without requiring Google Earth Engine authentication**. This is a significant addition for users who want to work with 1 m NAIP imagery but do not have GEE access or prefer a purely local workflow.
+
+Jeremy's contribution showcases exactly the kind of community-driven extension we hoped agribound would enable: identifying a new data source, integrating it into the existing pipeline, and providing a complete working example. Thank you, Jeremy, for this excellent contribution!
+
 ## What's Next
 
 - A paper submission to the *Journal of Open Source Software* is in preparation.
@@ -141,8 +149,8 @@ The [launch announcement on LinkedIn](https://www.linkedin.com/posts/sayantanmaj
 
 If you find agribound useful, please cite:
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* [Software]. Zenodo. [https://doi.org/10.5281/zenodo.19229665](https://doi.org/10.5281/zenodo.19229665)
+> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Rapp, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* [Software]. Zenodo. [https://doi.org/10.5281/zenodo.19229665](https://doi.org/10.5281/zenodo.19229665)
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings*. In prep. for *Journal of Open Source Software*.
+> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Rapp, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings*. In prep. for *Journal of Open Source Software*.
 
 Give the [repo](https://github.com/montimaj/agribound) a star if you find it useful!

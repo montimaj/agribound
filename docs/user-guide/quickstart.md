@@ -149,7 +149,7 @@ Each output polygon includes metadata columns:
 
 ## Examples
 
-Fifteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, eight satellite sources, and all delineation engines. See the [examples README](https://github.com/montimaj/agribound/tree/main/examples) for full details.
+Sixteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, nine satellite sources, and all delineation engines. See the [examples README](https://github.com/montimaj/agribound/tree/main/examples) for full details.
 
 | Situation | Approach | Example |
 |---|---|---|

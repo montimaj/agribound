@@ -11,12 +11,16 @@ license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 authors = [
     {name = "Sayantan Majumdar", email = "sayantan.majumdar@dri.edu"},
-    {name = "Justin Huntington"},
+    {name = "Justin L. Huntington"},
     {name = "Peter ReVelle"},
     {name = "Soheil Nozari"},
-    {name = "Ryan Smith"},
+    {name = "Ryan G. Smith"},
+    {name = "M. F. Hasan"},
     {name = "Matt Bromley"},
     {name = "Jayden Atkin"},
+    {name = "Jeremy Rapp"},
+    {name = "Eric R. Jensen"},
+    {name = "David Ketchum"},
     {name = "Samapriya Roy"},
 ]
 keywords = [

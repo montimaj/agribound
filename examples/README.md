@@ -12,7 +12,7 @@ conda activate agribound
 pip install -e ".[all]"
 ```
 
-2. For GEE-based examples (all except `10_local_tif_quickstart.py`), authenticate with Google Earth Engine:
+2. For GEE-based examples (all except `10_local_tif_quickstart.py` and `16_usa_usgs_naip_plus.py`), authenticate with Google Earth Engine:
 
 ```bash
 gcloud config set project YOUR_GEE_PROJECT
@@ -32,10 +32,11 @@ All GEE-based examples require a `--gee-project` argument:
 python examples/01_new_mexico_landsat_timeseries.py --gee-project YOUR_GEE_PROJECT
 ```
 
-The local TIF example does not require GEE:
+The local TIF and USGS NAIP Plus examples do not require GEE:
 
 ```bash
 python examples/10_local_tif_quickstart.py
+python examples/16_usa_usgs_naip_plus.py
 ```
 
 ### Jupyter Notebooks
@@ -68,6 +69,7 @@ Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
 | 13 | `13_sam2_refine_dinov3.py` | Lea County, NM, USA | Sentinel-2 | SAM2 refinement | ~5--15 min | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries (555 fields). Crops each field from the raster and refines with SAM2 box prompts. Compares before/after metrics against NMOSE reference. |
 | 14 | `14_dinov3_sam2_ensemble.py` | Eastern Lea County, NM, USA | Sentinel-2, Landsat, HLS, NAIP, SPOT | DINOv3 + SAM2 | ~1--2 h | Runs DINOv3 (SAT-493M) across 5 satellite sources with per-source SAM2 refinement. Compares per-source results against NMOSE reference boundaries. Uses a ~20 km bbox over the center pivot area to keep NAIP/SPOT runtimes practical. |
 | 15 | `15_pampas_semi_supervised.py` | Pampas (Pergamino), Argentina | Google + TESSERA embeddings + Dynamic World + Sentinel-2 | Embedding + SAM2 (no training) | ~15--30 min | Fully automated pipeline requiring **no reference boundaries or training**. Clusters Google (64-D) and TESSERA (128-D) embeddings, LULC-filters to crops, then refines with SAM2 using both S2 and TESSERA native bands. Includes improved SAM2 with geometry fixes, polygon exploding, and large-field separation. TESSERA produces more accurate boundaries than Google (see [Embedding Comparison](#embedding-comparison-google-vs-tessera-example-15)). GPU recommended. |
+| **16** | **`16_usa_usgs_naip_plus.py`** | **Central Valley, California, USA** | **USGS NAIP Plus ImageServer** | **delineate-anything** | **~30--60 min** | **First community contribution!** High-resolution field extraction using the non-GEE `usgs-naip-plus` source -- the same NAIP imagery available on GEE but acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer). No GEE authentication required. Contributed by **Jeremy Rapp** (Michigan State University). |
 
 ## Notebooks
 
@@ -90,7 +92,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 | 13 | [`13_sam2_refine_dinov3.ipynb`](notebooks/13_sam2_refine_dinov3.ipynb) | SAM2 boundary refinement on DINOv3 output | Same scope as script |
 | 14 | [`14_dinov3_sam2_ensemble.ipynb`](notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source comparison (Eastern Lea County) | Runs single year (2022) instead of 2020--2022 |
 | 15 | [`15_pampas_semi_supervised.ipynb`](notebooks/15_pampas_semi_supervised.ipynb) | Embedding + SAM2 (Pampas, no training required) | Same scope as script |
-| 16 | `16_usa_usgs_naip_plus.py` | Central Valley, California, USA | USGS NAIP Plus ImageServer | delineate-anything | ~30--60 min | High-resolution field extraction using the non-GEE `usgs-naip-plus` source with direct ImageServer acquisition. |
+| 16 | `16_usa_usgs_naip_plus.py` | USA Central Valley USGS NAIP Plus -- same NAIP data as GEE, from [USGS ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) (no GEE, contributed by Jeremy Rapp) | Script only (no notebook) |
 
 ## Runtime Notes
 
@@ -124,6 +126,7 @@ The appropriate LULC dataset is selected automatically based on the study area l
 **Disabled by default for:**
 - Example 05 (unsupervised embedding clusters — no semantic meaning)
 - Example 10 (local GeoTIFF — no GEE access)
+- Example 16 (USGS NAIP Plus — purely non-GEE workflow)
 
 ## SPOT Access
 

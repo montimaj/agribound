@@ -6,8 +6,8 @@ license: Apache-2.0
 url: "https://github.com/montimaj/agribound"
 repository-code: "https://github.com/montimaj/agribound"
 doi: "10.5281/zenodo.19229665"
-version: "0.1.1-post1"
-date-released: "2026-03-28"
+version: "0.1.2"
+date-released: "2026-04-04"
 authors:
   - family-names: Majumdar
     given-names: Sayantan
@@ -40,6 +40,10 @@ authors:
   - family-names: Atkin
     given-names: Jayden
     affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
+  - family-names: Rapp
+    given-names: Jeremy
+    affiliation: "Department Of Earth and Environmental Sciences, Michigan State University, East Lansing, MI, USA"
+    orcid: "https://orcid.org/0000-0002-0460-2725"
   - family-names: Jensen
     given-names: Eric R.
     affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"

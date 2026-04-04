@@ -33,6 +33,9 @@ authors:
     affiliation: 1
   - name: Jayden Atkin
     affiliation: 1
+  - name: Jeremy Rapp
+    orcid: 0000-0002-0460-2725
+    affiliation: 4
   - name: Eric R. Jensen
     orcid: 0000-0003-4208-5041
     affiliation: 1
@@ -48,6 +51,8 @@ affiliations:
     index: 2
   - name: Montana Climate Office, W.A. Franke College of Forestry and Conservation, University of Montana, Missoula, MT, USA
     index: 3
+  - name: Department Of Earth and Environmental Sciences, Michigan State University, East Lansing, MI, USA
+    index: 4
 date: 28 March 2026
 bibliography: paper.bib
 ---
@@ -62,7 +67,7 @@ bibliography: paper.bib
 
 Accurate agricultural field boundary delineation from satellite imagery is essential for crop monitoring, yield estimation, water resource management, and land use policy. While several deep learning models have been developed for this task --- including object detection [@lavreniuk2025], semantic segmentation [@kerner2025], and vision transformer approaches [@simeoni2025; @szwarcman2024] --- each exists in its own ecosystem with incompatible input formats, band ordering conventions, and output schemas. Researchers working on field boundary mapping must navigate multiple repositories, write custom preprocessing scripts for each model, and manually clean outputs that include non-agricultural areas.
 
-Agribound addresses this fragmentation by providing a unified Python package that wraps seven complementary delineation engines behind a single `agribound.delineate()` interface. It handles the full pipeline from satellite composite generation through Google Earth Engine [@gorelick2017] to vectorized, post-processed field boundary polygons, supporting eight satellite sources spanning 1984 to the present.
+Agribound addresses this fragmentation by providing a unified Python package that wraps seven complementary delineation engines behind a single `agribound.delineate()` interface. It handles the full pipeline from satellite composite generation through Google Earth Engine [@gorelick2017] to vectorized, post-processed field boundary polygons, supporting nine satellite sources spanning 1984 to the present.
 
 # Statement of Need
 
@@ -70,7 +75,7 @@ Field boundary delineation is a critical input for agricultural applications wor
 
 Agribound fills this gap with three key contributions:
 
-1. **Unified multi-engine interface.** A single function call or CLI command runs any of seven engines on any of eight satellite sources, handling band extraction, resolution matching, and format conversion automatically.
+1. **Unified multi-engine interface.** A single function call or CLI command runs any of seven engines on any of nine satellite sources, handling band extraction, resolution matching, and format conversion automatically.
 
 2. **Automatic LULC crop filtering.** Agribound is the first field boundary package to automatically remove non-agricultural polygons from the output. It leverages three land-use/land-cover datasets --- USGS Annual NLCD for the contiguous United States (1985--2024, 30 m) [@dewitz2024], Google Dynamic World globally (2015--present, 10 m) [@brown2022], and Copernicus C3S Land Cover for pre-2015 global coverage (1992--2022, 300 m) [@defourny2023] --- selecting the appropriate dataset based on study area location and year. All zonal statistics are computed server-side on Google Earth Engine, requiring no raster downloads.
 
@@ -161,7 +166,7 @@ gdf = agribound.delineate(..., lulc_filter=False)
 gdf = agribound.delineate(..., lulc_crop_threshold=0.2)
 ```
 
-Fifteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, eight satellite sources, and all delineation engines.
+Sixteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, nine satellite sources, and all delineation engines.
 
 # Research Enabled by Agribound
 
@@ -202,7 +207,7 @@ The `lulc_filter` architecture is designed to be extensible: adding a new LULC d
 
 <!-- TODO: Finalize after all authors review -->
 
-**S. Majumdar:** Conceptualization, software architecture, implementation, documentation, testing, writing --- original draft. **J. L. Huntington:** Supervision, funding acquisition, domain expertise (water resources). **P. ReVelle:** Domain expertise (agricultural remote sensing), testing. **S. Nozari:** Domain expertise (irrigation water use), testing. **R. G. Smith:** Domain expertise (water resources), testing. **M. F. Hasan:** Testing, feedback. **M. Bromley:** Domain expertise (water resources), funding acquisition. **J. Atkin:** Testing, feedback. **E. R. Jensen:** Domain expertise (remote sensing), testing. **D. Ketchum:** Domain expertise (agricultural remote sensing), testing. **S. Roy:** GEE data integration, LULC dataset curation.
+**S. Majumdar:** Conceptualization, software architecture, implementation, documentation, testing, writing --- original draft. **J. L. Huntington:** Supervision, funding acquisition, domain expertise (water resources). **P. ReVelle:** Domain expertise (agricultural remote sensing), testing. **S. Nozari:** Domain expertise (irrigation water use), testing. **R. G. Smith:** Domain expertise (water resources), testing. **M. F. Hasan:** Testing, feedback. **M. Bromley:** Domain expertise (water resources), funding acquisition. **J. Atkin:** Testing, feedback. **J. Rapp:** USGS NAIP Plus ImageServer integration, example development. **E. R. Jensen:** Domain expertise (remote sensing), testing. **D. Ketchum:** Domain expertise (agricultural remote sensing), testing. **S. Roy:** GEE data integration, LULC dataset curation.
 
 # AI Usage Disclosure
 
