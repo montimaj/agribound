@@ -41,6 +41,7 @@ class TestUSGSNAIPPlusBuilder:
         selected_ids, ranked = builder._select_lock_raster_ids(
             candidates,
             aoi,
+            target_year=2023,
             max_ids=50,
         )
 

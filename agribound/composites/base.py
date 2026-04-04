@@ -70,7 +70,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "coverage": "Continental US, ~2-3 year cycle",
         "requires_gee": True,
     },
-        "usgs-naip-plus": {
+    "usgs-naip-plus": {
         "name": "USGS NAIP Plus ImageServer",
         "collection": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer",
         "resolution_m": None,
@@ -199,7 +199,6 @@ class CompositeBuilder(ABC):
         return SOURCE_REGISTRY.get(source, {}).get("resolution_m")
 
 
-
 def get_composite_builder(source: str) -> CompositeBuilder:
     """Factory function to get the appropriate composite builder.
 
@@ -219,9 +218,7 @@ def get_composite_builder(source: str) -> CompositeBuilder:
         If the source is not recognized.
     """
     if source not in SOURCE_REGISTRY:
-        raise ValueError(
-            f"Unknown source {source!r}. Available: {list(SOURCE_REGISTRY.keys())}"
-        )
+        raise ValueError(f"Unknown source {source!r}. Available: {list(SOURCE_REGISTRY.keys())}")
 
     if source == "local":
         from agribound.composites.local import LocalCompositeBuilder

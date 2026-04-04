@@ -31,7 +31,7 @@ VALID_SOURCES = (
     "local",
     "google-embedding",
     "tessera-embedding",
-    "usgs-naip-plus"
+    "usgs-naip-plus",
 )
 
 VALID_ENGINES = (
@@ -138,8 +138,10 @@ class AgriboundConfig:
     export_method: str = "local"
     gcs_bucket: str | None = None
 
-    #USGS 
-    usgs_service_url: str = "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer"
+    # USGS
+    usgs_service_url: str = (
+        "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer"
+    )
     usgs_state: str | None = None
     usgs_allow_year_fallback: bool = False
     usgs_timeout_s: int = 120

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import asdict
 from hashlib import sha1
 from pathlib import Path
 from typing import Any
@@ -13,11 +12,8 @@ from typing import Any
 import geopandas as gpd
 import numpy as np
 import rasterio
-from pyproj import Transformer
 from rasterio.merge import merge
-from shapely.geometry import box, mapping
 from shapely.geometry.base import BaseGeometry
-from shapely.ops import transform as shapely_transform
 
 from agribound.clients.usgs_naip_plus import (
     DEFAULT_USGS_NAIPPLUS_URL,
@@ -90,6 +86,7 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
         selected_ids, ranked_candidates = self._select_lock_raster_ids(
             candidates,
             aoi_3857,
+            target_year=int(config.year),
             max_ids=int(service_metadata.get("maxMosaicImageCount", 50)),
         )
         if not selected_ids:
@@ -203,11 +200,12 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
         candidates: list[USGSRasterCandidate],
         aoi_3857: BaseGeometry,
         *,
+        target_year: int,
         max_ids: int,
     ) -> tuple[list[int], list[USGSRasterCandidate]]:
         ranked = sorted(
             candidates,
-            key=lambda candidate: self._candidate_sort_key(candidate, aoi_3857),
+            key=lambda candidate: self._candidate_sort_key(candidate, aoi_3857, target_year),
         )
 
         selected: list[USGSRasterCandidate] = []
@@ -247,26 +245,21 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
         self,
         candidate: USGSRasterCandidate,
         aoi_3857: BaseGeometry,
+        target_year: int,
     ) -> tuple[Any, ...]:
         intersection_area = 0.0
         if candidate.geometry is not None and not candidate.geometry.is_empty:
             intersection_area = candidate.geometry.intersection(aoi_3857).area
 
-        exact_year_rank = 0 if candidate.year is not None else 2
-        if candidate.year is not None:
-            exact_year_rank = abs(candidate.year - getattr(aoi_3857, "year", candidate.year))  # harmless fallback
-
-        # Recompute exact year against config-like intent in a stable way later by using
-        # the actual candidate year first, then area.
-        year_distance = 9999 if candidate.year is None else abs(candidate.year)
+        year_distance = abs(candidate.year - target_year) if candidate.year is not None else 9999
 
         return (
             0 if candidate.category == 1 else 1,
+            year_distance,
             0 if candidate.band_count and candidate.band_count >= 4 else 1,
             -intersection_area,
-            candidate.acquisition_date or "",
             candidate.resolution_value if candidate.resolution_value is not None else float("inf"),
-            year_distance,
+            candidate.acquisition_date or "",
             candidate.object_id,
         )
 

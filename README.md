@@ -298,6 +298,7 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 | [13_sam2_refine_dinov3.py](examples/13_sam2_refine_dinov3.py) | [notebook](examples/notebooks/13_sam2_refine_dinov3.ipynb) | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries |
 | [14_dinov3_sam2_ensemble.py](examples/14_dinov3_sam2_ensemble.py) | [notebook](examples/notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source comparison across 5 sensors (Eastern Lea County, New Mexico, USA) |
 | [15_pampas_semi_supervised.py](examples/15_pampas_semi_supervised.py) | [notebook](examples/notebooks/15_pampas_semi_supervised.ipynb) | Automated pipeline: Google + TESSERA embeddings → LULC filter → SAM2 on S2. 6-way comparison, no training needed |
+| [16_usa_usgs_naip_plus.py](examples/16_usa_usgs_naip_plus.py) | [notebook](examples/notebooks/16_usa_usgs_naip_plus.ipynb) | High-resolution field extraction using the non-GEE `usgs-naip-plus` source with direct ImageServer acquisition. |
 
 ## Google Earth Engine Authentication
 
