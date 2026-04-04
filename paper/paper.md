@@ -35,13 +35,13 @@ authors:
     affiliation: 1
   - name: Jeremy Rapp
     orcid: 0000-0002-0460-2725
-    affiliation: 4
+    affiliation: 3
   - name: Eric R. Jensen
     orcid: 0000-0003-4208-5041
     affiliation: 1
   - name: David Ketchum
     orcid: 0000-0003-0871-9055
-    affiliation: 3
+    affiliation: 4
   - name: Samapriya Roy
     affiliation: 1
 affiliations:
@@ -49,9 +49,9 @@ affiliations:
     index: 1
   - name: Department of Civil and Environmental Engineering, Colorado State University, Fort Collins, CO, USA
     index: 2
-  - name: Montana Climate Office, W.A. Franke College of Forestry and Conservation, University of Montana, Missoula, MT, USA
-    index: 3
   - name: Department Of Earth and Environmental Sciences, Michigan State University, East Lansing, MI, USA
+    index: 3
+  - name: Montana Climate Office, W.A. Franke College of Forestry and Conservation, University of Montana, Missoula, MT, USA
     index: 4
 date: 28 March 2026
 bibliography: paper.bib
