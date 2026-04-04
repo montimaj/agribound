@@ -92,7 +92,7 @@ Interactive Jupyter notebook versions of each example are in the [`notebooks/`](
 | 13 | [`13_sam2_refine_dinov3.ipynb`](notebooks/13_sam2_refine_dinov3.ipynb) | SAM2 boundary refinement on DINOv3 output | Same scope as script |
 | 14 | [`14_dinov3_sam2_ensemble.ipynb`](notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source comparison (Eastern Lea County) | Runs single year (2022) instead of 2020--2022 |
 | 15 | [`15_pampas_semi_supervised.ipynb`](notebooks/15_pampas_semi_supervised.ipynb) | Embedding + SAM2 (Pampas, no training required) | Same scope as script |
-| 16 | `16_usa_usgs_naip_plus.py` | USA Central Valley USGS NAIP Plus -- same NAIP data as GEE, from [USGS ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) (no GEE, contributed by Jeremy Rapp) | Script only (no notebook) |
+| 16 | [`16_usa_usgs_naip_plus.ipynb`](notebooks/16_usa_usgs_naip_plus.ipynb) | USA Central Valley USGS NAIP Plus -- same NAIP data as GEE, from [USGS ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) (no GEE, contributed by Jeremy Rapp) | Same scope as script |
 
 ## Runtime Notes
 
