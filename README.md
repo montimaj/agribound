@@ -16,7 +16,7 @@
 
 ## Overview
 
-Agribound is a Python package that provides a unified framework for agricultural field boundary delineation by combining seven complementary approaches: object detection, semantic segmentation, vision transformer segmentation, foundation model inference, embedding-based unsupervised clustering, supervised fine-tuning, and multi-engine ensembling. It handles the full pipeline from satellite composite generation through Google Earth Engine (or local GeoTIFFs) to vectorized, post-processed field boundary polygons, supporting Landsat, Sentinel-2, HLS, NAIP, SPOT, and pre-computed embedding datasets (Google Satellite Embeddings, TESSERA) out of the box.
+Agribound is a Python package that provides a unified framework for agricultural field boundary delineation by combining seven complementary approaches: object detection, semantic segmentation, vision transformer segmentation, foundation model inference, embedding-based unsupervised clustering, supervised fine-tuning, and multi-engine ensembling. It handles the full pipeline from satellite composite generation through Google Earth Engine (or local GeoTIFFs) to vectorized, post-processed field boundary polygons, supporting Landsat, Sentinel-2, HLS, NAIP, USGS NAIP Plus (no GEE required), SPOT, and pre-computed embedding datasets (Google Satellite Embeddings, TESSERA) out of the box.
 
 Unlike other field boundary tools that detect *all* visual boundaries (roads, water, forests, buildings), agribound **automatically removes non-agricultural polygons** using LULC data: NLCD for CONUS (1985–2024), Dynamic World globally (2015–present), or C3S Land Cover for pre-2015 coverage, with all zonal statistics computed server-side on GEE. It also supports a fully automated pipeline that combines embedding clusters, Dynamic World crop filtering, and SAM2 boundary refinement on Sentinel-2 to delineate fields anywhere in the world without human-labeled reference data or model training.
 
@@ -40,7 +40,7 @@ Fully automated pipeline with no reference boundaries or training. TESSERA (128-
 
 ## Features
 
-- **Multi-satellite support** – Landsat (30 m, 1984–present), Sentinel-2 (10 m), Harmonized Landsat Sentinel (HLS, 30 m), NAIP (1 m), and SPOT 6/7 (6 m)
+- **Multi-satellite support** – Landsat (30 m, 1984–present), Sentinel-2 (10 m), Harmonized Landsat Sentinel (HLS, 30 m), NAIP (1 m), USGS NAIP Plus (1 m, no GEE required), and SPOT 6/7 (6 m)
 - **All spectral bands downloaded** – Full multi-band composites are downloaded for each sensor (e.g., all 12 Sentinel-2 spectral bands, all 6 Landsat SR bands). Engines automatically extract and reorder the bands they need via canonical band mappings (e.g., FTW expects R, G, B, NIR as bands 1–4 matching its `B04, B03, B02, B08` training order, so agribound extracts those from the full composite before passing to FTW)
 - **Seven delineation engines** – Delineate-Anything, Fields of The World (FTW), GeoAI Field Boundary, DINOv3, Prithvi-EO-2.0, embedding-based unsupervised delineation, and a multi-model ensemble mode
 - **SAM2 boundary refinement** – Optional post-processing step that feeds field bounding boxes as prompts to SAM2, producing pixel-accurate masks that replace the original polygons. Best applied to the final ensemble output for efficiency. Can also be used per-engine via `engine_params={"sam_refine": True}`
@@ -66,6 +66,7 @@ All spectral bands are downloaded for each sensor. Engines automatically select 
 | Landsat | `landsat` | 30 m | SR_B2–SR_B7 (6 bands) | `LANDSAT/LC08/C02/T1_L2`, `LANDSAT/LC09/C02/T1_L2` | Long time-series; L5/7 bands harmonized to L8/9 naming |
 | HLS | `hls` | 30 m | B1–B7 (7 bands) | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
 | NAIP | `naip` | 1 m | R, G, B, N (4 bands) | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields. **Very slow over large areas** (100–900x more pixels than S2) |
+| USGS NAIP Plus | `usgs-naip-plus` | 1 m | R, G, B, N (4 bands) | [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) | Same NAIP data as GEE but acquired directly from USGS ImageServer. **No GEE required** |
 | SPOT 6/7 | `spot` | 6 m | R, G, B (3 bands) | Restricted – see [SPOT Access](#spot-access) | Restricted GEE collection. **Very slow over large areas**; see note below |
 | SPOT 6/7 Panchromatic | `spot-pan` | 1.5 m | P (1 band, triplicated as pseudo-RGB) | Restricted – see [SPOT Access](#spot-access) | Panchromatic band at 1.5 m; triplicated to 3-band pseudo-RGB for engines that expect RGB input. Restricted access |
 | Local GeoTIFF | `local` | Any | All bands | N/A | Bring your own imagery via `--local-tif` |
@@ -306,7 +307,7 @@ Example scripts and interactive Jupyter notebooks are provided in the [`examples
 
 ## Google Earth Engine Authentication
 
-This section is only required when using GEE-based satellite sources (Landsat, Sentinel-2, HLS, NAIP, SPOT) or embedding datasets. **If you are working with local GeoTIFFs (`source="local"`), GEE authentication is not needed** and you can skip this section entirely.
+This section is only required when using GEE-based satellite sources (Landsat, Sentinel-2, HLS, NAIP, SPOT) or embedding datasets. **If you are working with local GeoTIFFs (`source="local"`) or USGS NAIP Plus (`source="usgs-naip-plus"`), GEE authentication is not needed** and you can skip this section entirely.
 
 **Setup steps:**
 

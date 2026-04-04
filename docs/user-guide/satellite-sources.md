@@ -1,6 +1,6 @@
 # Satellite Sources
 
-Agribound supports multiple satellite imagery sources for building annual composites. Each source is accessed through Google Earth Engine or loaded from local files.
+Agribound supports multiple satellite imagery sources for building annual composites. Each source is accessed through Google Earth Engine, the USGS ImageServer, or loaded from local files.
 
 ## Source Overview
 
@@ -12,6 +12,7 @@ All spectral bands are downloaded for each sensor. Engines automatically extract
 | Landsat | `landsat` | 30 m | SR_B2--SR_B7 (6 bands) | `LANDSAT/LC08/C02/T1_L2`, `LANDSAT/LC09/C02/T1_L2` | Long time-series; L5/7 bands harmonized to L8/9 naming |
 | HLS | `hls` | 30 m | B1--B7 (7 bands) | `NASA/HLS/HLSL30/v002`, `NASA/HLS/HLSS30/v002` | Harmonized Landsat+Sentinel-2 |
 | NAIP | `naip` | 1 m | R, G, B, N (4 bands) | `USDA/NAIP/DOQQ` | 4-band (RGBN); best for small fields. **Very slow over large areas** |
+| USGS NAIP Plus | `usgs-naip-plus` | 1 m | R, G, B, N (4 bands) | [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) | Same NAIP data as GEE but acquired directly from USGS ImageServer. **No GEE required** |
 | SPOT 6/7 | `spot` | 6 m | R, G, B (3 bands) | Restricted -- see below | Restricted GEE collection. **Very slow over large areas** |
 | SPOT 6/7 Panchromatic | `spot-pan` | 1.5 m | P (1 band → pseudo-RGB) | Restricted -- see below | Panchromatic band triplicated as pseudo-RGB. Restricted access |
 | Local GeoTIFF | `local` | Any | All bands | N/A | Bring your own imagery via `--local-tif` |

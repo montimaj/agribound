@@ -3,7 +3,7 @@ Agribound: Unified Agricultural Field Boundary Delineation Toolkit.
 
 A Python package that combines satellite foundation models, embeddings, and
 global training data for accurate agricultural field boundary mapping. Supports
-multiple satellite sources (Landsat, Sentinel-2, HLS, NAIP, SPOT) and
+multiple satellite sources (Landsat, Sentinel-2, HLS, NAIP, USGS NAIP Plus, SPOT) and
 delineation engines (Delineate-Anything, FTW, GeoAI, Prithvi, embeddings).
 
 Basic Usage

@@ -1,6 +1,6 @@
 # GEE Setup
 
-Google Earth Engine (GEE) is required for satellite sources that download imagery from GEE (Landsat, Sentinel-2, HLS, NAIP, SPOT) and for embedding datasets (Google Satellite Embedding, TESSERA). **If you are working with local GeoTIFFs (`source="local"`), GEE authentication is not needed** and you can skip this page entirely. This guide covers project creation and authentication for GEE-based workflows.
+Google Earth Engine (GEE) is required for satellite sources that download imagery from GEE (Landsat, Sentinel-2, HLS, NAIP, SPOT) and for embedding datasets (Google Satellite Embedding, TESSERA). **If you are working with local GeoTIFFs (`source="local"`) or USGS NAIP Plus (`source="usgs-naip-plus"`), GEE authentication is not needed** and you can skip this page entirely. This guide covers project creation and authentication for GEE-based workflows.
 
 ## Prerequisites
 
