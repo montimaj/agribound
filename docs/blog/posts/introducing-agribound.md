@@ -1,15 +1,18 @@
 ---
-date: 2026-04-02
+date: 2026-04-04
 authors:
   - montimaj
 categories:
   - Release
   - Announcements
+  - Community
 tags:
   - field-boundaries
   - satellite-imagery
   - geospatial-ai
   - google-earth-engine
+  - usgs-naip-plus
+  - community-contribution
 ---
 
 # Introducing Agribound: Unified Field Boundary Delineation from Satellite Imagery
@@ -133,7 +136,7 @@ The [launch announcement on LinkedIn](https://www.linkedin.com/posts/sayantanmaj
 
 ## First Community Contribution
 
-We are thrilled to highlight agribound's **first community contribution** from **Jeremy Rapp** at the Department of Earth and Environmental Sciences, Michigan State University. Jeremy contributed [Example 16](https://github.com/montimaj/agribound/blob/main/examples/16_usa_usgs_naip_plus.py), which adds support for the **USGS NAIP Plus ImageServer** -- the same NAIP imagery available on GEE but acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) -- as a non-GEE high-resolution imagery source.
+We are thrilled to highlight agribound's **first community contribution** from **[Jeremy Rapp](https://espp.msu.edu/directory/rapp-jeremy.html)** at the Department of Earth and Environmental Sciences, Michigan State University. Jeremy contributed [Example 16](https://github.com/montimaj/agribound/blob/main/examples/16_usa_usgs_naip_plus.py), which adds support for the **USGS NAIP Plus ImageServer** -- the same NAIP imagery available on GEE but acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) -- as a non-GEE high-resolution imagery source.
 
 This example demonstrates agribound's local-raster acquisition path: the AOI is queried directly from the USGS ImageServer, exported to a local GeoTIFF, and then passed into the Delineate-Anything engine pipeline -- all **without requiring Google Earth Engine authentication**. This is a significant addition for users who want to work with 1 m NAIP imagery but do not have GEE access or prefer a purely local workflow.
 
