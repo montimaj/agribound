@@ -10,7 +10,7 @@ readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 authors = [
-    {name = "Sayantan Majumdar", email = "sayantan.majumdar@dri.edu"},
+    {name = "Sayantan Majumdar"},
     {name = "Justin L. Huntington"},
     {name = "Peter ReVelle"},
     {name = "Soheil Nozari"},
