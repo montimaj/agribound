@@ -1,0 +1,14 @@
+name: agribound
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - gdal
+  - rasterio
+  - geopandas
+  - fiona
+  - shapely
+  - pyproj
+  - pip
+  - pip:
+      - agribound[all]
