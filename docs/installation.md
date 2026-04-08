@@ -15,6 +15,13 @@ conda activate agribound
 pip install agribound
 ```
 
+Alternatively, you can use the provided `environment.yml` for a one-step setup:
+
+```bash
+conda env create -f environment.yml
+conda activate agribound
+```
+
 !!! warning "GDAL Python bindings"
     Installing `libgdal` or `libgdal-core` alone is **not** sufficient. You need the full `gdal` conda package to get the `osgeo` Python module. Without it, GEE composite downloads will fail with `No module named 'osgeo'`.
 
@@ -136,4 +143,67 @@ pip install -e ../ftw-baselines
 agribound --version
 agribound list-engines
 agribound list-sources
+```
+
+## Troubleshooting
+
+### Dependency Conflicts
+
+If you see errors like `pip's dependency resolver does not currently take into account all
+the packages that are installed`, this typically means packages in your environment have
+conflicting version requirements. Common culprits include `fsspec`, `lightning`, and
+`pytorch-lightning`.
+
+**Solution: use a fresh conda environment.** Installing into a clean environment avoids
+inheriting conflicting packages from a base or shared environment:
+
+```bash
+conda create -n agribound python=3.12 gdal rasterio geopandas fiona shapely pyproj -c conda-forge
+conda activate agribound
+pip install agribound[all]
+```
+
+!!! tip "Verify which pip is active"
+    After activating the conda environment, confirm that `pip` points to the
+    environment and not a system-level installation:
+
+    ```bash
+    which pip        # Linux/macOS
+    where pip        # Windows
+    pip --version
+    ```
+
+    The path should include the name of your conda environment (e.g.,
+    `.../envs/agribound/bin/pip`).
+
+### Conflicts with ftw-baselines (dev)
+
+The development version of `ftw-baselines` (`ftw-tools` v2.x beta) may have different
+dependency constraints (e.g., `lightning<2.6`) that conflict with other engines such as
+Prithvi (which requires `lightning>=2.6` via `terratorch`). If you need both:
+
+1. Install agribound first, then install ftw-baselines:
+
+    ```bash
+    pip install agribound[all]
+    git clone https://github.com/fieldsoftheworld/ftw-baselines.git
+    pip install -e ftw-baselines
+    ```
+
+2. If conflicts persist, consider installing only the extras you need rather than `[all]`:
+
+    ```bash
+    pip install agribound[ftw,delineate-anything,gee]
+    ```
+
+### Installing from Source as a Last Resort
+
+If dependency issues persist, build and install directly from the repository:
+
+```bash
+conda create -n agribound-dev python=3.12 gdal rasterio geopandas fiona shapely pyproj -c conda-forge
+conda activate agribound-dev
+git clone https://github.com/montimaj/agribound.git
+cd agribound
+pip install -e ".[all,dev]"
 ```

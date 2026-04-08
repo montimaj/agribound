@@ -79,7 +79,7 @@ ftw = [
     "torchvision>=0.16",
     "torchgeo>=0.6",
     "segmentation-models-pytorch>=0.3",
-    "lightning>=2.1",
+    "lightning>=2.6",
     # PyPI ftw-tools (v1.x) provides semantic segmentation only.
     # For instance segmentation (Delineate-Anything via FTW), install the
     # dev version: pip install -e path/to/ftw-baselines
