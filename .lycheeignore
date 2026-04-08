@@ -16,3 +16,6 @@ https://geotessera.org/
 
 # Own GitHub Pages (may not be deployed yet during CI)
 https://montimaj.github.io/agribound/
+
+# Own repo files added in PRs (won't be on main until merged)
+https://github.com/montimaj/agribound/blob/main/environment.yml
