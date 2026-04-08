@@ -15,7 +15,7 @@ conda activate agribound
 pip install agribound
 ```
 
-Alternatively, you can use the provided `environment.yml` for a one-step setup:
+Alternatively, you can use the provided [`environment.yml`](https://github.com/montimaj/agribound/blob/main/environment.yml) for a one-step setup. Download it from the repository (or clone the repo) and run:
 
 ```bash
 conda env create -f environment.yml
@@ -149,8 +149,7 @@ agribound list-sources
 
 ### Dependency Conflicts
 
-If you see errors like `pip's dependency resolver does not currently take into account all
-the packages that are installed`, this typically means packages in your environment have
+If you see errors like `pip's dependency resolver does not currently take into account all the packages that are installed`, this typically means packages in your environment have
 conflicting version requirements. Common culprits include `fsspec`, `lightning`, and
 `pytorch-lightning`.
 
@@ -160,7 +159,7 @@ inheriting conflicting packages from a base or shared environment:
 ```bash
 conda create -n agribound python=3.12 gdal rasterio geopandas fiona shapely pyproj -c conda-forge
 conda activate agribound
-pip install agribound[all]
+pip install "agribound[all]"
 ```
 
 !!! tip "Verify which pip is active"
@@ -185,7 +184,7 @@ Prithvi (which requires `lightning>=2.6` via `terratorch`). If you need both:
 1. Install agribound first, then install ftw-baselines:
 
     ```bash
-    pip install agribound[all]
+    pip install "agribound[all]"
     git clone https://github.com/fieldsoftheworld/ftw-baselines.git
     pip install -e ftw-baselines
     ```
@@ -193,7 +192,7 @@ Prithvi (which requires `lightning>=2.6` via `terratorch`). If you need both:
 2. If conflicts persist, consider installing only the extras you need rather than `[all]`:
 
     ```bash
-    pip install agribound[ftw,delineate-anything,gee]
+    pip install "agribound[ftw,delineate-anything,gee]"
     ```
 
 ### Installing from Source as a Last Resort
