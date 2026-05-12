@@ -1,4 +1,3 @@
-
 """
 PyArrow access backend for published Fields of The World polygon GeoParquet.
 
@@ -147,6 +146,7 @@ def _s3_filesystem_and_path(source: str):
         filesystem = pafs.S3FileSystem(region="us-west-2")
     return filesystem, path
 
+
 def _s3_parquet_paths(filesystem: Any, path: str) -> list[str]:
     pafs = _pa_fs()
     parquet_suffixes = (".parquet", ".geoparquet")
@@ -169,13 +169,10 @@ def _s3_parquet_paths(filesystem: Any, path: str) -> list[str]:
     paths = sorted(
         info.path
         for info in infos
-        if info.type == pafs.FileType.File
-        and info.path.lower().endswith(parquet_suffixes)
+        if info.type == pafs.FileType.File and info.path.lower().endswith(parquet_suffixes)
     )
     if not paths:
-        raise FileNotFoundError(
-            f"No GeoParquet files found under FTW S3 prefix: s3://{prefix}"
-        )
+        raise FileNotFoundError(f"No GeoParquet files found under FTW S3 prefix: s3://{prefix}")
     return paths
 
 
@@ -240,6 +237,7 @@ def _year_filter_expression(dataset: Any, schema_names: set[str], year: int | st
         return _time_column_filter(dataset, int(year))
     return None
 
+
 def _year_column_filter(dataset: Any, year: int):
     import pyarrow as pa
 
@@ -250,6 +248,7 @@ def _year_column_filter(dataset: Any, year: int):
     if pa.types.is_string(field_type) or pa.types.is_large_string(field_type):
         return ds.field("year") == str(year)
     return None
+
 
 def _time_column_filter(dataset: Any, year: int):
     import pyarrow as pa
@@ -270,6 +269,7 @@ def _time_column_filter(dataset: Any, year: int):
         return field.isin(values)
     return None
 
+
 def _select_columns(
     schema_names: set[str],
     requested: list[str] | tuple[str, ...] | None,
@@ -285,9 +285,7 @@ def _select_columns(
 def _table_to_geodataframe(table: Any) -> gpd.GeoDataFrame:
     if table.num_rows == 0:
         data = {
-            name: pd.Series(dtype="object")
-            for name in table.schema.names
-            if name != "geometry"
+            name: pd.Series(dtype="object") for name in table.schema.names if name != "geometry"
         }
         return gpd.GeoDataFrame(
             data,
@@ -352,8 +350,8 @@ def _series_matches_year(series: pd.Series, year: int) -> pd.Series:
         return series.dt.year.eq(year)
 
     text = series.astype("string")
-    exact_or_prefix = text.eq(str(year)) | text.str.startswith(f"{year}-") | text.str.startswith(
-        f"{year}/"
+    exact_or_prefix = (
+        text.eq(str(year)) | text.str.startswith(f"{year}-") | text.str.startswith(f"{year}/")
     )
     parsed = pd.to_datetime(text, errors="coerce", utc=True)
     parsed_year = pd.Series(False, index=series.index)

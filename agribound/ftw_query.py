@@ -310,7 +310,6 @@ def _union_geometry(gdf: gpd.GeoDataFrame) -> BaseGeometry | None:
     return valid.geometry.unary_union
 
 
-
 def _resolve_source_backend(
     source_backend: str,
     source_url: str | None,
@@ -321,8 +320,7 @@ def _resolve_source_backend(
     valid = {"auto", "pyarrow", "manifest"}
     if backend not in valid:
         raise ValueError(
-            f"Unsupported FTW source_backend {source_backend!r}; "
-            f"expected one of {valid}."
+            f"Unsupported FTW source_backend {source_backend!r}; expected one of {valid}."
         )
 
     if backend != "auto":
@@ -430,8 +428,7 @@ def _manifest_to_gdf(
 
     if path_col is None:
         raise ValueError(
-            "FTW manifest must contain one tile path column: "
-            f"{', '.join(_TILE_PATH_COLUMNS)}."
+            f"FTW manifest must contain one tile path column: {', '.join(_TILE_PATH_COLUMNS)}."
         )
     if path_col != "tile_path":
         df["tile_path"] = df[path_col]
@@ -670,8 +667,8 @@ def _series_matches_year(series: pd.Series, year: int) -> pd.Series:
         return series.dt.year.eq(year)
 
     text = series.astype("string")
-    exact_or_prefix = text.eq(str(year)) | text.str.startswith(f"{year}-") | text.str.startswith(
-        f"{year}/"
+    exact_or_prefix = (
+        text.eq(str(year)) | text.str.startswith(f"{year}-") | text.str.startswith(f"{year}/")
     )
     parsed = pd.to_datetime(text, errors="coerce", utc=True)
     parsed_year = pd.Series(False, index=series.index)
@@ -832,9 +829,7 @@ def _localize_url(value: str | Path, cache_dir: str | Path | None) -> str | Path
 
 def _download_url(url: str, cache_dir: str | Path | None) -> Path:
     cache_path = (
-        Path(cache_dir)
-        if cache_dir is not None
-        else Path(tempfile.gettempdir()) / "agribound_ftw"
+        Path(cache_dir) if cache_dir is not None else Path(tempfile.gettempdir()) / "agribound_ftw"
     )
     cache_path.mkdir(parents=True, exist_ok=True)
     parsed = urlparse(url)
