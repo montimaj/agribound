@@ -89,7 +89,7 @@ jobs:
         uses: lycheeverse/lychee-action@v2
         with:
           args: --no-progress --root-dir site/ --exclude-path site/404.html site/
-          lycheeVersion: latest
+          lycheeVersion: v0.15.1
           fail: true
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
