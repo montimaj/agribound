@@ -248,3 +248,204 @@ def test_query_ftw_cli_writes_output(synthetic_ftw_store, tmp_path):
     assert result.exit_code == 0, result.output
     assert output_path.exists()
     assert "published FTW polygons" in result.output
+
+
+@pytest.fixture
+def synthetic_ftw_pyarrow_dataset(tmp_path):
+    """Create tiny local GeoParquet files for the PyArrow backend."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from shapely import to_wkb
+
+    dataset_dir = tmp_path / "arrow_dataset"
+    dataset_dir.mkdir()
+
+    geometries = [
+        box(0.2, 0.2, 0.8, 0.8),
+        box(0.3, 0.3, 0.7, 0.7),
+        box(0.4, 0.4, 0.9, 0.9),
+        box(1.1, 0.1, 1.8, 0.8),
+    ]
+    bbox_type = pa.struct(
+        [
+            pa.field("xmin", pa.float64()),
+            pa.field("ymin", pa.float64()),
+            pa.field("xmax", pa.float64()),
+            pa.field("ymax", pa.float64()),
+        ]
+    )
+    table = pa.table(
+        {
+            "field_id": pa.array(["pa1", "pa2", "pa-old", "pb1"], type=pa.string()),
+            "geometry_hash": pa.array(
+                ["hash-pa1", "hash-pa2", "hash-pa-old", "hash-pb1"],
+                type=pa.string(),
+            ),
+            "label": pa.array(
+                ["field", "non_field_background", "field", "field"],
+                type=pa.string(),
+            ),
+            "time": pa.array(
+                ["2025-01-01", "2025-01-01", "2024-01-01", "2025-01-01"],
+                type=pa.string(),
+            ),
+            "bbox": pa.array(
+                [
+                    {"xmin": 0.2, "ymin": 0.2, "xmax": 0.8, "ymax": 0.8},
+                    {"xmin": 0.3, "ymin": 0.3, "xmax": 0.7, "ymax": 0.7},
+                    {"xmin": 0.4, "ymin": 0.4, "xmax": 0.9, "ymax": 0.9},
+                    {"xmin": 1.1, "ymin": 0.1, "xmax": 1.8, "ymax": 0.8},
+                ],
+                type=bbox_type,
+            ),
+            "geometry": pa.array([to_wkb(geom) for geom in geometries], type=pa.binary()),
+        }
+    )
+    pq.write_table(table.slice(0, 3), dataset_dir / "part_a.parquet")
+    pq.write_table(table.slice(3, 1), dataset_dir / "part_b.parquet")
+
+    flat_dir = tmp_path / "arrow_flat_dataset"
+    flat_dir.mkdir()
+    flat = pa.table(
+        {
+            "field_id": pa.array(["flat1"], type=pa.string()),
+            "label": pa.array(["field"], type=pa.string()),
+            "time": pa.array(["2025-01-01"], type=pa.string()),
+            "xmin": pa.array([2.2], type=pa.float64()),
+            "ymin": pa.array([0.2], type=pa.float64()),
+            "xmax": pa.array([2.8], type=pa.float64()),
+            "ymax": pa.array([0.8], type=pa.float64()),
+            "geometry": pa.array([to_wkb(box(2.2, 0.2, 2.8, 0.8))], type=pa.binary()),
+        }
+    )
+    pq.write_table(flat, flat_dir / "flat.parquet")
+
+    return {
+        "source_glob": str(dataset_dir / "*.parquet"),
+        "flat_glob": str(flat_dir / "*.parquet"),
+    }
+
+
+def test_pyarrow_backend_bbox_label_year_filter(synthetic_ftw_pyarrow_dataset):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 1.0, 1.0],
+        year=2025,
+        label="field",
+        clip=False,
+        source_backend="pyarrow",
+        source_url=synthetic_ftw_pyarrow_dataset["source_glob"],
+    )
+
+    assert set(out["field_id"]) == {"pa1"}
+
+
+def test_pyarrow_backend_auto_for_parquet_glob(synthetic_ftw_pyarrow_dataset):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 1.0, 1.0],
+        year=2025,
+        label="field",
+        clip=False,
+        source_url=synthetic_ftw_pyarrow_dataset["source_glob"],
+    )
+
+    assert set(out["field_id"]) == {"pa1"}
+
+
+def test_pyarrow_backend_clip_true(synthetic_ftw_pyarrow_dataset):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 0.5, 0.5],
+        year=2025,
+        label="field",
+        clip=True,
+        source_backend="pyarrow",
+        source_url=synthetic_ftw_pyarrow_dataset["source_glob"],
+    )
+
+    assert len(out) == 1
+    assert out.geometry.iloc[0].area == pytest.approx(0.09)
+
+
+def test_pyarrow_backend_clip_false(synthetic_ftw_pyarrow_dataset):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 0.5, 0.5],
+        year=2025,
+        label="field",
+        clip=False,
+        source_backend="pyarrow",
+        source_url=synthetic_ftw_pyarrow_dataset["source_glob"],
+    )
+
+    assert len(out) == 1
+    assert out.geometry.iloc[0].area == pytest.approx(0.36)
+
+
+def test_pyarrow_backend_empty_result(synthetic_ftw_pyarrow_dataset):
+    out = query_ftw(
+        study_area=[10.0, 10.0, 11.0, 11.0],
+        year=2025,
+        label="field",
+        source_backend="pyarrow",
+        source_url=synthetic_ftw_pyarrow_dataset["source_glob"],
+    )
+
+    assert out.empty
+    assert out.crs.to_epsg() == 4326
+
+
+def test_pyarrow_backend_output_path(synthetic_ftw_pyarrow_dataset, tmp_path):
+    output_path = tmp_path / "arrow_output.parquet"
+    out = query_ftw(
+        study_area=[0.0, 0.0, 1.0, 1.0],
+        year=2025,
+        label="field",
+        clip=True,
+        source_backend="pyarrow",
+        source_url=synthetic_ftw_pyarrow_dataset["source_glob"],
+        output_path=output_path,
+    )
+
+    assert output_path.exists()
+    loaded = gpd.read_parquet(output_path)
+    assert len(loaded) == len(out)
+
+
+def test_pyarrow_backend_flat_bbox_columns(synthetic_ftw_pyarrow_dataset):
+    out = query_ftw(
+        study_area=[2.0, 0.0, 3.0, 1.0],
+        year=2025,
+        label="field",
+        source_backend="pyarrow",
+        source_url=synthetic_ftw_pyarrow_dataset["flat_glob"],
+    )
+
+    assert set(out["field_id"]) == {"flat1"}
+
+
+def test_pyarrow_backend_max_features(synthetic_ftw_pyarrow_dataset):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 2.0, 1.0],
+        year=2025,
+        label="field",
+        source_backend="pyarrow",
+        source_url=synthetic_ftw_pyarrow_dataset["source_glob"],
+        max_features=1,
+    )
+
+    assert len(out) <= 1
+
+
+@pytest.mark.skipif(
+    __import__("os").environ.get("AGRIBOUND_RUN_LIVE_FTW_TESTS") != "1",
+    reason="Live public FTW test is skipped unless AGRIBOUND_RUN_LIVE_FTW_TESTS=1.",
+)
+def test_live_public_ftw_pyarrow_smoke(tmp_path):
+    out = query_ftw(
+        study_area=[-93.55, 41.90, -93.50, 41.95],
+        year=2025,
+        label="field",
+        clip=True,
+        output_path=tmp_path / "ftw_live_smoke.parquet",
+        max_features=1000,
+    )
+
+    assert out.crs.to_epsg() == 4326

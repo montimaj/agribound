@@ -24,6 +24,7 @@ from shapely import from_wkt, make_valid, normalize, to_wkb
 from shapely.geometry import box
 from shapely.geometry.base import BaseGeometry
 
+from agribound.ftw_arrow import DEFAULT_FTW_VECTOR_SOURCE, query_ftw_arrow
 from agribound.io.vector import read_vector, write_vector
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,8 @@ def query_ftw(
     manifest_path: str | Path | None = None,
     tile_dir: str | Path | None = None,
     cache_dir: str | Path | None = None,
+    source_backend: str = "auto",
+    max_features: int | None = None,
     columns: list[str] | tuple[str, ...] | None = None,
     deduplicate: bool = True,
     dst_crs: str | int | None = None,
@@ -117,6 +120,12 @@ def query_ftw(
         from tile-level GeoParquet metadata in this directory.
     cache_dir : str, Path, or None
         Directory for downloaded remote manifests or candidate tiles.
+    source_backend : str
+        Source backend: ``"auto"``, ``"pyarrow"``, or ``"manifest"``.
+        In auto mode, local manifests/tile directories use the manifest backend;
+        otherwise the public FTW GeoParquet source is queried with PyArrow.
+    max_features : int or None
+        Optional row limit for PyArrow-backed preview or smoke-test queries.
     columns : list[str], tuple[str, ...], or None
         Optional tile columns to read and return. Internal filter and
         deduplication columns are read when needed but dropped from the result
@@ -147,6 +156,28 @@ def query_ftw(
 
     if aoi_geom is None or aoi_geom.is_empty:
         result = _empty_ftw_gdf(requested_columns, crs="EPSG:4326")
+        return _finalize_result(result, requested_columns, output_path, output_format, dst_crs)
+
+    backend = _resolve_source_backend(
+        source_backend=source_backend,
+        source_url=source_url,
+        manifest_path=manifest_path,
+        tile_dir=tile_dir,
+    )
+    if backend == "pyarrow":
+        result = query_ftw_arrow(
+            study_area_bounds=tuple(aoi_4326.total_bounds),
+            source_url=source_url or DEFAULT_FTW_VECTOR_SOURCE,
+            year=year,
+            label=label,
+            columns=requested_columns,
+            max_features=max_features,
+        )
+        result = _ensure_crs(result, "EPSG:4326")
+        if deduplicate and not result.empty:
+            result = _deduplicate_ftw(result)
+        if clip and not result.empty:
+            result = _clip_to_aoi(result, aoi_4326)
         return _finalize_result(result, requested_columns, output_path, output_format, dst_crs)
 
     manifest, tile_base = _load_or_build_manifest(
@@ -277,6 +308,44 @@ def _union_geometry(gdf: gpd.GeoDataFrame) -> BaseGeometry | None:
     if hasattr(valid.geometry, "union_all"):
         return valid.geometry.union_all()
     return valid.geometry.unary_union
+
+
+
+def _resolve_source_backend(
+    source_backend: str,
+    source_url: str | None,
+    manifest_path: str | Path | None,
+    tile_dir: str | Path | None,
+) -> str:
+    backend = (source_backend or "auto").lower()
+    valid = {"auto", "pyarrow", "manifest"}
+    if backend not in valid:
+        raise ValueError(
+            f"Unsupported FTW source_backend {source_backend!r}; "
+            f"expected one of {valid}."
+        )
+
+    if backend != "auto":
+        return backend
+
+    if manifest_path is not None or tile_dir is not None:
+        return "manifest"
+
+    if source_url is None:
+        return "pyarrow"
+
+    return "pyarrow" if _looks_like_parquet_dataset(source_url) else "manifest"
+
+
+def _looks_like_parquet_dataset(source_url: str) -> bool:
+    value = str(source_url).lower()
+    return (
+        value.startswith("s3://")
+        or "*.parquet" in value
+        or value.endswith(".parquet")
+        or value.endswith(".geoparquet")
+        or "/results" in value.rstrip("/")
+    )
 
 
 def _load_or_build_manifest(

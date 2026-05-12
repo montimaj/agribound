@@ -1,9 +1,12 @@
 """Query published FTW polygons for small AOIs.
 
-This example is intentionally self-contained. It creates a tiny local
-FTW-like GeoParquet tile store and manifest, then runs ``agribound.query_ftw``
-against several AOIs. Replace ``manifest_path`` and ``tile_dir`` with a real
-local FTW tile inventory to query published FTW polygons.
+This example is intentionally self-contained by default. It creates a tiny
+local FTW-like GeoParquet tile store and manifest, then runs
+``agribound.query_ftw`` against several AOIs.
+
+When no ``manifest_path`` or ``tile_dir`` is supplied, ``query_ftw`` uses the
+public Source Cooperative FTW GeoParquet source through the PyArrow backend.
+A commented live example is included below.
 """
 
 from __future__ import annotations
@@ -90,6 +93,7 @@ def main() -> None:
             year=2025,
             label="field",
             clip=True,
+            source_backend="manifest",
             manifest_path=manifest_path,
             tile_dir=tile_dir,
             output_path=workspace / "ftw_demo_clipped.parquet",
@@ -102,6 +106,7 @@ def main() -> None:
             year=2025,
             label="field",
             clip=False,
+            source_backend="manifest",
             manifest_path=manifest_path,
             tile_dir=tile_dir,
         )
@@ -111,6 +116,7 @@ def main() -> None:
             study_area=[-95.0, 35.0, -94.0, 36.0],
             year=2025,
             label="field",
+            source_backend="manifest",
             manifest_path=manifest_path,
             tile_dir=tile_dir,
         )
@@ -125,6 +131,18 @@ def main() -> None:
             "empty_count": int(len(empty)),
         }
         print(json.dumps(summary, indent=2))
+
+    # Live public FTW example. Uncomment for a small online smoke test.
+    #
+    # live = ab.query_ftw(
+    #     study_area=[-93.55, 41.90, -93.50, 41.95],
+    #     year=2025,
+    #     label="field",
+    #     clip=True,
+    #     output_path="ftw_live_aoi.parquet",
+    #     max_features=1000,
+    # )
+    # print(live.head())
 
 
 if __name__ == "__main__":

@@ -131,6 +131,21 @@ def delineate(
 @click.option("--tile-dir", default=None, help="Local directory containing FTW GeoParquet tiles.")
 @click.option("--cache-dir", default=None, help="Directory for downloaded remote manifest/tiles.")
 @click.option(
+    "--source-backend",
+    default="auto",
+    type=click.Choice(["auto", "pyarrow", "manifest"]),
+    help=(
+        "FTW source backend. Auto uses public PyArrow source unless "
+        "manifest/tile inputs are given."
+    ),
+)
+@click.option(
+    "--max-features",
+    default=None,
+    type=int,
+    help="Optional row limit for PyArrow-backed preview/smoke-test queries.",
+)
+@click.option(
     "--columns",
     multiple=True,
     help="Tile columns to read and return. May be passed multiple times or comma-separated.",
@@ -148,6 +163,8 @@ def query_ftw_cmd(
     manifest_path,
     tile_dir,
     cache_dir,
+    source_backend,
+    max_features,
     columns,
     deduplicate,
     dst_crs,
@@ -167,6 +184,8 @@ def query_ftw_cmd(
         manifest_path=manifest_path,
         tile_dir=tile_dir,
         cache_dir=cache_dir,
+        source_backend=source_backend,
+        max_features=max_features,
         columns=parsed_columns,
         deduplicate=deduplicate,
         dst_crs=dst_crs,

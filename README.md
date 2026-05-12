@@ -177,12 +177,8 @@ prediction polygons for a user-provided AOI. This is a data-access helper: it
 retrieves existing FTW predictions, does not run FTW inference, does not host
 FTW, and should not be treated as ground truth.
 
-The helper expects a local tile manifest, a local tile directory, or a
-configurable manifest/source URL. Manifest path columns such as `tile_path`,
-`out_path`, or `url` are supported. It reads only candidate GeoParquet tiles
-intersecting the AOI bbox, filters rows by label/year when those columns exist,
-optionally clips polygons to the AOI, and can write GeoParquet, GeoJSON, or
-GeoPackage outputs.
+By default, `query_ftw` queries the public Source Cooperative FTW GeoParquet
+source with PyArrow. Keep AOIs small unless you expect a large polygon result.
 
 ```python
 import agribound as ab
@@ -192,8 +188,6 @@ ftw = ab.query_ftw(
     year=2025,
     label="field",
     clip=True,
-    manifest_path="path/to/ftw_tile_manifest.parquet",
-    tile_dir="path/to/ftw_tiles",
     output_path="ftw_small_aoi.parquet",
 )
 ```
@@ -204,10 +198,21 @@ agribound query-ftw \
     --year 2025 \
     --label field \
     --clip \
-    --manifest-path path/to/ftw_tile_manifest.parquet \
-    --tile-dir path/to/ftw_tiles \
     --output ftw_small_aoi.parquet
 ```
+
+For offline or prefiltered workflows, use local manifest/tile mode:
+
+```python
+ftw = ab.query_ftw(
+    study_area="examples/data/small_aoi.geojson",
+    year=2025,
+    source_backend="manifest",
+    manifest_path="path/to/ftw_tile_manifest.parquet",
+    tile_dir="path/to/ftw_tiles",
+)
+```
+
 
 ## Configuration
 
