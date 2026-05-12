@@ -652,7 +652,7 @@ def _clip_to_aoi(gdf: gpd.GeoDataFrame, aoi_4326: gpd.GeoDataFrame) -> gpd.GeoDa
     if out.empty:
         return out
     polygon_mask = out.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
-    area_mask = out.geometry.area.gt(0)
+    area_mask = out.geometry.map(lambda geom: geom.area > 0)
     return out.loc[polygon_mask & area_mask].copy()
 
 
