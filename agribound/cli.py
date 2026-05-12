@@ -135,8 +135,7 @@ def delineate(
     default="auto",
     type=click.Choice(["auto", "pyarrow", "manifest"]),
     help=(
-        "FTW source backend. Auto uses public PyArrow source unless "
-        "manifest/tile inputs are given."
+        "FTW source backend. Auto uses public PyArrow source unless manifest/tile inputs are given."
     ),
 )
 @click.option(
