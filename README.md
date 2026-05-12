@@ -170,6 +170,45 @@ agribound delineate \
     --output fields.gpkg
 ```
 
+## Query published FTW polygons for an AOI
+
+Agribound can also query already-published Fields of The World (FTW) global
+prediction polygons for a user-provided AOI. This is a data-access helper: it
+retrieves existing FTW predictions, does not run FTW inference, does not host
+FTW, and should not be treated as ground truth.
+
+The helper expects a local tile manifest, a local tile directory, or a
+configurable manifest/source URL. Manifest path columns such as `tile_path`,
+`out_path`, or `url` are supported. It reads only candidate GeoParquet tiles
+intersecting the AOI bbox, filters rows by label/year when those columns exist,
+optionally clips polygons to the AOI, and can write GeoParquet, GeoJSON, or
+GeoPackage outputs.
+
+```python
+import agribound as ab
+
+ftw = ab.query_ftw(
+    study_area="examples/data/small_aoi.geojson",
+    year=2025,
+    label="field",
+    clip=True,
+    manifest_path="path/to/ftw_tile_manifest.parquet",
+    tile_dir="path/to/ftw_tiles",
+    output_path="ftw_small_aoi.parquet",
+)
+```
+
+```bash
+agribound query-ftw \
+    --study-area examples/data/small_aoi.geojson \
+    --year 2025 \
+    --label field \
+    --clip \
+    --manifest-path path/to/ftw_tile_manifest.parquet \
+    --tile-dir path/to/ftw_tiles \
+    --output ftw_small_aoi.parquet
+```
+
 ## Configuration
 
 Instead of passing all options on the command line, you can use a YAML configuration file:

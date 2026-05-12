@@ -1,0 +1,250 @@
+"""Tests for querying published FTW polygon tiles."""
+
+from __future__ import annotations
+
+import json
+
+import geopandas as gpd
+import pytest
+from click.testing import CliRunner
+from shapely.geometry import box
+
+pytest.importorskip("pyarrow")
+
+from agribound.cli import main
+from agribound.ftw_query import query_ftw
+
+
+@pytest.fixture
+def synthetic_ftw_store(tmp_path):
+    """Create a tiny local FTW-like GeoParquet tile store and manifest."""
+    tile_dir = tmp_path / "tiles"
+    tile_dir.mkdir()
+
+    tile_a = gpd.GeoDataFrame(
+        {
+            "field_id": ["a1", "a2", "a3"],
+            "geometry_hash": ["hash-a1", "hash-a2", "hash-a3"],
+            "label": ["field", "non_field_background", "field"],
+            "time": ["2025-01-01", "2025-01-01", "2024-01-01"],
+        },
+        geometry=[
+            box(0.2, 0.2, 0.8, 0.8),
+            box(0.3, 0.3, 0.7, 0.7),
+            box(0.4, 0.4, 0.9, 0.9),
+        ],
+        crs="EPSG:4326",
+    )
+    tile_a_path = tile_dir / "tile_a.parquet"
+    tile_a.to_parquet(tile_a_path, index=False)
+
+    tile_b = gpd.GeoDataFrame(
+        {
+            "field_id": ["a1", "b1"],
+            "geometry_hash": ["hash-a1-duplicate", "hash-b1"],
+            "label": ["field", "field"],
+            "time": ["2025-01-01", "2025-01-01"],
+        },
+        geometry=[
+            box(0.2, 0.2, 0.8, 0.8),
+            box(1.1, 0.1, 1.8, 0.8),
+        ],
+        crs="EPSG:4326",
+    )
+    tile_b_path = tile_dir / "tile_b.parquet"
+    tile_b.to_parquet(tile_b_path, index=False)
+
+    # This deliberately is not a valid parquet file. A bbox query outside it
+    # should not attempt to read it.
+    bad_tile_path = tile_dir / "bad_far_tile.parquet"
+    bad_tile_path.write_text("not parquet")
+
+    manifest = gpd.GeoDataFrame(
+        {
+            "tile_id": ["tile_a", "tile_b", "bad_far_tile"],
+            # Match the local workflow notebooks, where the tile manifest stores
+            # output Parquet locations in an out_path column.
+            "out_path": [
+                tile_a_path.name,
+                tile_b_path.name,
+                bad_tile_path.name,
+            ],
+            "status": ["ok", "ok", "skipped_no_candidates"],
+        },
+        geometry=[
+            box(0.0, 0.0, 1.0, 1.0),
+            box(1.0, 0.0, 2.0, 1.0),
+            box(10.0, 10.0, 11.0, 11.0),
+        ],
+        crs="EPSG:4326",
+    )
+    manifest_path = tmp_path / "manifest.parquet"
+    manifest.to_parquet(manifest_path, index=False)
+
+    aoi_geojson = tmp_path / "aoi.geojson"
+    aoi = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[(0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (0.0, 0.0)]],
+                },
+            }
+        ],
+    }
+    aoi_geojson.write_text(json.dumps(aoi))
+
+    return {
+        "tile_dir": tile_dir,
+        "manifest_path": manifest_path,
+        "aoi_geojson": aoi_geojson,
+    }
+
+
+def test_aoi_bbox_selects_only_intersecting_tiles(synthetic_ftw_store):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 1.0, 1.0],
+        year=2025,
+        label="field",
+        clip=False,
+        manifest_path=synthetic_ftw_store["manifest_path"],
+        tile_dir=synthetic_ftw_store["tile_dir"],
+    )
+
+    assert not out.empty
+    assert "bad_far_tile" not in set(out.get("source_tile_id", []))
+    assert set(out["source_tile_id"]) == {"tile_a"}
+
+
+def test_label_filters_field_class(synthetic_ftw_store):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 1.0, 1.0],
+        label="field",
+        clip=False,
+        manifest_path=synthetic_ftw_store["manifest_path"],
+        tile_dir=synthetic_ftw_store["tile_dir"],
+    )
+
+    assert set(out["label"]) == {"field"}
+    assert "a2" not in set(out["field_id"])
+
+
+def test_year_filters_time_column(synthetic_ftw_store):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 1.0, 1.0],
+        year=2025,
+        label="field",
+        clip=False,
+        manifest_path=synthetic_ftw_store["manifest_path"],
+        tile_dir=synthetic_ftw_store["tile_dir"],
+    )
+
+    assert set(out["field_id"]) == {"a1"}
+    assert all(str(value).startswith("2025") for value in out["time"])
+
+
+def test_duplicate_field_ids_removed(synthetic_ftw_store):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 2.0, 1.0],
+        year=2025,
+        label="field",
+        clip=False,
+        manifest_path=synthetic_ftw_store["manifest_path"],
+        tile_dir=synthetic_ftw_store["tile_dir"],
+    )
+
+    assert out["field_id"].tolist().count("a1") == 1
+    assert set(out["field_id"]) == {"a1", "b1"}
+
+
+def test_clip_true_clips_geometry(synthetic_ftw_store):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 0.5, 0.5],
+        year=2025,
+        label="field",
+        clip=True,
+        manifest_path=synthetic_ftw_store["manifest_path"],
+        tile_dir=synthetic_ftw_store["tile_dir"],
+    )
+
+    assert len(out) == 1
+    assert out.geometry.iloc[0].area == pytest.approx(0.09)
+
+
+def test_clip_false_returns_full_intersecting_polygon(synthetic_ftw_store):
+    out = query_ftw(
+        study_area=[0.0, 0.0, 0.5, 0.5],
+        year=2025,
+        label="field",
+        clip=False,
+        manifest_path=synthetic_ftw_store["manifest_path"],
+        tile_dir=synthetic_ftw_store["tile_dir"],
+    )
+
+    assert len(out) == 1
+    assert out.geometry.iloc[0].area == pytest.approx(0.36)
+
+
+def test_output_path_writes_geoparquet(synthetic_ftw_store, tmp_path):
+    output_path = tmp_path / "ftw_aoi.parquet"
+    out = query_ftw(
+        study_area=[0.0, 0.0, 1.0, 1.0],
+        year=2025,
+        label="field",
+        clip=True,
+        output_path=output_path,
+        manifest_path=synthetic_ftw_store["manifest_path"],
+        tile_dir=synthetic_ftw_store["tile_dir"],
+    )
+
+    assert output_path.exists()
+    loaded = gpd.read_parquet(output_path)
+    assert len(loaded) == len(out)
+    assert loaded.crs is not None
+
+
+def test_empty_aoi_result_has_expected_schema(synthetic_ftw_store):
+    out = query_ftw(
+        study_area=[20.0, 20.0, 21.0, 21.0],
+        year=2025,
+        label="field",
+        manifest_path=synthetic_ftw_store["manifest_path"],
+        tile_dir=synthetic_ftw_store["tile_dir"],
+    )
+
+    assert out.empty
+    assert out.crs.to_epsg() == 4326
+    assert "geometry" in out.columns
+    assert {"field_id", "geometry_hash", "label", "time", "year", "source_tile_id"}.issubset(
+        out.columns
+    )
+
+
+def test_query_ftw_cli_writes_output(synthetic_ftw_store, tmp_path):
+    output_path = tmp_path / "ftw_cli.parquet"
+    result = CliRunner().invoke(
+        main,
+        [
+            "query-ftw",
+            "--study-area",
+            str(synthetic_ftw_store["aoi_geojson"]),
+            "--year",
+            "2025",
+            "--label",
+            "field",
+            "--clip",
+            "--manifest-path",
+            str(synthetic_ftw_store["manifest_path"]),
+            "--tile-dir",
+            str(synthetic_ftw_store["tile_dir"]),
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert output_path.exists()
+    assert "published FTW polygons" in result.output
