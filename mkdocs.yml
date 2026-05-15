@@ -74,6 +74,7 @@ nav:
       - Delineation Engines: user-guide/engines.md
       - Configuration Reference: user-guide/configuration.md
       - CLI Usage: user-guide/cli.md
+      - FTW Polygon Query: user-guide/ftw-query.md
       - GEE Setup: user-guide/gee-setup.md
       - Fine-Tuning: user-guide/fine-tuning.md
   - API Reference:

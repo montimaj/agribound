@@ -110,6 +110,92 @@ def delineate(
     click.echo(f"Delineated {len(gdf)} field boundaries → {config.output_path}")
 
 
+@main.command("query-ftw")
+@click.option("--study-area", required=True, help="Path to AOI vector file or WKT geometry.")
+@click.option("--year", default=None, type=int, help="Optional FTW prediction year filter.")
+@click.option("--label", default="field", help="Optional FTW label filter. Default: field.")
+@click.option("--clip/--no-clip", default=True, help="Clip polygons to the AOI.")
+@click.option("--output", "-o", default=None, help="Output vector path.")
+@click.option(
+    "--output-format",
+    default=None,
+    type=click.Choice(["gpkg", "geojson", "parquet"]),
+    help="Output format override. Inferred from --output by default.",
+)
+@click.option(
+    "--source-url",
+    default=None,
+    help="Manifest URL or base URL for relative tile paths.",
+)
+@click.option("--manifest-path", default=None, help="Local or HTTP(S) FTW tile manifest path.")
+@click.option("--tile-dir", default=None, help="Local directory containing FTW GeoParquet tiles.")
+@click.option("--cache-dir", default=None, help="Directory for downloaded remote manifest/tiles.")
+@click.option(
+    "--source-backend",
+    default="auto",
+    type=click.Choice(["auto", "pyarrow", "manifest"]),
+    help=(
+        "FTW source backend. Auto uses public PyArrow source unless manifest/tile inputs are given."
+    ),
+)
+@click.option(
+    "--max-features",
+    default=None,
+    type=int,
+    help="Optional row limit for PyArrow-backed preview/smoke-test queries.",
+)
+@click.option(
+    "--columns",
+    multiple=True,
+    help="Tile columns to read and return. May be passed multiple times or comma-separated.",
+)
+@click.option("--deduplicate/--no-deduplicate", default=True, help="Remove duplicate FTW polygons.")
+@click.option("--dst-crs", default=None, help="Optional output CRS, e.g. EPSG:5070.")
+def query_ftw_cmd(
+    study_area,
+    year,
+    label,
+    clip,
+    output,
+    output_format,
+    source_url,
+    manifest_path,
+    tile_dir,
+    cache_dir,
+    source_backend,
+    max_features,
+    columns,
+    deduplicate,
+    dst_crs,
+):
+    """Query already-published FTW prediction polygons for an AOI."""
+    from agribound.ftw_query import query_ftw
+
+    parsed_columns = list(columns) if columns else None
+    gdf = query_ftw(
+        study_area=study_area,
+        year=year,
+        label=label or None,
+        clip=clip,
+        output_path=output,
+        output_format=output_format,
+        source_url=source_url,
+        manifest_path=manifest_path,
+        tile_dir=tile_dir,
+        cache_dir=cache_dir,
+        source_backend=source_backend,
+        max_features=max_features,
+        columns=parsed_columns,
+        deduplicate=deduplicate,
+        dst_crs=dst_crs,
+    )
+
+    if output:
+        click.echo(f"Queried {len(gdf)} published FTW polygons → {output}")
+    else:
+        click.echo(f"Queried {len(gdf)} published FTW polygons")
+
+
 @main.command("list-engines")
 def list_engines_cmd():
     """List available delineation engines."""

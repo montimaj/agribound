@@ -52,6 +52,7 @@ dependencies = [
     "shapely>=2.0",
     "pyproj>=3.6",
     "fiona>=1.9",
+    "pyarrow>=14",
     "numpy>=1.24",
     "scipy>=1.11",
     "scikit-learn>=1.3",

@@ -24,6 +24,7 @@ from agribound.config import AgriboundConfig
 from agribound.engines import list_engines
 from agribound.engines.ftw import list_ftw_models
 from agribound.evaluate import evaluate
+from agribound.ftw_query import query_ftw
 from agribound.pipeline import delineate
 from agribound.visualize import show_boundaries
 
@@ -35,5 +36,6 @@ __all__ = [
     "list_engines",
     "list_ftw_models",
     "list_sources",
+    "query_ftw",
     "show_boundaries",
 ]
