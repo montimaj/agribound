@@ -2,6 +2,19 @@
 
 All notable changes to agribound will be documented in this file.
 
+## [0.1.3] - 2026-05-26
+
+### Added
+- Example 17: query helper for published FTW polygons -- access pre-computed Fields of The World field boundaries by AOI without running inference (contributed by Jeremy Rapp, Michigan State University)
+- `agribound.ftw_query` module with CLI subcommand for AOI-based queries against published FTW polygons
+- PyArrow backend (`agribound.ftw_arrow`) for efficient parquet-based polygon retrieval with area masking
+- Jupyter notebook walkthrough for Example 17 and accompanying user-guide page (`docs/user-guide/ftw-query.md`)
+- Unit tests for FTW query and PyArrow backend
+
+### Changed
+- Pinned `lycheeverse/lychee-action` to v0.18.1 in CI to stabilize link-check workflow
+- Applied Ruff formatting across `cli.py`, `ftw_arrow.py`, `ftw_query.py`, and the FTW query notebook
+
 ## [0.1.2] - 2026-04-04
 
 ### Added
