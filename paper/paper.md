@@ -105,7 +105,7 @@ Agribound's pipeline consists of the following steps:
 3. **Delineation** --- one of seven engines produces raw field polygons from the composite
 4. **Post-processing** --- cross-tile polygon merging, area filtering, Chaikin corner-cutting smoothing, Ramer-Douglas-Peucker simplification, and optional regularization
 5. **LULC crop filtering** --- server-side removal of non-agricultural polygons with per-field crop fraction metadata
-6. **Export** --- fiboa-compliant GeoPackage, GeoJSON, or GeoParquet output
+6. **Export** --- GeoPackage, GeoJSON, or fiboa-compliant GeoParquet output
 
 <!-- TODO: Insert Figure 1 (architecture diagram) here -->
 
@@ -116,7 +116,7 @@ The seven supported engines span complementary approaches:
 | Engine | Approach | Input |
 |--------|----------|-------|
 | Delineate-Anything | YOLO instance segmentation | RGB |
-| Fields of The World | Semantic segmentation (14+ models) | RGBN |
+| Fields of The World | Semantic segmentation (16+ models) | RGBN |
 | GeoAI | Mask R-CNN instance segmentation | RGB |
 | DINOv3 | Vision transformer (SAT-493M satellite-pretrained) + DPT decoder | RGB |
 | Prithvi-EO-2.0 | Foundation model + UPerNet | RGBN |
@@ -137,7 +137,7 @@ Agribound computes, for each detected polygon, the mean crop probability (Dynami
 | Global | Google Dynamic World | 10 m | 2015--present |
 | Global (pre-2015) | Copernicus C3S | 300 m | 1992--2022 |
 
-All three datasets use nearest-year matching when the exact target year is unavailable. Processing is batched (1000 polygons per GEE call) to handle large study areas without exceeding API limits.
+All three datasets use nearest-year matching when the exact target year is unavailable. Processing is batched (200 polygons per GEE call by default) to handle large study areas without exceeding API limits.
 
 <!-- TODO: Insert LULC filtering before/after comparison figure here -->
 
@@ -166,7 +166,7 @@ gdf = agribound.delineate(..., lulc_filter=False)
 gdf = agribound.delineate(..., lulc_crop_threshold=0.2)
 ```
 
-Sixteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, nine satellite sources, and all delineation engines.
+Seventeen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, nine satellite sources, and all delineation engines, including a query helper for retrieving pre-computed Fields of The World polygons by area of interest without running inference.
 
 # Research Enabled by Agribound
 
