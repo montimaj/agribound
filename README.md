@@ -306,9 +306,7 @@ agribound/
 │   ├── data/                   # Test data (GeoTIFFs, GeoJSONs)
 │   ├── unit/                   # Unit tests (config, evaluate, I/O, postprocess, LULC)
 │   └── integration/            # Integration tests (CLI, local pipeline)
-├── paper/                      # JOSS paper (not included in PyPI distribution)
-│   ├── paper.md                # Manuscript source
-│   └── paper.bib               # References
+├── paper/                      # Manuscript materials (not included in PyPI distribution)
 ├── docs/                       # MkDocs documentation source
 │   ├── api/                    # API reference (auto-generated from docstrings)
 │   ├── blog/                   # Blog (MkDocs Material blog plugin)
@@ -317,7 +315,7 @@ agribound/
 │   │   └── posts/              # Blog posts (Markdown with frontmatter)
 │   ├── gallery.md              # Visual results across regions and engines
 │   └── user-guide/             # Quickstart, engines, satellite sources, etc.
-├── CITATION.cff                # Citation metadata (JOSS / Zenodo)
+├── CITATION.cff                # Citation metadata (Zenodo)
 ├── CONTRIBUTING.md             # Developer guide
 ├── DISCLAIMER.md               # AI usage and funding disclosure
 ├── LICENSE                     # Apache 2.0
@@ -395,9 +393,9 @@ The **GeoAI engine** (Mask R-CNN) is unstable on Apple Silicon GPUs via MPS (Met
 
 If you use agribound in your research, please cite:
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Rapp, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* [Software]. _Zenodo_. https://doi.org/10.5281/zenodo.19229665
+> Majumdar, S., Rapp, J., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* [Software]. _Zenodo_. https://doi.org/10.5281/zenodo.19229665
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Rapp, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings*. In prep. for _Journal of Open Source Software_.
+> Majumdar, S., Rapp, J., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Toward unified agricultural field boundary delineation: An open-source, cloud-native framework integrating geospatial foundation models, satellite embeddings, and pre-trained segmentation*. In prep. for _Remote Sensing of Environment_.
 
 
 Please also cite the underlying engines and models as appropriate:

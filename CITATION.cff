@@ -13,6 +13,10 @@ authors:
     given-names: Sayantan
     affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
     orcid: "https://orcid.org/0000-0002-1037-0481"
+  - family-names: Rapp
+    given-names: Jeremy
+    affiliation: "Department Of Earth and Environmental Sciences, Michigan State University, East Lansing, MI, USA"
+    orcid: "https://orcid.org/0000-0002-0460-2725"
   - family-names: Huntington
     given-names: Justin L.
     affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
@@ -40,10 +44,6 @@ authors:
   - family-names: Atkin
     given-names: Jayden
     affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
-  - family-names: Rapp
-    given-names: Jeremy
-    affiliation: "Department Of Earth and Environmental Sciences, Michigan State University, East Lansing, MI, USA"
-    orcid: "https://orcid.org/0000-0002-0460-2725"
   - family-names: Jensen
     given-names: Eric R.
     affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"

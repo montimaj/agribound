@@ -144,7 +144,7 @@ Jeremy's contribution showcases exactly the kind of community-driven extension w
 
 ## What's Next
 
-- A paper submission to the *Journal of Open Source Software* is in preparation.
+- A paper submission to *Remote Sensing of Environment* is in preparation.
 - We are expanding engine support and adding new embedding datasets as they become available.
 - Community contributions are welcome -- see the [Contributing guide](../../contributing.md).
 
@@ -152,8 +152,8 @@ Jeremy's contribution showcases exactly the kind of community-driven extension w
 
 If you find agribound useful, please cite:
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Rapp, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* [Software]. Zenodo. [https://doi.org/10.5281/zenodo.19229665](https://doi.org/10.5281/zenodo.19229665)
+> Majumdar, S., Rapp, J., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* [Software]. Zenodo. [https://doi.org/10.5281/zenodo.19229665](https://doi.org/10.5281/zenodo.19229665)
 
-> Majumdar, S., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Rapp, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings*. In prep. for *Journal of Open Source Software*.
+> Majumdar, S., Rapp, J., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Toward unified agricultural field boundary delineation: An open-source, cloud-native framework integrating geospatial foundation models, satellite embeddings, and pre-trained segmentation*. In prep. for *Remote Sensing of Environment*.
 
 Give the [repo](https://github.com/montimaj/agribound) a star if you find it useful!
