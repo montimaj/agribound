@@ -2,7 +2,7 @@
 
 **Unified agricultural field boundary delineation toolkit**
 
-[![Release](https://img.shields.io/badge/release-v0.1.3-green.svg)](https://github.com/montimaj/agribound/releases)
+[![Release](https://img.shields.io/badge/release-v0.1.3.post1-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)
 [![Downloads](https://static.pepy.tech/badge/agribound/month)](https://pepy.tech/projects/agribound)
 [![CI](https://github.com/montimaj/agribound/actions/workflows/ci.yml/badge.svg)](https://github.com/montimaj/agribound/actions/workflows/ci.yml)

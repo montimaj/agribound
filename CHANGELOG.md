@@ -2,6 +2,15 @@
 
 All notable changes to agribound will be documented in this file.
 
+## [0.1.3.post1] - 2026-06-11
+
+### Changed
+- Jeremy Rapp moved to second author across all citations (CITATION.cff, README, docs, manuscript)
+- Citations updated to reference the manuscript in preparation for *Remote Sensing of Environment* (previously *Journal of Open Source Software*)
+
+### Removed
+- JOSS paper sources (`paper/paper.md`, `paper/paper.bib`) following the decision to target the RSE special issue "Geospatial Foundation Models for Advancing Remote Sensing of Environment"
+
 ## [0.1.3] - 2026-05-26
 
 ### Added
