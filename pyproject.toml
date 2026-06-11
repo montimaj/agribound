@@ -11,6 +11,7 @@ license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 authors = [
     {name = "Sayantan Majumdar"},
+    {name = "Jeremy Rapp"},
     {name = "Justin L. Huntington"},
     {name = "Peter ReVelle"},
     {name = "Soheil Nozari"},
@@ -18,7 +19,6 @@ authors = [
     {name = "M. F. Hasan"},
     {name = "Matt Bromley"},
     {name = "Jayden Atkin"},
-    {name = "Jeremy Rapp"},
     {name = "Eric R. Jensen"},
     {name = "David Ketchum"},
     {name = "Samapriya Roy"},
