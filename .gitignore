@@ -215,5 +215,4 @@ global_*
 *.pdf
 test_nm_semi_supervised.py
 
-# RSE manuscript drafts (private until submission)
-paper/paper_rse*
+paper/*

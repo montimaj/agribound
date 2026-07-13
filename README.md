@@ -23,6 +23,12 @@ Unlike other field boundary tools that detect *all* visual boundaries (roads, wa
 
 The result is a single `agribound.delineate()` call or CLI command that replaces dozens of ad hoc scripts with a reproducible, configurable workflow. Sixteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, nine satellite sources, and all delineation engines.
 
+## How It Works
+
+<img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow.png" alt="The agribound framework and its six-stage delineation pipeline" width="900">
+
+*The agribound framework. An **agentic orchestration layer** exposes the whole pipeline through a single `delineate()` entry point and autonomously selects the sensor, engine, and LULC filter — and a natural-language **LLM-orchestrator** is [in development](#roadmap-agentic-orchestration). The six-stage pipeline runs from ten satellite/embedding sources (1984–present) through cloud compositing, optional fine-tuning, delineation by one of seven engines (task-specific segmentation, geospatial foundation models, and label-free embedding clustering, plus ensembling), SAM2 refinement and post-processing, server-side LULC crop filtering (USGS NLCD, Google Dynamic World, Copernicus C3S Land Cover), and export to standards-compliant vector formats.*
+
 ## Results
 
 ### Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)
@@ -388,6 +394,42 @@ The SPOT 6/7 collection in Google Earth Engine is **restricted** and is not publ
 ## Apple Silicon (MPS) Note
 
 The **GeoAI engine** (Mask R-CNN) is unstable on Apple Silicon GPUs via MPS (Metal Performance Shaders). Metal command buffer errors cause crashes during both training and inference. Agribound automatically detects MPS and falls back to CPU for GeoAI operations. All other engines (FTW, Delineate-Anything, Prithvi) work correctly on MPS.
+
+## Roadmap: Agentic Orchestration
+
+Agribound already performs a form of **autonomous orchestration**: a single `agribound.delineate()` call decides which composite to build, selects the LULC dataset by area and year, routes canonical bands to each engine, tiles and parallelizes large areas, and chains delineation → refinement → filtering → export — all without user micromanagement.
+
+The next step, currently **in development**, is an **LLM-orchestrator** that layers a natural-language, agent-driven interface on top of this machinery. Instead of choosing the source, engine, filter, and post-processing yourself, you describe the goal and an agent plans and executes the underlying agribound tool calls, reasons over the intermediate results, and reports what it did.
+
+**How it will work.** Agribound's core operations — `delineate()`, `query_ftw()`, fine-tuning, SAM2 refinement, LULC filtering, and evaluation — are exposed to the agent as typed tools. Given a request, the orchestrator:
+
+1. **Plans** a workflow — e.g., pick a sensor and year, decide whether fine-tuning is warranted (are reference boundaries available?), and choose an engine and LULC filter appropriate to the region.
+2. **Executes** the resulting tool calls, tiling and caching exactly as the deterministic pipeline does today.
+3. **Reflects** on intermediate output — e.g., if too few polygons survive the crop filter it can lower the threshold or switch LULC datasets and re-run; if boundaries look coarse it can enable SAM2 refinement at native resolution.
+4. **Reports** the chosen configuration and full provenance, so every agent-driven run stays as reproducible as a hand-written one.
+
+**Planned interface** (illustrative; subject to change):
+
+```python
+import agribound as ab
+
+# Natural-language request -> the agent plans and executes agribound tool calls
+result = ab.agent(
+    "Map irrigated field boundaries in this AOI for 2024, "
+    "prefer a label-free approach, and refine the edges.",
+    study_area="fields.geojson",
+    gee_project="my-gee-project",
+)
+```
+
+```bash
+agribound agent "delineate smallholder fields in this AOI using Sentinel-2 for 2023" \
+    --study-area fields.geojson
+```
+
+**Design principles.** The orchestrator will be **model-agnostic** (usable with hosted or local LLMs), **opt-in** via an optional extra (`pip install agribound[agent]`) so core installs stay lightweight, and **transparent** — it emits the exact tool calls and parameters it ran, never hiding decisions behind the natural-language layer. The deterministic `delineate()` API remains the supported path for scripted, reproducible pipelines; the agent is a convenience layer on top, not a replacement.
+
+*This feature is under active development and not yet released. Follow the [repo](https://github.com/montimaj/agribound) and [CHANGELOG](CHANGELOG.md) for updates.*
 
 ## Citation
 
