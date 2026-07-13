@@ -19,3 +19,7 @@ https://montimaj.github.io/agribound/
 
 # Own repo files added in PRs (won't be on main until merged)
 https://github.com/montimaj/agribound/blob/main/environment.yml
+
+# GitHub stargazers page: valid badge link, but returns 404/429 to
+# unauthenticated link checkers
+https://github.com/montimaj/agribound/stargazers
