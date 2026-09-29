@@ -80,6 +80,17 @@ def test_default_output_is_the_image_the_docs_show(tool):
 def test_diagram_facts_match_the_package(tool, monkeypatch):
     # verify_facts() puts the repository root first on sys.path; undo that afterwards.
     monkeypatch.setattr(sys, "path", list(sys.path))
+    # As on a CI runner: no Earth Engine project from the environment, gcloud or a key.
+    import agribound.auth
+
+    for var in (
+        "GEE_PROJECT",
+        "AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(agribound.auth, "_get_gcloud_project", lambda: None)
+    monkeypatch.setattr(agribound.auth, "project_from_credentials", lambda *a, **k: None)
     assert tool.verify_facts() == [], (
         "the workflow diagram no longer matches the code; update the labels in "
         f"{TOOL.relative_to(ROOT)} and re-run it"

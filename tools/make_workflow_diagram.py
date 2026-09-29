@@ -133,6 +133,7 @@ import inspect
 import logging
 import math
 import sys
+import types
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -1374,7 +1375,15 @@ def verify_facts() -> list[str]:
         tuple(reg.SAM_REFINE_BACKENDS) == ("sam2", "sam2.1", "sam3", "sam3-hf"), "SAM 2 / 2.1 / 3"
     )
 
-    defaults = cfg.AgriboundConfig()
+    # The declared field defaults, read without building a config: validation would
+    # look up an Earth Engine project for the default source (none on a CI runner).
+    defaults = types.SimpleNamespace(
+        **{
+            f.name: f.default
+            for f in dataclasses.fields(cfg.AgriboundConfig)
+            if f.default is not dataclasses.MISSING
+        }
+    )
     expect(
         defaults.fine_tune_split == "block" and defaults.fine_tune_block_size_m == 5000,
         "5 km block split",

@@ -26,8 +26,10 @@ tags:
     gallery and no longer says it covered nine regions, five satellites and
     all engines (it had ten study areas and no GeoAI example); the manuscript
     title in the citation was updated (see the note there); and links were
-    updated: the images now point to `assets/gallery_0.1x/`, and the TESSERA
-    post is named and linked through the TESSERA blog index.
+    updated: the images now point to `assets/gallery_0.1x/`, the TESSERA
+    post is named and linked through the TESSERA blog index, and Jeremy
+    Rapp's name links to the ORCID record (the Michigan State directory page
+    it linked to no longer exists).
     Several statements in it no longer hold for agribound 1.0.0, and some
     0.1.x results were affected by defects fixed in 1.0.0 (see the
     [v1.0.0 release post](v1.0.0-release.md), the
@@ -153,7 +155,7 @@ The [launch announcement on LinkedIn](https://www.linkedin.com/posts/sayantanmaj
 
 ## First Community Contribution
 
-We are thrilled to highlight agribound's **first community contribution** from **[Jeremy Rapp](https://espp.msu.edu/directory/rapp-jeremy.html)** at the Department of Earth and Environmental Sciences, Michigan State University. Jeremy contributed [Example 16](https://github.com/montimaj/agribound/blob/main/examples/16_usa_usgs_naip_plus.py), which adds support for the **USGS NAIP Plus ImageServer** -- the same NAIP imagery available on GEE but acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) -- as a non-GEE high-resolution imagery source.
+We are thrilled to highlight agribound's **first community contribution** from **[Jeremy Rapp](https://orcid.org/0000-0002-0460-2725)** at the Department of Earth and Environmental Sciences, Michigan State University. Jeremy contributed [Example 16](https://github.com/montimaj/agribound/blob/main/examples/16_usa_usgs_naip_plus.py), which adds support for the **USGS NAIP Plus ImageServer** -- the same NAIP imagery available on GEE but acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) -- as a non-GEE high-resolution imagery source.
 
 This example demonstrates agribound's local-raster acquisition path: the AOI is queried directly from the USGS ImageServer, exported to a local GeoTIFF, and then passed into the Delineate-Anything engine pipeline -- all **without requiring Google Earth Engine authentication**. This is a significant addition for users who want to work with 1 m NAIP imagery but do not have GEE access or prefer a purely local workflow.
 
