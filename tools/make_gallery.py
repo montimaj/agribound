@@ -1791,10 +1791,11 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
 
     stats = {
         "example": entry.key,
-        "image": str(png.relative_to(REPO)) if png.is_relative_to(REPO) else str(png),
+        # POSIX form, so gallery_stats.json reads the same whichever OS rendered it.
+        "image": (png.relative_to(REPO) if png.is_relative_to(REPO) else png).as_posix(),
         "preview": (
-            str(preview.relative_to(REPO)) if preview.is_relative_to(REPO) else str(preview)
-        ),
+            preview.relative_to(REPO) if preview.is_relative_to(REPO) else preview
+        ).as_posix(),
         "title": entry.title,
         "background": "composite" if basemap == "composite" else "esri",
         "background_note": bg_note,

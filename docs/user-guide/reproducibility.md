@@ -27,7 +27,9 @@ slow down training and inference).
 Seeding does not make every result bit-identical across machines: GPU
 kernels, library versions and devices differ. For example, SAM 2 masks
 computed on Apple MPS and on CPU overlapped with IoU between 0.59 and 0.97 on a
-Sentinel-2 test crop, while repeated CPU runs were identical. The provenance
+Sentinel-2 test crop, while repeated CPU runs were identical. Evaluation
+bootstrap intervals can differ in the last digit between platforms, because the
+resample sums are matrix products computed by the platform's BLAS. The provenance
 record captures the device and the package versions so such differences can be
 traced.
 

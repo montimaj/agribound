@@ -232,7 +232,7 @@ class TestDelineate:
         assert [c["engine"] for c in calls] == ["delineate-anything", "ftw"]
         assert all(c["sam_refine"] is False for c in calls)
         assert calls[0]["cache_dir"] != calls[1]["cache_dir"]
-        assert calls[0]["cache_dir"].endswith("ensemble/delineate-anything")
+        assert Path(calls[0]["cache_dir"]).parts[-2:] == ("ensemble", "delineate-anything")
         # Each member starts from the same seeded RNG state.
         assert calls[0]["draw"] == calls[1]["draw"]
         meta = out.attrs["engine_meta"]
@@ -283,8 +283,8 @@ class TestDelineate:
         EnsembleEngine().delineate(raster, cfg)
         calls = fake["calls"]
         assert [c["engine_params"]["model"] for c in calls] == ["m1", "m2"]
-        assert calls[0]["cache_dir"].endswith("ensemble/m1")
-        assert calls[1]["cache_dir"].endswith("ensemble/m2")
+        assert Path(calls[0]["cache_dir"]).parts[-2:] == ("ensemble", "m1")
+        assert Path(calls[1]["cache_dir"]).parts[-2:] == ("ensemble", "m2")
 
     def test_prefetch_collects_member_files(self, tmp_path, raster, monkeypatch):
         class A:
@@ -486,7 +486,7 @@ class TestStageInputs:
         staged = EnsembleEngine.stage_inputs(cfg, "/x/composite.tif")
         assert [c[0] for c in calls] == ["ftw"]  # DA has no stage_inputs
         assert calls[0][2] == {"window_days": 9}
-        assert str(calls[0][1]).endswith("ensemble/ftw")  # the member's isolated cache
+        assert Path(calls[0][1]).parts[-2:] == ("ensemble", "ftw")  # the member's isolated cache
         assert staged["rasters"] == [f"{calls[0][1]}/a.tif"]
         assert list(staged["members"]) == ["ftw"] and staged["failed_members"] == []
 

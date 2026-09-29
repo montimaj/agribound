@@ -116,7 +116,10 @@ _DISTANCE_CHUNK = 1_000_000
 _SEGMENT_CHUNK = 5_000
 
 # Bootstrap resamples are processed in chunks of about this many
-# (resample x reference field) weights; the resamples do not depend on it.
+# (resample x reference field) weights. The resamples do not depend on it; the
+# metric sums (a BLAS matrix product) can differ in the last bit between chunk
+# sizes on some platforms (seen on Windows), and the chunk size is fixed for a
+# given number of reference fields, so a run is reproducible on one platform.
 _BOOTSTRAP_CHUNK_CELLS = 2_000_000
 
 # Shapely geometry type ids.

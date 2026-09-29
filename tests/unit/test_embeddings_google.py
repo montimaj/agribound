@@ -456,4 +456,5 @@ class TestAefIndexDownload:
 
     def test_default_location(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # what Path.home() reads on Windows
         assert local.aef_index_path(None) == tmp_path / ".cache" / "agribound" / "aef_index.parquet"

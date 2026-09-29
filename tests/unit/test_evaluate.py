@@ -701,7 +701,14 @@ class TestBootstrap:
         first = evaluate(pred, ref, **kwargs)["bootstrap"]
         assert evaluate(pred, ref, **kwargs)["bootstrap"] == first
         monkeypatch.setattr(ev, "_BOOTSTRAP_CHUNK_CELLS", 7)  # 1 resample per chunk
-        assert evaluate(pred, ref, **kwargs)["bootstrap"] == first
+        chunked = evaluate(pred, ref, **kwargs)["bootstrap"]
+        # Same resamples; the BLAS sums may differ in the last bit (seen on Windows).
+        assert {k: v for k, v in chunked.items() if k != "ci"} == {
+            k: v for k, v in first.items() if k != "ci"
+        }
+        assert chunked["ci"].keys() == first["ci"].keys()
+        for name, bounds in first["ci"].items():
+            assert chunked["ci"][name] == pytest.approx(bounds, rel=1e-12, abs=1e-15), name
         other = evaluate(pred, ref, bootstrap=200, bootstrap_seed=4)["bootstrap"]
         assert other["ci"] != first["ci"]
         lo, hi = first["ci"]["recall"]

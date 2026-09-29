@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import geopandas as gpd
 import pytest
@@ -13,6 +14,19 @@ pytest.importorskip("pyarrow")
 
 from agribound.cli import main
 from agribound.ftw_query import query_ftw
+
+
+def _country_partition(root, code):
+    """``root/admin:country_code=<code>``, the published store's hive layout.
+
+    Windows paths cannot contain ':', so tests that need a local copy of the layout
+    are skipped there (the S3 keys themselves are read fine on Windows).
+    """
+    if sys.platform == "win32":
+        pytest.skip("hive partition directories named 'admin:country_code=...' need ':' in a path")
+    part = root / f"admin:country_code={code}"
+    part.mkdir(parents=True)
+    return part
 
 
 @pytest.fixture
@@ -503,8 +517,7 @@ def by_admin_conf_store(tmp_path):
         crs="EPSG:4326",
     )
     for code, name, gdf in (("AU", "AU_NSW", au), ("US", "US_NM", us)):
-        part = root / f"admin:country_code={code}"
-        part.mkdir(parents=True)
+        part = _country_partition(root, code)
         gdf.to_parquet(part / f"{name}.parquet", write_covering_bbox=True)
     return root
 
@@ -581,8 +594,7 @@ def shared_id_store(tmp_path):
         ],
         crs="EPSG:4326",
     )
-    part = tmp_path / "results-by-admin-conf" / "admin:country_code=US"
-    part.mkdir(parents=True)
+    part = _country_partition(tmp_path / "results-by-admin-conf", "US")
     gdf.to_parquet(part / "US_NM.parquet", write_covering_bbox=True)
     return tmp_path / "results-by-admin-conf"
 
@@ -940,8 +952,7 @@ def metrics_store(tmp_path):
         geometry=geoms,
         crs="EPSG:4326",
     )
-    part = tmp_path / "results-by-admin-conf" / "admin:country_code=AU"
-    part.mkdir(parents=True)
+    part = _country_partition(tmp_path / "results-by-admin-conf", "AU")
     gdf.to_parquet(part / "AU_NSW.parquet", write_covering_bbox=True)
     return {
         "root": tmp_path / "results-by-admin-conf",
