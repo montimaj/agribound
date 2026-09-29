@@ -1,0 +1,140 @@
+# Region: Guadalquivir valley, Andalusia, Spain
+# Read by examples/run_region_delineation.sh (via 'agribound tiles region') and
+# agribound.hpc.regions.load_region. 'run' holds the defaults the driver uses;
+# everything else documents how the region was checked. bbox values are EPSG:4326
+# [minx, miny, maxx, maxy]. Paths in 'run' are relative to this file.
+name: andalusia_guadalquivir_es
+title: Guadalquivir valley, Andalusia, Spain
+description: The Guadalquivir valley and campiña between Seville, Cordoba and Jaen.
+country: ES
+bbox: [-6.5, 36.8, -3.5, 38.3]
+bbox_source: hand-drawn box over the Guadalquivir valley
+test_bbox: [-5.15, 37.5, -5.0, 37.6]
+test_bbox_source: hand-picked box around Ecija, checked with WorldCover (2026-09-26)
+study_area: null
+area_km2: 44132
+utm_zones: [29, 30]
+run:
+  years: [2023, 2024]
+  sources: [sentinel2, landsat, google-embedding, tessera-embedding]
+  engines: [delineate-anything, ftw, embedding]
+  tile_size_km: 20
+  halo_m: 1000
+  reference: null
+tiling:
+  n_tiles: 135
+  grid: utm
+  computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=20000, halo_m=1000, crs='utm', clip=True)
+  halo_note: halo_m is an agribound choice; it must exceed the largest field dimension expected here (fields
+    larger than the halo that cross a tile core boundary can be truncated). Check n_reaching_halo_edge
+    in the merge summary.
+verification:
+  worldcover_date: '2026-09-26'
+  method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
+    seed 0) sampled at 10 m inside the bbox, the same share among land points (Map != 80), and the mean
+    of the class-40 mask at 1 km (GEE pyramid, approximate).'
+  worldcover_v200_cropland_fraction: 0.203
+  worldcover_v200_cropland_fraction_of_land: 0.206
+  worldcover_v200_cropland_fraction_1km: 0.222
+  worldcover_points: 1017 cropland of 5000 valid points
+  test_bbox_worldcover_v200_cropland_fraction: 0.62
+sources:
+  checked: GEE image counts 2026-09-26 (with the author's Earth Engine project); TESSERA manifests fetched 2026-09-26;
+    USGS NAIP Plus catalogue queried 2026-09-27
+  sentinel2:
+    collection: COPERNICUS/S2_SR_HARMONIZED
+    images_intersecting_bbox:
+      2017: 816
+      2019: 1338
+      2023: 1318
+      2024: 1333
+      2025: 1846
+  landsat:
+    collection: LANDSAT/LC08|LC09/C02/T1_L2 (L8 + L9 counted)
+    images_intersecting_bbox:
+      2023: 463
+      2024: 457
+  hls:
+    collection: NASA/HLS/HLSL30/v002 + HLSS30/v002
+    l30_images:
+      2023: 1193
+      2024: 1207
+    s30_images:
+      2023: 2699
+      2024: 2810
+  naip: not available (US only)
+  usgs-naip-plus: not available (US only)
+  spot:
+    access: restricted (AIRBUS/SPOT6_7; DRI-internal GEE access)
+    scenes_intersecting_bbox_by_year:
+      2012: 11
+      2013: 39
+      2014: 27
+      2015: 79
+      2016: 39
+      2017: 51
+      2018: 58
+      2019: 47
+      2020: 116
+      2021: 16
+      2022: 5
+      2023: 16
+    note: 'Scene counts, not coverage: scenes may cover only part of the bbox.'
+  google-embedding:
+    collection: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
+    images_by_year:
+      2017: 6
+      2018: 6
+      2019: 6
+      2020: 6
+      2021: 6
+      2022: 6
+      2023: 6
+      2024: 6
+      2025: 6
+  tessera-embedding:
+    v1:
+      tiles_expected: 450
+      tiles_by_year:
+        2017: 450
+        2018: 450
+        2019: 450
+        2020: 450
+        2021: 450
+        2022: 450
+        2023: 450
+        2024: 450
+        2025: 450
+    v1.1:
+      tiles_expected: 450
+      tiles_by_year:
+        2017: 450
+        2018: 450
+        2019: 450
+        2020: 450
+        2021: 450
+        2022: 450
+        2023: 450
+        2024: 450
+        2025: 450
+    note: 'Tile counts from the TESSERA manifests (v1 ''vultr'', v1.1 ''cambridge'') fetched 2026-09-26:
+      0.1-degree tiles present per year vs. all tiles intersecting the bbox (expected includes water,
+      which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
+      before large runs.'
+reference_data:
+- 'FTW benchmark chips for Spain (ftw-tools: ''ftw data download''); these are sample chips, not wall-to-wall
+  boundaries.'
+ftw:
+  in_ftw_benchmark_countries: true
+  note: Spain is one of the FTW benchmark countries (ftw_tools.settings.ALL_COUNTRIES); the default FTW
+    model (FTW_PRUE_EFNET_B5) was trained on the full FTW data.
+  published_predictions: FTW Global prediction polygons exist for country ES (Source Cooperative alpha/results-by-admin-conf);
+    query them with 'agribound query-ftw --study-area bbox:... --year 2024'. They are model outputs, not
+    reference data.
+example_aois:
+- script: examples/09_ensemble_comparison.py
+  bbox: [-3.8, 37.75, -3.65, 37.85]
+  worldcover_v200_cropland_fraction: 0.053
+notes:
+- Perennial crops such as olive groves are not WorldCover class 40, so the example 09 AOI (near Jaen)
+  has a low class-40 fraction.

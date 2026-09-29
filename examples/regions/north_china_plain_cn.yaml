@@ -1,0 +1,141 @@
+# Region: North China Plain, China
+# Read by examples/run_region_delineation.sh (via 'agribound tiles region') and
+# agribound.hpc.regions.load_region. 'run' holds the defaults the driver uses;
+# everything else documents how the region was checked. bbox values are EPSG:4326
+# [minx, miny, maxx, maxy]. Paths in 'run' are relative to this file.
+name: north_china_plain_cn
+title: North China Plain, China
+description: 'The North China Plain in Hebei, Shandong and Henan: winter wheat and summer maize.'
+country: CN
+bbox: [113.5, 34.5, 118.5, 39.5]
+bbox_source: hand-drawn box over the plain
+test_bbox: [115.4, 37.6, 115.5, 37.7]
+test_bbox_source: 0.1-degree cell picked by a WorldCover class-40 search inside the bbox (2026-09-26)
+study_area: null
+area_km2: 246865
+utm_zones: [49, 50]
+run:
+  years: [2024]
+  sources: [sentinel2, landsat, google-embedding, tessera-embedding]
+  engines: [delineate-anything, ftw, embedding]
+  tile_size_km: 20
+  halo_m: 1000
+  reference: null
+tiling:
+  n_tiles: 673
+  grid: utm
+  computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=20000, halo_m=1000, crs='utm', clip=True)
+  halo_note: halo_m is an agribound choice; it must exceed the largest field dimension expected here (fields
+    larger than the halo that cross a tile core boundary can be truncated). Check n_reaching_halo_edge
+    in the merge summary.
+verification:
+  worldcover_date: '2026-09-26'
+  method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
+    seed 0) sampled at 10 m inside the bbox, the same share among land points (Map != 80), and the mean
+    of the class-40 mask at 1 km (GEE pyramid, approximate).'
+  worldcover_v200_cropland_fraction: 0.555
+  worldcover_v200_cropland_fraction_of_land: 0.585
+  worldcover_v200_cropland_fraction_1km: 0.624
+  worldcover_points: 2760 cropland of 4973 valid points
+  test_bbox_worldcover_v200_cropland_fraction: 0.886
+sources:
+  checked: GEE image counts 2026-09-26 (with the author's Earth Engine project); TESSERA manifests fetched 2026-09-26;
+    USGS NAIP Plus catalogue queried 2026-09-27
+  sentinel2:
+    collection: COPERNICUS/S2_SR_HARMONIZED
+    images_intersecting_bbox:
+      2017: 1075
+      2019: 4944
+      2023: 4883
+      2024: 5024
+      2025: 5858
+  landsat:
+    collection: LANDSAT/LC08|LC09/C02/T1_L2 (L8 + L9 counted)
+    images_intersecting_bbox:
+      2023: 913
+      2024: 936
+  hls:
+    collection: NASA/HLS/HLSL30/v002 + HLSS30/v002
+    l30_images:
+      2023: 3119
+      2024: 3235
+    s30_images:
+      2023: 5180
+      2024: 5464
+  naip: not available (US only)
+  usgs-naip-plus: not available (US only)
+  spot:
+    access: restricted (AIRBUS/SPOT6_7; DRI-internal GEE access)
+    scenes_intersecting_bbox_by_year:
+      2013: 86
+      2014: 140
+      2015: 217
+      2016: 129
+      2017: 160
+      2018: 224
+      2019: 87
+      2020: 86
+      2021: 97
+      2022: 113
+      2023: 78
+    note: 'Scene counts, not coverage: scenes may cover only part of the bbox.'
+  google-embedding:
+    collection: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
+    images_by_year:
+      2017: 16
+      2018: 16
+      2019: 16
+      2020: 16
+      2021: 16
+      2022: 16
+      2023: 16
+      2024: 16
+      2025: 16
+  tessera-embedding:
+    v1:
+      tiles_expected: 2500
+      tiles_by_year:
+        2017: 2046
+        2018: 2024
+        2019: 1908
+        2020: 2048
+        2021: 2001
+        2022: 2050
+        2023: 2053
+        2024: 2439
+        2025: 2152
+    v1.1:
+      tiles_expected: 2500
+      tiles_by_year:
+        2017: 6
+        2018: 6
+        2019: 6
+        2020: 6
+        2021: 6
+        2022: 6
+        2023: 6
+        2024: 6
+        2025: 6
+    note: 'Tile counts from the TESSERA manifests (v1 ''vultr'', v1.1 ''cambridge'') fetched 2026-09-26:
+      0.1-degree tiles present per year vs. all tiles intersecting the bbox (expected includes water,
+      which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
+      before large runs.'
+reference_data:
+- No field-boundary reference data is bundled with agribound for this region.
+ftw:
+  in_ftw_benchmark_countries: false
+  note: Not an FTW benchmark country (ftw_tools.settings.ALL_COUNTRIES), so FTW models run out of their
+    training distribution here; compare with Delineate-Anything and check a reference sample.
+  published_predictions: FTW Global prediction polygons exist for country CN (Source Cooperative alpha/results-by-admin-conf);
+    query them with 'agribound query-ftw --study-area bbox:... --year 2024'. They are model outputs, not
+    reference data.
+example_aois:
+- script: examples/08_china_north_plain_spot.py
+  bbox: [114.4, 37.95, 114.55, 38.05]
+  worldcover_v200_cropland_fraction: 0.169
+notes:
+- TESSERA v1 covers 76-82 % of the bbox tiles in 2017-2023, 98 % in 2024 and 86 % in 2025 (tiles_expected
+  includes water); v1.1 has 6 tiles.
+- The default years are 2024 only, because TESSERA v1 (a default source) covers only 82 % of the bbox
+  tiles in 2023; tiles without TESSERA data would be recorded as no-data. Run other years with --years
+  (e.g. --years 2023 --sources sentinel2,landsat,google-embedding).

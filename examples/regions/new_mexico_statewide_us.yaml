@@ -1,0 +1,182 @@
+# Region: New Mexico statewide, USA
+# Read by examples/run_region_delineation.sh (via 'agribound tiles region') and
+# agribound.hpc.regions.load_region. 'run' holds the defaults the driver uses;
+# everything else documents how the region was checked. bbox values are EPSG:4326
+# [minx, miny, maxx, maxy]. Paths in 'run' are relative to this file.
+name: new_mexico_statewide_us
+title: New Mexico statewide, USA
+description: 'The whole state of New Mexico: irrigated agriculture along the Rio Grande, the Pecos and
+  San Juan valleys and on the eastern plains, within a mostly non-agricultural state.'
+country: US
+bbox: [-109.0505, 31.3322, -102.9976, 37.0003]
+bbox_source: union of the TIGER/2018/States bounds of New Mexico and the extent of the NMOSE WUCB polygons
+  (which reach 0.0044 degrees east of the state box), rounded outwards to 1e-4 degrees
+test_bbox: [-106.8, 34.6, -106.75, 34.65]
+test_bbox_source: hand-picked box on the Rio Grande valley near Belen, checked with WorldCover
+study_area: null
+area_km2: 350775
+utm_zones: [12, 13]
+run:
+  years: [2022, 2024]
+  sources: [sentinel2, landsat, naip, tessera-embedding]
+  engines: [delineate-anything, ftw, embedding]
+  tile_size_km: 20
+  halo_m: 1500
+  reference: ../NMOSE Field Boundaries/WUCB ag polys.shp
+tiling:
+  n_tiles: 950
+  grid: utm
+  computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=20000, halo_m=1500, crs='utm', clip=True)
+  halo_note: 'halo_m is an agribound choice; fields longer than the halo that cross a tile core boundary
+    can be truncated. 1500 m covers 97.8 % of the NMOSE reference fields but not all of them (bounding-box
+    long side in the UTM zone of each of the 50,660 single-part polygons, checked 2026-09-28: median 240 m,
+    p99 1618 m, max 4891 m; 1136 exceed 1500 m, 154 exceed 2000 m, 53 exceed 2500 m). Raise halo_m (for
+    example to 2500 m, or 5000 m to cover every reference field) when large fields matter, and check
+    n_reaching_halo_edge in the merge summary.'
+verification:
+  worldcover_date: '2026-09-27'
+  method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
+    seed 0) sampled at 10 m inside the bbox, the same share among land points (Map != 80), and the mean
+    of the class-40 mask at 1 km (GEE pyramid, approximate).'
+  worldcover_v200_cropland_fraction: 0.016
+  worldcover_v200_cropland_fraction_of_land: 0.016
+  worldcover_v200_cropland_fraction_1km: 0.014
+  worldcover_points: 79 cropland of 5000 valid points
+  test_bbox_worldcover_v200_cropland_fraction: 0.237
+  cdl_2023_cultivated_fraction: 0.025
+  test_bbox_cdl_2023_cultivated_fraction: 0.267
+  cdl_method: 'USDA/NASS/CDL 2023 ''cultivated'' band == 2: share of 5,000 (test box 2,000) seeded random
+    points sampled at 30 m.'
+sources:
+  checked: GEE image counts 2026-09-27 (with the author's Earth Engine project); TESSERA manifests fetched 2026-09-26;
+    USGS NAIP Plus catalogue queried 2026-09-27
+  sentinel2:
+    collection: COPERNICUS/S2_SR_HARMONIZED
+    images_intersecting_bbox:
+      2017: 4320
+      2019: 7217
+      2023: 7214
+      2024: 7373
+      2025: 8732
+  landsat:
+    collection: LANDSAT/LC08|LC09/C02/T1_L2 (L8 + L9 counted)
+    images_intersecting_bbox:
+      2023: 1404
+      2024: 1420
+  hls:
+    collection: NASA/HLS/HLSL30/v002 + HLSS30/v002
+    l30_images:
+      2023: 5212
+      2024: 5240
+    s30_images:
+      2023: 8098
+      2024: 8451
+  naip:
+    collection: USDA/NAIP/DOQQ
+    doqqs_by_year:
+      2003: 18
+      2004: 786
+      2005: 965
+      2006: 1523
+      2007: 91
+      2008: 850
+      2009: 8217
+      2010: 941
+      2011: 8188
+      2012: 1666
+      2013: 295
+      2014: 8900
+      2015: 295
+      2016: 8863
+      2017: 295
+      2018: 7955
+      2019: 1191
+      2020: 8817
+      2021: 295
+      2022: 8719
+      2023: 295
+  usgs-naip-plus:
+    catalogue_items_by_year:
+      2019: 187
+      2021: 23
+      2022: 8863
+      2023: 91
+    note: Latest NAIP/HRO vintage per state only (Category = 1 items).
+  spot:
+    access: restricted (AIRBUS/SPOT6_7; DRI-internal GEE access)
+    scenes_intersecting_bbox_by_year:
+      2013: 95
+      2014: 207
+      2015: 445
+      2016: 342
+      2017: 249
+      2018: 244
+      2019: 197
+      2020: 323
+      2021: 88
+      2022: 258
+      2023: 141
+    note: 'Scene counts, not coverage: scenes may cover only part of the bbox.'
+  google-embedding:
+    collection: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
+    images_by_year:
+      2017: 25
+      2018: 25
+      2019: 25
+      2020: 25
+      2021: 25
+      2022: 25
+      2023: 25
+      2024: 25
+      2025: 25
+  tessera-embedding:
+    v1:
+      tiles_expected: 3538
+      tiles_by_year:
+        2017: 3538
+        2018: 3538
+        2019: 3538
+        2020: 3538
+        2021: 3538
+        2022: 3538
+        2023: 3538
+        2024: 3538
+        2025: 3538
+    v1.1:
+      tiles_expected: 3538
+      tiles_by_year:
+        2017: 3
+        2018: 3
+        2019: 3
+        2020: 3
+        2021: 3
+        2022: 3
+        2023: 3
+        2024: 3
+        2025: 3
+    note: 'Tile counts from the TESSERA manifests (v1 ''vultr'', v1.1 ''cambridge'') fetched 2026-09-26:
+      0.1-degree tiles present per year vs. all tiles intersecting the bbox (expected includes water,
+      which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
+      before large runs.'
+reference_data:
+- 'examples/NMOSE Field Boundaries/WUCB ag polys.shp: New Mexico Office of the State Engineer water-use
+  agricultural polygons, 50,603 polygons (EPSG:26913; local, not distributed).'
+ftw:
+  in_ftw_benchmark_countries: false
+  note: Not an FTW benchmark country (ftw_tools.settings.ALL_COUNTRIES), so FTW models run out of their
+    training distribution here; compare with Delineate-Anything and check a reference sample.
+  published_predictions: FTW Global prediction polygons exist for country US (Source Cooperative alpha/results-by-admin-conf);
+    query them with 'agribound query-ftw --study-area bbox:... --year 2024'. They are model outputs, not
+    reference data.
+notes:
+- Only about 1.6 % of the bbox is cropland (WorldCover), so most tiles hold few fields but are still downloaded
+  and processed. A study area built from the NMOSE polygons (e.g. their buffered convex hulls) cuts the
+  number of tiles; do not use the polygons themselves as the study area when they are also the reference.
+- NAIP in GEE ends in 2023 (registry range 2002-2023), so the 2024 NAIP run is skipped by the driver.
+- 'The bbox is the state''s bounding box and extends beyond New Mexico: about 7.4 % of it is Texas
+  (mostly around El Paso and the Trans-Pecos; TIGER/2018/States) and 2.7 % is Mexico (northern Chihuahua
+  and Sonora, including the Valle de Juarez; LSIB_SIMPLE/2017). About 1,060 of the 5,050 km2 of WorldCover
+  2021 cropland in the bbox (300 m, approximate; checked 2026-09-28) lies outside New Mexico, and the
+  worldcover_v200_cropland_fraction values above cover the whole bbox. The NMOSE reference covers New
+  Mexico only, so detections outside the state count as false positives in an evaluation: clip the
+  predictions (or the evaluation) to the state, or set study_area to a file with the state polygon.'

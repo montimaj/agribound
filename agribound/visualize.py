@@ -7,11 +7,15 @@ using leafmap. Supports static plots and interactive HTML maps.
 
 from __future__ import annotations
 
+import datetime as _dt
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +27,84 @@ _DEFAULT_STYLE = {
     "fillColor": "#ff6600",
     "fillOpacity": 0.15,
 }
+
+
+def _json_safe_value(value: Any) -> Any:
+    """Return *value* as a JSON-serialisable Python object.
+
+    Missing values (``None``, ``NaT``, ``NA``) and non-finite floats (which
+    ``JSON.parse`` rejects in the exported HTML) become ``None``; dates, times
+    and timestamps become ISO-8601 text; timedeltas become ISO-8601 durations;
+    NumPy scalars become Python scalars; lists, tuples, arrays and dicts are
+    converted element by element; geometries become WKT; anything else that
+    JSON cannot encode becomes ``str(value)``.
+    """
+    from shapely.geometry.base import BaseGeometry
+
+    if value is None or value is pd.NaT or value is pd.NA:
+        return None
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, bool | int | str):
+        return value
+    if isinstance(value, np.generic):
+        return _json_safe_value(value.item())
+    if isinstance(value, pd.Timedelta):
+        return value.isoformat()
+    if isinstance(value, _dt.timedelta):
+        return pd.Timedelta(value).isoformat()
+    if isinstance(value, _dt.datetime | _dt.date | _dt.time):  # includes pandas.Timestamp
+        return value.isoformat()
+    if isinstance(value, np.ndarray):
+        return [_json_safe_value(v) for v in value.tolist()]
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_value(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe_value(v) for k, v in value.items()}
+    if isinstance(value, BaseGeometry):
+        return value.wkt
+    return str(value)
+
+
+def _json_safe_copy(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Copy of *gdf* whose attribute columns can be written to web-map JSON.
+
+    leafmap 0.63.1 converts only ``datetime64[ns]`` and ``datetime64[ns, UTC]``
+    columns (and does so in place on the frame it is given); any other
+    datetime resolution, such as the ``datetime64[us, UTC]``
+    ``determination:datetime`` column of every pipeline output, reaches the
+    widget as ``pandas.Timestamp`` values and ``Map.to_html`` fails with
+    "Object of type Timestamp is not JSON serializable". Because ipywidgets
+    embeds the state of every live widget, that failed layer also breaks
+    every later ``to_html`` call in the same process.
+
+    Boolean, numeric (non-complex) and pandas string columns are left as they
+    are. Datetime columns become ISO-8601 text (``NaT`` becomes missing) and
+    every other column, including extra geometry columns, is converted value
+    by value with :func:`_json_safe_value`. The input frame is not modified.
+
+    Parameters
+    ----------
+    gdf : geopandas.GeoDataFrame
+        Frame to display.
+
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        Converted copy with the same active geometry column and CRS.
+    """
+    out = gdf.copy()
+    geometry_name = out.geometry.name
+    for column in out.columns:
+        if column == geometry_name:
+            continue
+        dtype = out[column].dtype
+        if pd.api.types.is_bool_dtype(dtype) or isinstance(dtype, pd.StringDtype):
+            continue
+        if pd.api.types.is_numeric_dtype(dtype) and not pd.api.types.is_complex_dtype(dtype):
+            continue
+        out[column] = out[column].astype(object).map(_json_safe_value).astype(object)
+    return out
 
 
 def show_boundaries(
@@ -42,7 +124,10 @@ def show_boundaries(
     Parameters
     ----------
     boundaries : geopandas.GeoDataFrame
-        Field boundary polygons to display.
+        Field boundary polygons to display. The frame is not modified: the
+        map is built from a copy in which datetime columns (such as the
+        pipeline's ``determination:datetime``) are ISO-8601 text and other
+        values JSON cannot encode are converted to text.
     basemap : str
         Basemap tile layer name (default ``"Esri.WorldImagery"``).
         Options: ``"Esri.WorldImagery"``, ``"Google.Satellite"``,
@@ -90,6 +175,9 @@ def show_boundaries(
     # Ensure EPSG:4326 for web mapping
     if boundaries.crs is not None and not boundaries.crs.equals("EPSG:4326"):
         boundaries = boundaries.to_crs("EPSG:4326")
+    # Datetime and other non-JSON attribute values break leafmap's HTML export
+    # (and every later export in the process); convert them on a copy.
+    boundaries = _json_safe_copy(boundaries)
 
     # Create map
     m = leafmap.Map(width=width, height=height)
@@ -157,7 +245,9 @@ def show_comparison(
     Parameters
     ----------
     boundaries_list : list[geopandas.GeoDataFrame]
-        List of boundary GeoDataFrames to compare.
+        List of boundary GeoDataFrames to compare. Only the (Multi)Polygon
+        geometries are drawn; attribute columns are not added to the map, so
+        datetime columns need no conversion. The frames are not modified.
     labels : list[str] or None
         Labels for each set (e.g., engine names or years).
     basemap : str
@@ -189,7 +279,7 @@ def show_comparison(
         gdf_4326 = gdf.to_crs(epsg=4326) if gdf.crs is not None else gdf
         gdf_4326 = gdf_4326.explode(index_parts=False).reset_index(drop=True)
         gdf_4326 = gdf_4326[gdf_4326.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
-        gdf_4326 = gdf_4326[["geometry"]].copy()
+        gdf_4326 = gdf_4326[[gdf_4326.geometry.name]].copy()
         layers_4326.append(gdf_4326)
         all_bounds.append(gdf_4326.total_bounds)
 

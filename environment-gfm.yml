@@ -1,0 +1,22 @@
+# Geospatial-foundation-model agribound environment: Prithvi (terratorch + peft),
+# DINOv3, GeoAI, Delineate-Anything, SAM 2, TESSERA, GEE and the agent extras.
+# It excludes FTW, because ftw-tools 2.x requires lightning<2.6 and terratorch
+# requires lightning>=2.6. Use environment.yml for FTW.
+#
+# Create it from the repository root (the editable install below uses "."):
+#   conda env create -f environment-gfm.yml
+#   conda activate agribound-gfm
+name: agribound-gfm
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - gdal
+  - rasterio
+  - geopandas
+  - pyogrio
+  - shapely>=2.1
+  - pyproj
+  - pip
+  - pip:
+      - -e .[all-gfm,dev]

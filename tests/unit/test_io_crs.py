@@ -54,3 +54,65 @@ class TestGetEqualAreaCrs:
     def test_is_projected(self):
         crs = get_equal_area_crs()
         assert crs.is_projected
+
+
+class TestUtmHelpers:
+    """UTM zone helpers used for export_crs='utm'."""
+
+    def test_zone_edges(self):
+        from agribound.io.crs import utm_zone_for_lon
+
+        assert utm_zone_for_lon(-180.0) == 1
+        assert utm_zone_for_lon(-177.0) == 1
+        assert utm_zone_for_lon(179.99) == 60
+        assert utm_zone_for_lon(180.0) == 1  # antimeridian wraps; never zone 61
+        assert utm_zone_for_lon(150.0) == 56
+
+    def test_get_utm_crs_at_antimeridian_is_valid(self):
+        crs = get_utm_crs(180.0, 10.0)
+        assert 32601 <= crs.to_epsg() <= 32660
+
+    def test_utm_crs_for_shapely_geometry(self):
+        from shapely.geometry import box
+
+        from agribound.io.crs import utm_crs_for_geometry
+
+        # Namoi test AOI centroid ~149.8E, 30.3S -> zone 55 south
+        assert utm_crs_for_geometry(box(149.7, -30.4, 149.9, -30.2)).to_epsg() == 32755
+
+    def test_utm_crs_for_geodataframe_in_other_crs(self):
+        import geopandas as gpd
+        from shapely.geometry import box
+
+        from agribound.io.crs import utm_crs_for_geometry
+
+        gdf = gpd.GeoDataFrame(geometry=[box(-117.0, 36.0, -116.9, 36.1)], crs="EPSG:4326")
+        assert utm_crs_for_geometry(gdf.to_crs("EPSG:3857")).to_epsg() == 32611
+
+    def test_empty_geometry_raises(self):
+        import pytest
+        from shapely.geometry import Polygon
+
+        from agribound.io.crs import utm_crs_for_geometry
+
+        with pytest.raises(ValueError, match="empty"):
+            utm_crs_for_geometry(Polygon())
+
+    def test_zones_for_bounds(self):
+        from agribound.io.crs import utm_zones_for_bounds
+
+        assert utm_zones_for_bounds((147.6, -31.5, 151.03, -29.8)) == [55, 56]
+        assert utm_zones_for_bounds((144.0, 0.0, 150.0, 1.0)) == [55]  # east edge on boundary
+        assert utm_zones_for_bounds((-120.5, 30.0, -120.4, 31.0)) == [10]
+        assert utm_zones_for_bounds((179.0, 0.0, -179.0, 1.0)) == [60, 1]
+        assert utm_zones_for_bounds((174.0, 0.0, 180.0, 1.0)) == [60]
+
+    def test_utm_epsg(self):
+        import pytest
+
+        from agribound.io.crs import utm_epsg
+
+        assert utm_epsg(55, south=True) == 32755
+        assert utm_epsg(11, south=False) == 32611
+        with pytest.raises(ValueError):
+            utm_epsg(61, south=False)

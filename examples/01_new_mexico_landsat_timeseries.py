@@ -1,35 +1,82 @@
 """
-01 — New Mexico Landsat Time Series (1985–2025)
+01 — New Mexico Landsat Time Series with a Fine-Tuned Delineate-Anything Model
 
-Generates annual field boundary polygons over 40 years using Landsat imagery
-and the Delineate-Anything engine. Uses NMOSE (New Mexico Office of the State
-Engineer) WUCB agricultural polygon boundaries for fine-tuning and evaluation.
+Fine-tunes Delineate-Anything on the NMOSE (New Mexico Office of the State
+Engineer) WUCB agricultural polygons, then delineates field boundaries from
+annual Landsat composites and evaluates every year against the same polygons.
 
-The script operates in two modes:
-  1. Fine-tuned inference — fine-tunes the engine on the NMOSE reference
-     boundaries, then runs inference for all 40 years with the improved model.
-  2. Evaluation — compares predictions against NMOSE reference boundaries
-     to compute field-level accuracy metrics (IoU, precision, recall, F1).
+What it shows:
+    1. Fine-tuning (``fine_tune=True``) on a reference layer. The checkpoint
+       path is read back from the run's provenance record
+       (``<output>.provenance.json``, ``facts["fine_tuned_checkpoint"]``).
+    2. Re-using that checkpoint for every year with
+       ``engine_params={"checkpoint_path": ...}``.
+    3. The pipeline's built-in evaluation (``reference_boundaries`` without
+       fine-tuning) and a time-series summary.
 
-Estimated runtime: ~8–12 hours (40 years of GEE composite + GPU inference).
-Fine-tuning adds ~30–60 minutes. Best run on HPC/cloud with GPU.
+Data and caveats:
+    - Source: Landsat 5/7/8/9 Collection 2 Level-2 surface reflectance (x 10000),
+      30 m. Engine: Delineate-Anything (default model ``large_v2``). The
+      published models were trained on 0.25-10 m imagery; 30 m Landsat is
+      outside that range, so agribound logs a WARNING and records
+      ``engine_meta["gsd_outside_training_range"] = True``.
+    - Years: 2025 only by default (``--years``); the full run is
+      ``--years 1985-2025`` (41 years). The checkpoint is trained on the 2024
+      composite, so the default run builds two state-wide composites (2024
+      for fine-tuning, 2025 for delineation). Applying the checkpoint to
+      Landsat 5 TM / 7 ETM+ years is a transfer to other sensors.
+    - Fine-tuning epochs: the default ``--fine-tune-epochs 1`` is a quick
+      test of the workflow, not a usable model; pass more epochs for a real
+      run (for example 10-20; the pipeline default is 20; not benchmarked
+      here). ``--no-fine-tune`` uses the published weights instead.
+    - Outputs: ``fields_landsat_da_finetune-<E>ep_2024.gpkg`` (fine-tuning
+      run), then ``fields_landsat_da_ft<E>ep_<year>.gpkg`` per year, or
+      ``fields_landsat_da_pretrained_<year>.gpkg`` with ``--no-fine-tune``
+      (``<E>`` = epochs). An existing output made with the same settings is
+      loaded instead of recomputed; ``--overwrite`` recomputes it.
+    - Study area: the bounding box of all 50,603 NMOSE polygons (all of New
+      Mexico). The 30 m composite of that box is about 19,200 x 20,800 pixels
+      x 6 bands of float32 (~9.6 GB per year). For state-wide production runs,
+      tile the area with ``agribound.hpc`` (example 19,
+      ``examples/regions/new_mexico_statewide_us.yaml``).
+    - Evaluation is in-sample: the fine-tuned model was trained on the same
+      NMOSE polygons it is evaluated against (a spatial block split holds out
+      validation chips during training, but the evaluation uses all
+      polygons). NMOSE may not include every field in the box; predictions
+      of fields it lacks count as false positives. See example 20 for a
+      stratified evaluation.
+    - The LULC crop filter is on (NLCD is selected for New Mexico) and needs
+      Earth Engine, like the Landsat composites.
+
+Estimated runtime (not measured for 1.0): hours per year for the state-wide box
+(composite download plus GPU inference); fine-tuning adds more. Best run on
+HPC/cloud with a GPU.
 
 Prerequisites:
-    pip install agribound[gee,delineate-anything]
+    pip install "agribound[gee,delineate-anything]"
     agribound auth --project YOUR_GEE_PROJECT
+    NMOSE shapefile at "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
+    Run from the repository root: python examples/01_new_mexico_landsat_timeseries.py
 """
 
 import argparse
 import json
+import logging
+import os
+import sys
 import warnings
 from pathlib import Path
 
-warnings.filterwarnings("ignore", message=".*organizePolygons.*")
-
-import logging
-
 import agribound
+from agribound.evaluate import evaluate
+from agribound.provenance import read_provenance
 
+# Paths below are relative to the repository root. The notebook version of this
+# script runs from examples/notebooks/, so it changes to the repository root first.
+if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
+    os.chdir(Path.cwd().parents[1])
+
+warnings.filterwarnings("ignore", message=".*organizePolygons.*")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(message)s",
@@ -39,32 +86,36 @@ logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
 logging.getLogger("geedim").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-from agribound.evaluate import evaluate
 
 # --- Configuration ---
 NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
 OUTPUT_DIR = Path("outputs/new_mexico_timeseries")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_CRS = "EPSG:26913"  # Match NMOSE reference CRS (NAD83 / UTM zone 13N)
-
-YEARS = range(1985, 2026)
-YEARS = range(2025, 2026)  # quick test for 1 year; comment this out for full 40-year run
 SOURCE = "landsat"
 ENGINE = "delineate-anything"
+FINE_TUNE_YEAR = 2024  # Composite used for fine-tuning
+FINE_TUNE_EPOCHS = 1  # quick workflow test; pass --fine-tune-epochs for a real run
+DEFAULT_YEARS = "2025"  # Full run: "1985-2025"
 
-# Set to True to fine-tune the engine on NMOSE boundaries before inference
-FINE_TUNE = True
-FINE_TUNE_EPOCHS = 1  # Use more epochs (e.g. 10-20) for better results, but longer runtime
+
+def parse_years(text):
+    """Parse "2025", "2020,2022" or "1985-2025" into a list of years."""
+    years = []
+    for part in text.split(","):
+        part = part.strip()
+        if "-" in part:
+            first, last = (int(v) for v in part.split("-"))
+            years.extend(range(first, last + 1))
+        elif part:
+            years.append(int(part))
+    return sorted(set(years))
 
 
-def create_study_area_from_shapefile(shapefile_path):
-    """Derive study area GeoJSON from the bounding box of a shapefile."""
+def create_study_area_from_shapefile(shapefile_path, out_path):
+    """Write the EPSG:4326 bounding box of a vector file as a GeoJSON study area."""
     import geopandas as gpd
 
-    gdf = gpd.read_file(shapefile_path)
-    # Reproject to WGS84 for GeoJSON (shapefile may be in a projected CRS)
-    gdf_4326 = gdf.to_crs(epsg=4326)
-    bounds = gdf_4326.total_bounds  # [minx, miny, maxx, maxy]
+    bounds = gpd.read_file(shapefile_path).to_crs(epsg=4326).total_bounds
+    minx, miny, maxx, maxy = (float(v) for v in bounds)
     bbox_geojson = {
         "type": "FeatureCollection",
         "features": [
@@ -73,237 +124,217 @@ def create_study_area_from_shapefile(shapefile_path):
                 "geometry": {
                     "type": "Polygon",
                     "coordinates": [
-                        [
-                            [bounds[0], bounds[1]],
-                            [bounds[2], bounds[1]],
-                            [bounds[2], bounds[3]],
-                            [bounds[0], bounds[3]],
-                            [bounds[0], bounds[1]],
-                        ]
+                        [[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]
                     ],
                 },
-                "properties": {"name": "NMOSE WUCB Study Area"},
+                "properties": {"name": "NMOSE WUCB bounding box"},
             }
         ],
     }
-    out_path = OUTPUT_DIR / "nm_study_area.geojson"
-    with open(out_path, "w") as f:
-        json.dump(bbox_geojson, f)
+    out_path.write_text(json.dumps(bbox_geojson))
     return str(out_path)
 
 
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="New Mexico Landsat time series field boundary delineation."
+def print_metrics(label, m):
+    """Print the main object-level metrics of agribound.evaluate.evaluate()."""
+    print(
+        f"  {label}: F1={m['f1']:.3f} P={m['precision']:.3f} R={m['recall']:.3f} "
+        f"IoU(matched)={m['iou_mean']:.3f} area-weighted R={m['area_weighted_recall']:.3f} "
+        f"(TP={m['count_tp']} FP={m['count_fp']} FN={m['count_fn']}; "
+        f"FP overlapping no reference field: {m['count_fp_unassigned']})"
     )
-    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
-    return parser.parse_args()
+
+
+def parse_args(argv=None):
+    """Parse command-line arguments (none are read inside Jupyter)."""
+    parser = argparse.ArgumentParser(
+        description="New Mexico Landsat time series with a fine-tuned Delineate-Anything model."
+    )
+    parser.add_argument(
+        "--gee-project",
+        default=None,
+        help=(
+            "Earth Engine project ID (default: $GEE_PROJECT, then the gcloud project, then "
+            "the project_id of the $AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY or "
+            "$GOOGLE_APPLICATION_CREDENTIALS file)."
+        ),
+    )
+    parser.add_argument(
+        "--years",
+        default=DEFAULT_YEARS,
+        help='Years to delineate, e.g. "2025", "2020,2022" or "1985-2025".',
+    )
+    parser.add_argument(
+        "--fine-tune-epochs", type=int, default=FINE_TUNE_EPOCHS, help="Fine-tuning epochs."
+    )
+    parser.add_argument(
+        "--no-fine-tune",
+        action="store_true",
+        help="Use the published Delineate-Anything weights (label-free) instead.",
+    )
+    parser.add_argument(
+        "--overwrite", action="store_true", help="Recompute outputs that already exist."
+    )
+    if argv is None and "ipykernel" in sys.modules:
+        argv = []  # Jupyter passes its own kernel arguments in sys.argv
+    return parser.parse_args(argv)
+
+
+def map_ready(gdf):
+    """Copy of *gdf* with datetime columns as ISO-8601 text, for an HTML map.
+
+    leafmap 0.63 cannot write pandas Timestamp values (such as agribound's
+    ``determination:datetime`` column) into the map's HTML: it raises a JSON
+    serialisation error.
+    """
+    import pandas as pd
+
+    out = gdf.copy()
+    for column in out.columns:
+        if column != out.geometry.name and pd.api.types.is_datetime64_any_dtype(out[column]):
+            out[column] = out[column].map(lambda t: t.isoformat() if pd.notna(t) else None)
+    return out
+
+
+def show_in_notebook(web_map):
+    """Display *web_map* inline when this file runs as a Jupyter notebook."""
+    if "ipykernel" in sys.modules:
+        from IPython.display import display
+
+        display(web_map)
 
 
 def main():
-    """Run annual field boundary delineation for New Mexico (1985–2025)."""
+    """Fine-tune once, then delineate and evaluate every requested year."""
     args = parse_args()
-    gee_project = args.gee_project
+    years = parse_years(args.years)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not Path(NMOSE_SHAPEFILE).exists():
+        raise SystemExit(f"NMOSE reference not found: {NMOSE_SHAPEFILE}")
 
     import geopandas as gpd
 
-    # --- Derive study area from NMOSE shapefile bounds ---
-    study_area = create_study_area_from_shapefile(NMOSE_SHAPEFILE)
-    print(f"Study area derived from NMOSE shapefile bounds: {study_area}")
-
-    # --- Load NMOSE reference boundaries ---
-    print("Loading NMOSE reference boundaries...")
+    study_area = create_study_area_from_shapefile(
+        NMOSE_SHAPEFILE, OUTPUT_DIR / "nm_study_area.geojson"
+    )
+    print(f"Study area (NMOSE bounding box): {study_area}")
     ref_gdf = gpd.read_file(NMOSE_SHAPEFILE)
-    print(f"  {len(ref_gdf)} reference field polygons loaded")
+    print(f"NMOSE reference: {len(ref_gdf)} polygons ({ref_gdf.crs})")
 
-    # --- Phase 1: Fine-tune on NMOSE boundaries (optional) ---
-    # The fine-tuned checkpoint is saved to disk and reused for all
-    # subsequent years, so fine-tuning only runs once.
-    checkpoint_path = None
+    common = dict(
+        study_area=study_area,
+        source=SOURCE,
+        engine=ENGINE,
+        gee_project=args.gee_project,
+        composite_method="median",
+        cloud_cover_max=20,
+        min_area=2500,
+        simplify=2.0,
+        overwrite=args.overwrite,
+    )
+    # The output names record the fine-tuning setting, so runs with different
+    # settings do not collide with each other's outputs.
+    model_tag = "pretrained" if args.no_fine_tune else f"ft{args.fine_tune_epochs}ep"
 
-    if FINE_TUNE:
-        print(f"\n{'=' * 60}")
-        print("Phase 1: Fine-tuning engine on NMOSE reference boundaries")
-        print(f"{'=' * 60}")
-
-        # Use a recent year for fine-tuning composite — recent imagery
-        # is higher quality and best matches current reference boundaries
-        finetune_year = 2024
-        finetune_output = OUTPUT_DIR / f"fields_finetuned_{finetune_year}.gpkg"
-        checkpoint_dir = OUTPUT_DIR / "checkpoints"
-
-        # Check if a checkpoint already exists from a previous run
-        existing_ckpts = list(checkpoint_dir.glob("*.pt")) if checkpoint_dir.exists() else []
-        if existing_ckpts:
-            checkpoint_path = str(existing_ckpts[0])
-            print(f"  Reusing existing checkpoint: {checkpoint_path}")
-        else:
-            gdf_ft = agribound.delineate(
-                study_area=study_area,
-                source=SOURCE,
-                year=finetune_year,
-                engine=ENGINE,
-                output_path=str(finetune_output),
-                gee_project=gee_project,
-                composite_method="median",
-                cloud_cover_max=20,
-                min_area=2500,
-                simplify=2.0,
-                device="auto",
-                reference_boundaries=NMOSE_SHAPEFILE,
-                fine_tune=True,
-                fine_tune_epochs=FINE_TUNE_EPOCHS,
-            )
-
-            # Reproject to match NMOSE reference CRS
-            if gdf_ft.crs is not None and str(gdf_ft.crs) != OUTPUT_CRS:
-                gdf_ft = gdf_ft.to_crs(OUTPUT_CRS)
-                gdf_ft.to_file(finetune_output, driver="GPKG", layer="fields")
-            print(f"\n  Fine-tuned model produced {len(gdf_ft)} fields for {finetune_year}")
-
-            # Evaluate fine-tuned results against NMOSE
-            metrics = evaluate(gdf_ft, ref_gdf)
-            print("  Fine-tuned evaluation:")
-            print(f"    IoU:       {metrics['iou_mean']:.3f}")
-            print(f"    Precision: {metrics['precision']:.3f}")
-            print(f"    Recall:    {metrics['recall']:.3f}")
-            print(f"    F1:        {metrics['f1']:.3f}")
-
-            # Locate the saved checkpoint for reuse in Phase 2
-            new_ckpts = list(checkpoint_dir.glob("*.pt")) if checkpoint_dir.exists() else []
-            if new_ckpts:
-                checkpoint_path = str(new_ckpts[0])
-                print(f"  Checkpoint saved: {checkpoint_path}")
-
-    # --- Phase 2: Run inference for all years ---
-    # If fine-tuning was done, pass the checkpoint via engine_params
-    # so every year uses the improved model weights.
-    print(f"\n{'=' * 60}")
-    print("Phase 2: Annual field boundary delineation (1985–2025)")
-    if checkpoint_path:
-        print(f"  Using fine-tuned checkpoint: {checkpoint_path}")
-    print(f"{'=' * 60}")
-
+    # --- Phase 1: fine-tune on the NMOSE polygons ---------------------------
+    # The checkpoint is cached under OUTPUT_DIR/.agribound_cache and keyed by
+    # the study area, source, year, reference file, epochs, split and seed, so
+    # re-running this script does not retrain.
     engine_params = {}
-    if checkpoint_path:
-        engine_params["checkpoint_path"] = checkpoint_path
-
-    all_results = {}
-
-    for year in YEARS:
-        print(f"\nProcessing year {year}...")
-        output_path = OUTPUT_DIR / f"fields_landsat_{year}.gpkg"
-
-        # Skip if already processed
-        if output_path.exists():
-            print(f"  Already exists: {output_path}, skipping.")
-            all_results[year] = gpd.read_file(output_path)
-            continue
-
-        try:
-            gdf = agribound.delineate(
-                study_area=study_area,
-                source=SOURCE,
-                year=year,
-                engine=ENGINE,
-                output_path=str(output_path),
-                gee_project=gee_project,
-                composite_method="median",
-                cloud_cover_max=20,
-                min_area=2500,
-                simplify=2.0,
-                device="auto",
-                # Evaluate each year against NMOSE (no fine-tuning)
-                reference_boundaries=NMOSE_SHAPEFILE,
-                fine_tune=False,
-                engine_params=engine_params,
-            )
-            # Reproject to match NMOSE reference CRS
-            if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
-                gdf = gdf.to_crs(OUTPUT_CRS)
-                gdf.to_file(output_path, driver="GPKG", layer="fields")
-            all_results[year] = gdf
-            print(f"  Delineated {len(gdf)} fields for {year}")
-
-            # Print evaluation metrics if available
-            if hasattr(gdf, "attrs") and "evaluation_metrics" in gdf.attrs:
-                m = gdf.attrs["evaluation_metrics"]
-                print(
-                    f"  Evaluation: F1={m['f1']:.3f} IoU={m['iou_mean']:.3f} "
-                    f"P={m['precision']:.3f} R={m['recall']:.3f}"
-                )
-        except Exception as exc:
-            print(f"  Failed for {year}: {exc}")
-
-    # --- Phase 3: Summary statistics ---
-    print(f"\n{'=' * 60}")
-    print("Time Series Summary")
-    print(f"{'=' * 60}")
-    print(f"  {'Year':<6} {'Fields':>6} {'Area (ha)':>12} {'F1':>6} {'IoU':>6}")
-    print(f"  {'-' * 6} {'-' * 6} {'-' * 12} {'-' * 6} {'-' * 6}")
-
-    for year, gdf in sorted(all_results.items()):
-        area_ha = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
-        f1 = ""
-        iou = ""
-        if hasattr(gdf, "attrs") and "evaluation_metrics" in gdf.attrs:
-            m = gdf.attrs["evaluation_metrics"]
-            f1 = f"{m['f1']:.3f}"
-            iou = f"{m['iou_mean']:.3f}"
-        print(f"  {year:<6} {len(gdf):>6} {area_ha:>12,.1f} {f1:>6} {iou:>6}")
-
-    # --- Phase 4: Visualization ---
-    print(f"\n{'=' * 60}")
-    print("Generating maps...")
-    print(f"{'=' * 60}")
-
-    # Map of latest year with NMOSE reference overlay
-    if all_results:
-        latest_year = max(all_results.keys())
-        latest_gdf = all_results[latest_year]
-
-        # Show predicted vs reference boundaries
-        from agribound.visualize import show_comparison
-
-        m = show_comparison(
-            [latest_gdf, ref_gdf],
-            labels=[f"Predicted ({latest_year})", "NMOSE Reference"],
-            basemap="Esri.WorldImagery",
-            output_html=str(OUTPUT_DIR / "map_predicted_vs_reference.html"),
+    if not args.no_fine_tune:
+        print(f"\n{'=' * 60}\nPhase 1: fine-tuning on {FINE_TUNE_YEAR} Landsat\n{'=' * 60}")
+        ft_output = (
+            OUTPUT_DIR
+            / f"fields_landsat_da_finetune-{args.fine_tune_epochs}ep_{FINE_TUNE_YEAR}.gpkg"
         )
-        print(f"  Predicted vs Reference: {OUTPUT_DIR / 'map_predicted_vs_reference.html'}")
+        gdf_ft = agribound.delineate(
+            **common,
+            year=FINE_TUNE_YEAR,
+            output_path=str(ft_output),
+            reference_boundaries=NMOSE_SHAPEFILE,
+            fine_tune=True,
+            fine_tune_epochs=args.fine_tune_epochs,
+        )
+        record = read_provenance(ft_output) or {}
+        checkpoint_path = (record.get("facts") or {}).get("fine_tuned_checkpoint")
+        if not checkpoint_path:
+            raise SystemExit(f"No fine_tuned_checkpoint in {ft_output}.provenance.json")
+        engine_params["checkpoint_path"] = checkpoint_path
+        print(f"  {len(gdf_ft)} fields in {FINE_TUNE_YEAR}; checkpoint: {checkpoint_path}")
+        # The pipeline does not evaluate fine-tuning runs; this is in-sample.
+        print_metrics("In-sample evaluation (training polygons)", evaluate(gdf_ft, ref_gdf))
 
-    # Multi-year comparison
-    selected_years = [1985, 1995, 2005, 2015, 2025]
-    boundaries_list = []
-    labels = []
-    for year in selected_years:
-        if year in all_results:
-            boundaries_list.append(all_results[year])
-            labels.append(str(year))
+    # --- Phase 2: one run per year -------------------------------------------
+    print(f"\n{'=' * 60}\nPhase 2: annual delineation {years[0]}-{years[-1]}\n{'=' * 60}")
+    all_results = {}
+    for year in years:
+        output_path = OUTPUT_DIR / f"fields_landsat_da_{model_tag}_{year}.gpkg"
+        print(f"\nYear {year} -> {output_path}")
+        try:
+            # An existing output with a matching provenance record is loaded
+            # instead of recomputed (unless --overwrite).
+            gdf = agribound.delineate(
+                **common,
+                year=year,
+                output_path=str(output_path),
+                reference_boundaries=NMOSE_SHAPEFILE,  # evaluation only
+                engine_params=dict(engine_params),
+            )
+        except Exception as exc:
+            print(f"  Failed for {year}: {type(exc).__name__}: {exc}")
+            continue
+        all_results[year] = gdf
+        print(f"  {len(gdf)} fields")
+        if "evaluation_metrics" in gdf.attrs:
+            label = "Evaluation" + (" (in-sample)" if engine_params else "")
+            print_metrics(label, gdf.attrs["evaluation_metrics"])
 
-    if boundaries_list:
-        show_comparison(
-            boundaries_list,
-            labels=labels,
+    # --- Phase 3: summary -------------------------------------------------------
+    print(f"\n{'=' * 60}\nTime series summary\n{'=' * 60}")
+    print(f"  {'Year':<6} {'Fields':>7} {'Area (ha)':>12} {'F1':>6} {'IoU':>6}")
+    for year, gdf in sorted(all_results.items()):
+        area_ha = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0.0
+        m = gdf.attrs.get("evaluation_metrics")
+        f1 = f"{m['f1']:.3f}" if m else ""
+        iou = f"{m['iou_mean']:.3f}" if m else ""
+        print(f"  {year:<6} {len(gdf):>7} {area_ha:>12,.1f} {f1:>6} {iou:>6}")
+
+    # --- Phase 4: maps ---------------------------------------------------------
+    if not all_results:
+        print("\nNo year succeeded; no maps written.")
+        return
+    from agribound.visualize import show_comparison
+
+    latest_year = max(all_results)
+    web_map = show_comparison(
+        [all_results[latest_year], ref_gdf],
+        labels=[f"Predicted ({latest_year})", "NMOSE reference"],
+        basemap="Esri.WorldImagery",
+        output_html=str(OUTPUT_DIR / "map_predicted_vs_reference.html"),
+    )
+    show_in_notebook(web_map)
+    print(f"\n  Predicted vs reference: {OUTPUT_DIR / 'map_predicted_vs_reference.html'}")
+
+    selected = [y for y in (1985, 1995, 2005, 2015, 2025) if y in all_results]
+    if len(selected) >= 2:
+        web_map = show_comparison(
+            [all_results[y] for y in selected],
+            labels=[str(y) for y in selected],
             basemap="Esri.WorldImagery",
             output_html=str(OUTPUT_DIR / "map_timeseries_comparison.html"),
         )
-        print(f"  Time series comparison: {OUTPUT_DIR / 'map_timeseries_comparison.html'}")
+        show_in_notebook(web_map)
+        print(f"  Time series: {OUTPUT_DIR / 'map_timeseries_comparison.html'}")
 
-    # Latest year standalone map
-    if all_results:
-        agribound.show_boundaries(
-            all_results[max(all_results.keys())],
-            basemap="Esri.WorldImagery",
-            output_html=str(OUTPUT_DIR / "map_latest.html"),
-        )
-        print(f"  Latest year map: {OUTPUT_DIR / 'map_latest.html'}")
+    web_map = agribound.show_boundaries(
+        map_ready(all_results[latest_year]),
+        basemap="Esri.WorldImagery",
+        output_html=str(OUTPUT_DIR / "map_latest.html"),
+    )
+    show_in_notebook(web_map)
+    print(f"  Latest year: {OUTPUT_DIR / 'map_latest.html'}")
 
 
 if __name__ == "__main__":
     main()
-    import os
-
-    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

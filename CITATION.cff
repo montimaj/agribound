@@ -1,18 +1,18 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
+message: "If you use this software, please cite it as below. Please also cite the models and datasets you use (see references)."
 title: "Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings"
 type: software
 license: Apache-2.0
 url: "https://github.com/montimaj/agribound"
 repository-code: "https://github.com/montimaj/agribound"
 doi: "10.5281/zenodo.19229665"
-version: "0.1.3.post1"
-date-released: "2026-06-11"
+version: "1.0.0"
+date-released: "2026-09-29"
 authors:
   - family-names: Majumdar
     given-names: Sayantan
     affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
-    orcid: "https://orcid.org/0000-0002-1037-0481"
+    orcid: "https://orcid.org/0000-0002-3539-0147"
   - family-names: Rapp
     given-names: Jeremy
     affiliation: "Department Of Earth and Environmental Sciences, Michigan State University, East Lansing, MI, USA"
@@ -64,3 +64,204 @@ keywords:
   - Google Earth Engine
   - land use land cover
   - semantic segmentation
+preferred-citation:
+  type: software
+  title: "Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings"
+  doi: "10.5281/zenodo.19229665"
+  url: "https://doi.org/10.5281/zenodo.19229665"
+  publisher:
+    name: Zenodo
+  year: 2026
+  authors:
+    - family-names: Majumdar
+      given-names: Sayantan
+    - family-names: Rapp
+      given-names: Jeremy
+    - family-names: Huntington
+      given-names: Justin L.
+    - family-names: ReVelle
+      given-names: Peter
+    - family-names: Nozari
+      given-names: Soheil
+    - family-names: Smith
+      given-names: Ryan G.
+    - family-names: Hasan
+      given-names: M. F.
+    - family-names: Bromley
+      given-names: Matt
+    - family-names: Atkin
+      given-names: Jayden
+    - family-names: Jensen
+      given-names: Eric R.
+    - family-names: Ketchum
+      given-names: David
+    - family-names: Roy
+      given-names: Samapriya
+references:
+  - type: article
+    status: in-preparation
+    title: "Measuring what geospatial AI delivers for policy-grade agricultural field boundaries"
+    journal: "Remote Sensing of Environment"
+    year: 2026
+    authors:
+      - family-names: Majumdar
+        given-names: Sayantan
+      - family-names: Rapp
+        given-names: Jeremy
+      - family-names: Huntington
+        given-names: Justin L.
+      - family-names: ReVelle
+        given-names: Peter
+      - family-names: Nozari
+        given-names: Soheil
+      - family-names: Smith
+        given-names: Ryan G.
+      - family-names: Hasan
+        given-names: M. F.
+      - family-names: Bromley
+        given-names: Matt
+      - family-names: Atkin
+        given-names: Jayden
+      - family-names: Jensen
+        given-names: Eric R.
+      - family-names: Ketchum
+        given-names: David
+      - family-names: Roy
+        given-names: Samapriya
+  - type: conference-paper
+    title: "Delineate Anything: Resolution-Agnostic Field Boundary Delineation on Satellite Imagery"
+    year: 2025
+    doi: "10.48550/arXiv.2504.02534"
+    conference:
+      name: "European Conference on Artificial Intelligence (ECAI 2025)"
+    authors:
+      - family-names: Lavreniuk
+        given-names: Mykola
+      - name: "others"
+  - type: conference-paper
+    title: "Delineate Anything v2: A Global Foundation Model for Field Delineation"
+    year: 2026
+    doi: "10.48550/arXiv.2607.19069"
+    conference:
+      name: "European Conference on Computer Vision Workshops (ECCVW 2026): GAIA, the 2nd Workshop on Geospatial AI and Foundation Models"
+    authors:
+      - family-names: Lavreniuk
+        given-names: Mykola
+      - name: "others"
+  - type: conference-paper
+    title: "Fields of The World: A Machine Learning Benchmark Dataset for Global Agricultural Field Boundary Segmentation"
+    year: 2025
+    doi: "10.1609/aaai.v39i27.35034"
+    collection-title: "Proceedings of the AAAI Conference on Artificial Intelligence"
+    volume: 39
+    issue: "27"
+    start: 28151
+    end: 28159
+    authors:
+      - family-names: Kerner
+        given-names: Hannah
+      - name: "others"
+  - type: article
+    title: "PRUE: A Practical Recipe for Field Boundary Segmentation at Scale"
+    year: 2026
+    doi: "10.48550/arXiv.2603.27101"
+    authors:
+      - family-names: Muhawenayo
+        given-names: Gedeon
+      - name: "others"
+  - type: article
+    title: "GeoAI: A Python package for integrating artificial intelligence with geospatial data analysis and visualization"
+    year: 2026
+    doi: "10.21105/joss.09605"
+    journal: "Journal of Open Source Software"
+    volume: 11
+    issue: "118"
+    start: 9605
+    authors:
+      - family-names: Wu
+        given-names: Qiusheng
+  - type: article
+    title: "DINOv3"
+    year: 2025
+    doi: "10.48550/arXiv.2508.10104"
+    authors:
+      - family-names: Siméoni
+        given-names: Oriane
+      - name: "others"
+  - type: article
+    title: "Prithvi-EO-2.0: A versatile multitemporal foundation model for Earth observation applications"
+    year: 2026
+    doi: "10.1109/TGRS.2025.3642610"
+    journal: "IEEE Transactions on Geoscience and Remote Sensing"
+    volume: 64
+    start: 1
+    end: 20
+    authors:
+      - family-names: Szwarcman
+        given-names: Daniela
+      - name: "others"
+  - type: conference-paper
+    title: "TESSERA: Temporal Embeddings of Surface Spectra for Earth Representation and Analysis"
+    year: 2026
+    doi: "10.48550/arXiv.2506.20380"
+    conference:
+      name: "IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR 2026)"
+    start: 34818
+    end: 34831
+    authors:
+      - family-names: Feng
+        given-names: Zhengpeng
+      - name: "others"
+  - type: article
+    title: "AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data"
+    year: 2025
+    doi: "10.48550/arXiv.2507.22291"
+    authors:
+      - family-names: Brown
+        given-names: Christopher F.
+      - name: "others"
+  - type: conference-paper
+    title: "SAM 2: Segment Anything in Images and Videos"
+    year: 2025
+    doi: "10.48550/arXiv.2408.00714"
+    conference:
+      name: "International Conference on Learning Representations (ICLR 2025)"
+    authors:
+      - family-names: Ravi
+        given-names: Nikhila
+      - name: "others"
+  - type: conference-paper
+    title: "SAM 3: Segment Anything with Concepts"
+    year: 2026
+    doi: "10.48550/arXiv.2511.16719"
+    conference:
+      name: "International Conference on Learning Representations (ICLR 2026)"
+    authors:
+      - family-names: Carion
+        given-names: Nicolas
+      - name: "others"
+  - type: article
+    title: "samgeo: A Python package for segmenting geospatial data with the Segment Anything Model (SAM)"
+    year: 2023
+    doi: "10.21105/joss.05663"
+    journal: "Journal of Open Source Software"
+    volume: 8
+    issue: "89"
+    start: 5663
+    authors:
+      - family-names: Wu
+        given-names: Qiusheng
+      - family-names: Osco
+        given-names: Lucas Prado
+  - type: article
+    title: "Google Earth Engine: Planetary-scale geospatial analysis for everyone"
+    year: 2017
+    doi: "10.1016/j.rse.2017.06.031"
+    journal: "Remote Sensing of Environment"
+    volume: 202
+    start: 18
+    end: 27
+    authors:
+      - family-names: Gorelick
+        given-names: Noel
+      - name: "others"

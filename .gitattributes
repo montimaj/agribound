@@ -1,0 +1,6 @@
+# Shell scripts keep LF line endings in every checkout (also on Windows with
+# core.autocrlf=true): bash cannot run a script with CRLF endings.
+*.sh text eol=lf
+*.sbatch text eol=lf
+# HPC profiles are sourced by bash (examples/hpc/common.sh).
+examples/hpc/profiles/*.env text eol=lf

@@ -209,6 +209,8 @@ NMOSE Field Boundaries
 .DS_Store
 .claude/
 outputs/
+# agribound intermediates (default cache: <output dir>/.agribound_cache)
+.agribound_cache/
 weights/
 *.geojson
 global_*
@@ -216,3 +218,10 @@ global_*
 test_nm_semi_supervised.py
 
 paper/*
+Namoi*
+*namoi*.sh
+# The two rules above keep the user's own Namoi data and scripts private
+# (examples/Namoi_polygon_data.zip, examples/namoi_*.geojson,
+# examples/run_namoi_delineation.sh). The Namoi region preset is distributed:
+!examples/regions/namoi_catchment_au.yaml
+!examples/regions/run_namoi_catchment_au.sh

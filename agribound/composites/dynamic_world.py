@@ -1,31 +1,71 @@
 """
 Dynamic World crop probability utilities.
 
-Downloads Google Dynamic World (10 m) crop probability composites from GEE.
-Used to filter embedding-based pseudo-labels to agricultural areas only.
+Google Dynamic World V1 (``GOOGLE/DYNAMICWORLD/V1``, 10 m, 2015-06-27 to
+present) gives per-pixel probabilities for nine land-cover classes, derived
+from Sentinel-2 L1C images with at most 35 % cloud cover. The ``crops`` band
+is the estimated probability of crop cover (0-1).
 
-Dynamic World provides per-pixel class probabilities for nine LULC classes
-derived from every Sentinel-2 L1C image with ≤35 % cloud cover.  The
-``crops`` band gives the estimated probability of crop coverage [0, 1].
+The annual crop probability used by Agribound is the per-pixel **median of
+the ``crops`` band over one calendar year** (``[year-01-01,
+(year+1)-01-01)``). Only complete years are used by the LULC filter
+(:mod:`agribound.postprocess.lulc_filter`): 2016 onwards (the collection
+starts mid-2015).
 
-Reference:
-    Brown et al. (2022), Dynamic World, Near real-time global 10 m land
-    use land cover mapping.  Scientific Data, 9, 251.
-    ``GOOGLE/DYNAMICWORLD/V1`` on GEE.
+The GEE catalogue notes that crop probabilities can be comparatively low in the
+absence of obvious distinguishing features, and that high-return surfaces in
+arid climates behave similarly, so thresholds tuned elsewhere may remove real
+fields in arid regions.
+
+Reference: Brown et al. (2022) Dynamic World, Near real-time global 10 m land
+use land cover mapping. Scientific Data 9, 251,
+doi:10.1038/s41597-022-01307-4.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import geopandas as gpd
-import numpy as np
-import rasterio
-from rasterio.features import rasterize
-from shapely.geometry import mapping
 
 logger = logging.getLogger(__name__)
+
+DYNAMIC_WORLD_COLLECTION = "GOOGLE/DYNAMICWORLD/V1"
+DYNAMIC_WORLD_CROP_BAND = "crops"
+#: First complete calendar year of Dynamic World (the collection starts 2015-06-27).
+DYNAMIC_WORLD_FIRST_FULL_YEAR = 2016
+
+
+def dynamic_world_crop_probability(region: Any, year: int) -> Any:
+    """Return the annual median Dynamic World ``crops`` probability as an ``ee.Image``.
+
+    Parameters
+    ----------
+    region : ee.Geometry
+        Area used to select the Dynamic World images (``filterBounds``).
+    year : int
+        Calendar year.
+
+    Returns
+    -------
+    ee.Image
+        Single band ``"crop"`` (float, 0-1), masked where no image has a
+        valid pixel.
+    """
+    import ee
+
+    year = int(year)
+    return (
+        ee.ImageCollection(DYNAMIC_WORLD_COLLECTION)
+        .filterDate(f"{year}-01-01", f"{year + 1}-01-01")
+        .filterBounds(region)
+        .select(DYNAMIC_WORLD_CROP_BAND)
+        .median()
+        .rename("crop")
+        .toFloat()
+    )
 
 
 def download_dynamic_world_crop_prob(
@@ -33,85 +73,84 @@ def download_dynamic_world_crop_prob(
     year: int,
     output_path: str | Path,
     gee_project: str | None = None,
-    scale: int = 10,
+    scale: float = 10,
+    *,
+    config: Any | None = None,
+    crs: str | None = None,
+    max_requests: int = 8,
 ) -> str:
-    """Download a median annual Dynamic World crop probability composite.
+    """Download the annual median Dynamic World crop probability for a bounding box.
 
     Parameters
     ----------
     bbox : tuple
         ``(min_lon, min_lat, max_lon, max_lat)`` in EPSG:4326.
     year : int
-        Target year (2016–present).
+        Calendar year (2015 onwards; 2015 covers only 2015-06-27 to 2015-12-31).
     output_path : str or Path
-        Path for the output single-band GeoTIFF (crop probability 0–1).
+        Output single-band float32 GeoTIFF (crop probability 0-1, NaN nodata).
+        An existing file is returned without downloading.
     gee_project : str or None
-        GEE project ID.
-    scale : int
-        Output resolution in metres (default 10).
+        GEE project ID, used when *config* is not given.
+    scale : float
+        Output pixel size in metres (default 10).
+    config : AgriboundConfig or None
+        When given, Earth Engine is initialised with
+        :func:`agribound.auth.ensure_gee` (service account, high-volume
+        endpoint, workload tag) and ``gee_max_requests`` is used.
+    crs : str or None
+        Output CRS. *None* uses the WGS 84 / UTM zone of the box centre.
+    max_requests : int
+        Concurrent download requests (ignored when *config* is given).
 
     Returns
     -------
     str
-        Path to the downloaded crop probability GeoTIFF.
+        Path to the GeoTIFF.
     """
+    from shapely.geometry import box
+
+    from agribound.composites.gee import (
+        compute_export_grid,
+        ee_geometry,
+        export_ee_image,
+        resolve_export_crs,
+    )
+
     output_path = Path(output_path)
     if output_path.exists():
         logger.info("Using cached Dynamic World crop probability: %s", output_path)
         return str(output_path)
 
-    try:
-        import ee
-    except ImportError:
-        raise ImportError(
-            "earthengine-api is required for Dynamic World downloads. "
-            "Install with: pip install agribound[gee]"
-        ) from None
+    if config is not None:
+        from agribound.auth import ensure_gee
 
-    from agribound.auth import check_gee_initialized, setup_gee
+        ensure_gee(config)
+        max_requests = int(getattr(config, "gee_max_requests", max_requests))
+    else:
+        from agribound.auth import setup_gee
 
-    if not check_gee_initialized():
         setup_gee(project=gee_project)
 
-    logger.info("Downloading Dynamic World crop probability (year=%d)", year)
-
-    region = ee.Geometry.BBox(*bbox)
-    dw = (
-        ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1")
-        .filterDate(f"{year}-01-01", f"{year}-12-31")
-        .filterBounds(region)
-        .select("crops")
-        .median()
-        .clip(region)
+    geom = box(*(float(v) for v in bbox))
+    image = dynamic_world_crop_probability(ee_geometry(geom), year)
+    grid = compute_export_grid(geom, crs or resolve_export_crs("utm", geom), float(scale))
+    logger.info("Downloading Dynamic World crop probability (year=%d)", int(year))
+    export_ee_image(
+        image,
+        output_path,
+        grid=grid,
+        dtype="float32",
+        band_names=["crop"],
+        max_requests=max_requests,
+        tags={
+            "AGRIBOUND_LULC_DATASET": "dynamic_world",
+            "AGRIBOUND_LULC_ASSET": DYNAMIC_WORLD_COLLECTION,
+            "AGRIBOUND_LULC_YEAR": int(year),
+            "AGRIBOUND_LULC_VALUE": "annual median crop probability",
+        },
+        label=f"Dynamic World crops {year}",
     )
-
-    import warnings
-
-    try:
-        import geedim as gd
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            warnings.filterwarnings("ignore", category=RuntimeWarning)
-            gd_img = gd.MaskedImage(dw)
-            gd_img.download(str(output_path), region=region, crs="EPSG:4326", scale=scale)
-    except ImportError:
-        import urllib.request
-
-        url = dw.getDownloadURL(
-            {
-                "region": region,
-                "scale": scale,
-                "crs": "EPSG:4326",
-                "format": "GEO_TIFF",
-            }
-        )
-        urllib.request.urlretrieve(url, str(output_path))
-
-    if not output_path.exists():
-        raise RuntimeError(f"Dynamic World download failed: no file at {output_path}")
-
-    logger.info("Dynamic World crop probability saved: %s", output_path)
     return str(output_path)
 
 
@@ -119,60 +158,56 @@ def filter_polygons_by_crop_prob(
     gdf: gpd.GeoDataFrame,
     crop_prob_raster: str,
     threshold: float = 0.3,
+    keep_nan: bool = False,
 ) -> gpd.GeoDataFrame:
-    """Keep only polygons where mean crop probability exceeds a threshold.
+    """Keep polygons whose mean crop probability is at least *threshold*.
 
-    For each polygon, computes the mean Dynamic World crop probability
-    within its footprint and drops polygons below the threshold.
+    The mean is computed from the pixels whose centres lie inside each polygon
+    (:func:`agribound.postprocess.lulc_filter.zonal_mean_from_raster`),
+    ignoring NaN/nodata pixels.
 
     Parameters
     ----------
     gdf : geopandas.GeoDataFrame
-        Field boundary polygons to filter.
+        Polygons to filter.
     crop_prob_raster : str
-        Path to a single-band crop probability GeoTIFF (values 0–1).
+        Single-band crop probability GeoTIFF (0-1).
     threshold : float
-        Minimum mean crop probability to keep a polygon (default 0.3).
+        Minimum mean crop probability (default 0.3).
+    keep_nan : bool
+        Keep polygons without any valid pixel (default *False*: drop them).
 
     Returns
     -------
     geopandas.GeoDataFrame
-        Filtered polygons (only those with mean crop prob ≥ threshold).
+        Filtered polygons with a ``"lulc:crop_fraction"`` column (the mean
+        probability; NaN without valid pixels).
     """
+    import numpy as np
+
+    from agribound.postprocess.lulc_filter import zonal_mean_from_raster
+
     if len(gdf) == 0:
-        return gdf
-
-    with rasterio.open(crop_prob_raster) as src:
-        crop_data = src.read(1)
-        transform = src.transform
-        raster_crs = src.crs
-        shape = crop_data.shape
-
-    # Reproject polygons to raster CRS if needed
-    gdf_proj = gdf.to_crs(raster_crs) if gdf.crs is not None and gdf.crs != raster_crs else gdf
-
-    # Compute mean crop probability per polygon via rasterize
-    keep_mask = []
-    for geom in gdf_proj.geometry:
-        try:
-            mask = rasterize(
-                [(mapping(geom), 1)],
-                out_shape=shape,
-                transform=transform,
-                fill=0,
-                dtype=np.uint8,
-            )
-            pixels = crop_data[mask == 1]
-            mean_prob = float(np.nanmean(pixels)) if len(pixels) > 0 else 0.0
-            keep_mask.append(mean_prob >= threshold)
-        except Exception:
-            keep_mask.append(False)
-
-    result = gdf[keep_mask].reset_index(drop=True)
+        return gdf.copy()
+    means = zonal_mean_from_raster(gdf, crop_prob_raster)
+    result = gdf.copy()
+    result["lulc:crop_fraction"] = means
+    keep = np.where(np.isfinite(means), means >= threshold, bool(keep_nan))
+    out = result[keep].reset_index(drop=True)
     logger.info(
-        "Crop probability filter: %d → %d polygons (threshold=%.2f)",
+        "Crop probability filter: %d -> %d polygons (threshold=%.2f, %d without valid pixels)",
         len(gdf),
-        len(result),
+        len(out),
         threshold,
+        int((~np.isfinite(means)).sum()),
     )
-    return result
+    return out
+
+
+__all__ = [
+    "DYNAMIC_WORLD_COLLECTION",
+    "DYNAMIC_WORLD_FIRST_FULL_YEAR",
+    "download_dynamic_world_crop_prob",
+    "dynamic_world_crop_probability",
+    "filter_polygons_by_crop_prob",
+]

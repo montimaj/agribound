@@ -1,24 +1,53 @@
 """
-09 — Ensemble Comparison: Multiple Engines on the Same AOI
+09 — Ensemble Comparison: Delineate-Anything and FTW on the Same AOI (Andalusia)
 
-Runs multiple delineation engines on the same study area and compares
-results. Demonstrates the ensemble engine with different merge strategies
-and per-engine visual comparison.
+Runs two label-free engines on the same Sentinel-2 study area near Carmona
+(Seville, Spain), then combines their saved outputs with the three merge
+strategies of the ensemble engine:
 
-Estimated runtime: ~30–60 minutes (runs 2–3 engines, GPU recommended).
+    - ``intersection``: areas that every member covers;
+    - ``union``: all members' polygons, duplicates fused (IoU >= 0.3 or
+      containment >= 0.8);
+    - ``vote``: pixels covered by at least ``min_votes`` members, polygonised.
+      ``min_votes = max(min(2, n), ceil(vote_threshold * n))`` for the ``n``
+      members with polygons, so with two members and ``vote_threshold=0.3``
+      both must agree.
+
+The merges here call the ensemble engine's static merge functions on the two
+saved member outputs (no engine is re-run). They are followed only by the
+area filter, not by the pipeline's smoothing, simplification, LULC filter or
+metadata columns. On saved outputs the vote uses a 10 m grid over the
+members' extent; ``engine="ensemble"`` votes on the input raster's own grid.
+``--run-ensemble-engine`` also runs the full pipeline with
+``engine="ensemble"`` (the members are run again inside it).
+
+Data: Sentinel-2 L2A, 2024. Study area: a 0.15 x 0.1 degree box
+(5.55-5.40 W, 37.4-37.5 N); ESA WorldCover 2021 classifies ~90 % of it as
+cropland (query on 2026-09-27). The LULC crop filter is on for the member
+runs (Dynamic World is selected outside the US).
+
+Estimated runtime (not measured for 1.0): ~20-40 minutes (two engines, GPU
+recommended).
 
 Prerequisites:
-    pip install agribound[gee,delineate-anything,ftw,geoai]
+    pip install "agribound[gee,delineate-anything,ftw]"
     agribound auth --project YOUR_GEE_PROJECT
+    Run from the repository root: python examples/09_ensemble_comparison.py
 """
 
 import argparse
+import json
 import logging
+import os
+import sys
 from pathlib import Path
 
-import geopandas as gpd
-
 import agribound
+
+# Paths below are relative to the repository root. The notebook version of this
+# script runs from examples/notebooks/, so it changes to the repository root first.
+if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
+    os.chdir(Path.cwd().parents[1])
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,135 +61,161 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/ensemble_comparison")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
 SOURCE = "sentinel2"
 YEAR = 2024
 ENGINES = ["delineate-anything", "ftw"]
+VOTE_THRESHOLD = 0.3
+MIN_AREA_M2 = 2500
+
+AOI = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-5.55, 37.40],
+                        [-5.40, 37.40],
+                        [-5.40, 37.50],
+                        [-5.55, 37.50],
+                        [-5.55, 37.40],
+                    ]
+                ],
+            },
+            "properties": {"name": "Carmona AOI (Seville, Andalusia)"},
+        }
+    ],
+}
 
 
-def create_study_area():
-    """Create a moderate-sized study area."""
-    import json
+def area_ha(gdf):
+    """Total polygon area in hectares (equal-area EPSG:6933)."""
+    from agribound.io.crs import get_equal_area_crs
 
-    # AOI in southern Spain (Andalusia) — mix of field sizes
-    aoi = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [
-                        [
-                            [-3.80, 37.75],
-                            [-3.65, 37.75],
-                            [-3.65, 37.85],
-                            [-3.80, 37.85],
-                            [-3.80, 37.75],
-                        ]
-                    ],
-                },
-                "properties": {"name": "Andalusia AOI"},
-            }
-        ],
-    }
-    path = OUTPUT_DIR / "andalusia_aoi.geojson"
-    with open(path, "w") as f:
-        json.dump(aoi, f)
-    return str(path)
+    if len(gdf) == 0:
+        return 0.0
+    return float(gdf.geometry.to_crs(get_equal_area_crs()).area.sum() / 10000)
 
 
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Ensemble comparison of multiple delineation engines."
+def parse_args(argv=None):
+    """Parse command-line arguments (none are read inside Jupyter)."""
+    parser = argparse.ArgumentParser(description="Delineate-Anything + FTW ensemble merges.")
+    parser.add_argument(
+        "--gee-project",
+        default=None,
+        help=(
+            "Earth Engine project ID (default: $GEE_PROJECT, then the gcloud project, then "
+            "the project_id of the $AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY or "
+            "$GOOGLE_APPLICATION_CREDENTIALS file)."
+        ),
     )
-    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
-    return parser.parse_args()
+    parser.add_argument(
+        "--run-ensemble-engine",
+        action="store_true",
+        help="Also run the full pipeline with engine='ensemble' (vote).",
+    )
+    if argv is None and "ipykernel" in sys.modules:
+        argv = []  # Jupyter passes its own kernel arguments in sys.argv
+    return parser.parse_args(argv)
+
+
+def show_in_notebook(web_map):
+    """Display *web_map* inline when this file runs as a Jupyter notebook."""
+    if "ipykernel" in sys.modules:
+        from IPython.display import display
+
+        display(web_map)
 
 
 def main():
-    """Compare multiple engines and run ensemble."""
     args = parse_args()
-    gee_project = args.gee_project
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    study_area = str(OUTPUT_DIR / "andalusia_aoi.geojson")
+    Path(study_area).write_text(json.dumps(AOI))
+    common = dict(
+        study_area=study_area,
+        source=SOURCE,
+        year=YEAR,
+        gee_project=args.gee_project,
+        min_area=MIN_AREA_M2,
+        simplify=2.0,
+    )
 
-    study_area = create_study_area()
-    results = {}
-
-    # --- Run each engine individually ---
+    # --- Members ---------------------------------------------------------------
+    members = {}
     for engine_name in ENGINES:
-        print(f"\n{'=' * 60}")
-        print(f"Running engine: {engine_name}")
-        print(f"{'=' * 60}")
-
-        output_path = OUTPUT_DIR / f"fields_{engine_name}.gpkg"
-
+        print(f"\n{'=' * 60}\nEngine: {engine_name}\n{'=' * 60}")
+        output_path = OUTPUT_DIR / f"fields_{SOURCE}_{engine_name}_{YEAR}.gpkg"
         try:
-            gdf = agribound.delineate(
-                study_area=study_area,
-                source=SOURCE,
-                year=YEAR,
-                engine=engine_name,
-                output_path=str(output_path),
-                gee_project=gee_project,
-                min_area=2500,
-                simplify=2.0,
-            )
-            results[engine_name] = gdf
-            print(f"  {engine_name}: {len(gdf)} fields")
+            gdf = agribound.delineate(**common, engine=engine_name, output_path=str(output_path))
         except Exception as exc:
-            print(f"  {engine_name} failed: {exc}")
+            print(f"  {engine_name} failed: {type(exc).__name__}: {exc}")
+            continue
+        members[engine_name] = gdf
+        print(f"  {engine_name}: {len(gdf)} fields -> {output_path}")
 
-    # --- Run ensemble (reuse Phase 1 results, no re-running engines) ---
-    print(f"\n{'=' * 60}")
-    print("Running ensemble (vote strategy)")
-    print(f"{'=' * 60}")
+    results = dict(members)
 
-    ensemble_path = OUTPUT_DIR / "fields_ensemble.gpkg"
-    if ensemble_path.exists():
-        ensemble_gdf = gpd.read_file(ensemble_path)
-        results["ensemble"] = ensemble_gdf
-        print(f"  ensemble: {len(ensemble_gdf)} fields (cached)")
-    elif len(results) >= 2:
-        try:
-            from agribound.engines.ensemble import EnsembleEngine
-            from agribound.postprocess import filter_polygons
+    # --- Merge strategies on the saved member outputs -------------------------------
+    if len(members) >= 2:
+        from agribound.engines.ensemble import EnsembleEngine
+        from agribound.postprocess import filter_polygons
 
-            ensemble_gdf = EnsembleEngine._merge_vote(results, threshold=0.3)
-            ensemble_gdf = filter_polygons(ensemble_gdf, min_area_m2=2500)
-            ensemble_gdf.to_file(ensemble_path, driver="GPKG", layer="fields")
-            results["ensemble"] = ensemble_gdf
-            print(f"  ensemble: {len(ensemble_gdf)} fields")
-        except Exception as exc:
-            print(f"  Ensemble failed: {exc}")
+        merged = {
+            "intersection": EnsembleEngine._merge_intersection(members),
+            "union": EnsembleEngine._merge_union(members),
+            "vote": EnsembleEngine._merge_vote(members, threshold=VOTE_THRESHOLD),
+        }
+        for strategy, gdf in merged.items():
+            gdf = filter_polygons(gdf, min_area_m2=MIN_AREA_M2)
+            path = OUTPUT_DIR / f"fields_{SOURCE}_merge-{strategy}_{YEAR}.gpkg"
+            if len(gdf):
+                gdf.to_file(path, driver="GPKG", layer="fields")
+            results[f"merge: {strategy}"] = gdf
+            print(f"  merge '{strategy}': {len(gdf)} polygons")
     else:
-        print("  Not enough engine results for ensemble (need >= 2)")
+        print("\nFewer than two members succeeded; no merges.")
 
-    # --- Comparison summary ---
-    print(f"\n{'=' * 60}")
-    print("Engine Comparison Summary")
-    print(f"{'=' * 60}")
+    # --- Optional: the ensemble engine in the full pipeline -----------------------------
+    if args.run_ensemble_engine:
+        print(f"\n{'=' * 60}\nengine='ensemble' (vote) in the pipeline\n{'=' * 60}")
+        output_path = OUTPUT_DIR / f"fields_{SOURCE}_ensemble-vote_{YEAR}.gpkg"
+        gdf = agribound.delineate(
+            **common,
+            engine="ensemble",
+            output_path=str(output_path),
+            engine_params={
+                "engines": ENGINES,
+                "merge_strategy": "vote",
+                "vote_threshold": VOTE_THRESHOLD,
+            },
+        )
+        results["engine=ensemble (vote)"] = gdf
+        print(f"  {len(gdf)} fields -> {output_path}")
+
+    # --- Summary and map ------------------------------------------------------------
+    print(f"\n{'=' * 60}\nSummary\n{'=' * 60}")
     for name, gdf in results.items():
         n = len(gdf)
-        avg_area = gdf["metrics:area"].mean() / 10000 if "metrics:area" in gdf.columns else 0
-        print(f"  {name:<25} {n:>5} fields, avg {avg_area:>6.1f} ha")
+        mean_ha = area_ha(gdf) / n if n else 0.0
+        print(f"  {name:<28} {n:>6} polygons, mean {mean_ha:>6.1f} ha")
 
-    # --- Visualization ---
-    if len(results) >= 2:
-        from agribound.visualize import show_comparison
+    if not results:
+        print("\nNo run succeeded; no map written.")
+        return
+    from agribound.visualize import show_comparison
 
-        show_comparison(
-            list(results.values()),
-            labels=list(results.keys()),
-            basemap="Esri.WorldImagery",
-            output_html=str(OUTPUT_DIR / "map_ensemble_comparison.html"),
-        )
-        print(f"\nComparison map saved to {OUTPUT_DIR / 'map_ensemble_comparison.html'}")
+    web_map = show_comparison(
+        list(results.values()),
+        labels=list(results.keys()),
+        basemap="Esri.WorldImagery",
+        output_html=str(OUTPUT_DIR / "map_ensemble_comparison.html"),
+    )
+    show_in_notebook(web_map)
+    print(f"\nComparison map: {OUTPUT_DIR / 'map_ensemble_comparison.html'}")
 
 
 if __name__ == "__main__":
     main()
-    import os
-
-    os._exit(0)  # Force exit — geedim's async runner hangs on cleanup

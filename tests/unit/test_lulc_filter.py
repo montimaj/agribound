@@ -1,128 +1,615 @@
-"""Tests for LULC-based crop filtering logic.
+"""Tests for the LULC crop filter (dataset routing, NaN policy, zonal statistics).
 
-These tests cover the dataset selection logic and helper functions
-without requiring GEE authentication (which is tested in integration tests).
+Earth Engine is never contacted: the NLCD coverage test and the reduceRegions
+call are replaced by stand-ins, and raster mode runs on a synthetic LULC
+raster placed at the cache path the filter expects.
 """
 
 from __future__ import annotations
 
+import datetime as dt
+import sys
+import types
+
 import geopandas as gpd
+import numpy as np
 import pytest
+import rasterio
+from rasterio.transform import from_origin
 from shapely.geometry import box
 
 from agribound.config import AgriboundConfig
+from agribound.postprocess import lulc_filter as lf
 
 
-class TestLulcDatasetSelection:
-    """Test that the correct LULC dataset is selected based on location/year."""
+@pytest.fixture
+def needs_ee():
+    """Skip unless earthengine-api (the ``gee`` extra) is installed.
 
-    def _make_config(self, year: int, **kwargs) -> AgriboundConfig:
-        return AgriboundConfig(
-            study_area="test.geojson",
+    These tests raise real ``ee.ee_exception.EEException`` errors; the CI core
+    job does not install the extra.
+    """
+    return pytest.importorskip("ee")
+
+
+NAMOI = (149.0, -30.5, 149.05, -30.45)
+IOWA = (-93.60, 42.00, -93.55, 42.05)
+CHIHUAHUA = (-106.10, 28.60, -106.05, 28.65)  # inside the CONUS envelope, no NLCD
+ONTARIO = (-81.00, 43.00, -80.95, 43.05)  # inside the CONUS envelope, no NLCD
+
+
+def _bbox(b):
+    return "bbox:" + ",".join(str(v) for v in b)
+
+
+def _config(tmp_path, bbox=NAMOI, year=2023, **kwargs):
+    params = {
+        "source": "local",
+        "local_tif_path": str(tmp_path / "unused.tif"),
+        "study_area": _bbox(bbox),
+        "year": year,
+        "output_path": str(tmp_path / "fields.gpkg"),
+        "lulc_filter": True,
+    }
+    params.update(kwargs)
+    return AgriboundConfig(**params)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_today(monkeypatch):
+    monkeypatch.setattr(lf, "_today", lambda: dt.date(2026, 9, 26))
+    lf._NLCD_SOURCE_CACHE.clear()
+
+
+class _Calls(list):
+    """Recorded NLCD coverage queries; ``events`` also records ensure_gee calls in order."""
+
+    events: list
+
+
+@pytest.fixture
+def nlcd_coverage(monkeypatch):
+    """Fake NLCD valid fraction: 1.0 over Iowa, 0.0 elsewhere; records calls."""
+    calls = _Calls()
+    calls.events = []
+
+    def fake(geom, year):
+        calls.append((geom.centroid.x, geom.centroid.y, year))
+        calls.events.append("nlcd_query")
+        return 1.0 if box(*IOWA).contains(geom.centroid) else 0.0
+
+    monkeypatch.setattr(lf, "_nlcd_valid_fraction", fake)
+    monkeypatch.setattr(
+        "agribound.auth.ensure_gee", lambda config: calls.events.append("ensure_gee")
+    )
+    return calls
+
+
+class TestConstants:
+    def test_crop_classes(self):
+        assert lf.NLCD_CROP_CLASSES == (81, 82)
+        assert lf.C3S_CROP_CLASSES == (10, 11, 12, 20, 30)
+        assert lf.CDL_CULTIVATED_VALUE == 2
+
+    def test_year_ranges(self):
+        assert lf.dataset_year_range("nlcd") == (1985, 2025)
+        assert lf.dataset_year_range("c3s") == (2000, 2022)
+        assert lf.dataset_year_range("cdl") == (2013, 2023)
+        assert lf.dataset_year_range("dynamic_world") == (2016, 2025)  # last full year
+
+
+class TestRouting:
+    def test_namoi_skips_nlcd_query(self, tmp_path, nlcd_coverage):
+        assert lf.select_lulc_dataset(_config(tmp_path, NAMOI)) == ("dynamic_world", 2023)
+        assert nlcd_coverage == []
+
+    def test_iowa_routes_to_nlcd(self, tmp_path, nlcd_coverage):
+        assert lf.select_lulc_dataset(_config(tmp_path, IOWA, year=2024)) == ("nlcd", 2024)
+        assert nlcd_coverage[0][2] == 2024
+
+    @pytest.mark.parametrize("bbox", [CHIHUAHUA, ONTARIO])
+    def test_mexico_and_canada_do_not_route_to_nlcd(self, tmp_path, nlcd_coverage, bbox):
+        assert lf.select_lulc_dataset(_config(tmp_path, bbox)) == ("dynamic_world", 2023)
+        assert len(nlcd_coverage) == 1  # the coverage test was run and failed
+
+    def test_pre_2016_outside_us_uses_c3s(self, tmp_path, nlcd_coverage):
+        assert lf.select_lulc_dataset(_config(tmp_path, CHIHUAHUA, year=2010)) == ("c3s", 2010)
+        assert lf.select_lulc_dataset(_config(tmp_path, NAMOI, year=2015)) == ("c3s", 2015)
+        assert lf.select_lulc_dataset(_config(tmp_path, NAMOI, year=1995)) == ("c3s", 2000)
+
+    def test_current_year_uses_last_full_dynamic_world_year(self, tmp_path, nlcd_coverage):
+        assert lf.select_lulc_dataset(_config(tmp_path, NAMOI, year=2026)) == (
+            "dynamic_world",
+            2025,
+        )
+
+    def test_nlcd_nearest_year(self, tmp_path, nlcd_coverage):
+        assert lf.select_lulc_dataset(_config(tmp_path, IOWA, year=1980)) == ("nlcd", 1985)
+        assert nlcd_coverage[0][2] == 1985
+
+    def test_override(self, tmp_path, nlcd_coverage):
+        cfg = _config(tmp_path, NAMOI, year=2025, lulc_dataset="cdl")
+        assert lf.select_lulc_dataset(cfg) == ("cdl", 2023)
+        cfg = _config(tmp_path, IOWA, year=1995, lulc_dataset="c3s")
+        assert lf.select_lulc_dataset(cfg) == ("c3s", 2000)
+        assert nlcd_coverage == []
+
+    def test_earth_engine_initialised_before_nlcd_query(self, tmp_path, nlcd_coverage):
+        lf.select_lulc_dataset(_config(tmp_path, IOWA))
+        assert nlcd_coverage.events == ["ensure_gee", "nlcd_query"]
+        # areas far from the US need no Earth Engine request for routing
+        nlcd_coverage.events.clear()
+        lf.select_lulc_dataset(_config(tmp_path, NAMOI))
+        assert nlcd_coverage.events == []
+
+    def test_selection_is_cached(self, tmp_path, nlcd_coverage):
+        cfg = _config(tmp_path, IOWA)
+        lf.select_lulc_dataset(cfg)
+        lf.select_lulc_dataset(cfg)
+        assert len(nlcd_coverage) == 1
+        # a different year is a different decision
+        lf.select_lulc_dataset(cfg.merged(year=2020))
+        assert len(nlcd_coverage) == 2
+
+
+# ---------------------------------------------------------------------------
+# Zonal statistics on a synthetic raster
+# ---------------------------------------------------------------------------
+
+
+def _lulc_raster(path, data, x0=500000.0, y0=6620000.0, res=10.0, crs="EPSG:32755", **tags):
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        count=1,
+        height=data.shape[0],
+        width=data.shape[1],
+        dtype="float32",
+        crs=crs,
+        transform=from_origin(x0, y0, res, res),
+        nodata=float("nan"),
+    ) as dst:
+        dst.write(data.astype(np.float32), 1)
+        dst.update_tags(**{k: str(v) for k, v in tags.items()})
+    return str(path)
+
+
+class TestZonalMean:
+    def test_matches_brute_force(self, tmp_path):
+        rng = np.random.default_rng(3)
+        data = rng.random((200, 300)).astype(np.float32)
+        data[50:60, 50:60] = np.nan
+        path = _lulc_raster(tmp_path / "r.tif", data)
+        polys = []
+        for _ in range(40):
+            c = rng.integers(0, 280)
+            r = rng.integers(0, 180)
+            w, h = rng.integers(2, 20, size=2)
+            polys.append(
+                box(
+                    500000 + c * 10, 6620000 - (r + h) * 10, 500000 + (c + w) * 10, 6620000 - r * 10
+                )
+            )
+        gdf = gpd.GeoDataFrame(geometry=polys, crs="EPSG:32755")
+        got = lf.zonal_mean_from_raster(gdf, path, block_rows=37)
+        expected = []
+        for p in polys:
+            c0, c1 = int((p.bounds[0] - 500000) / 10), int((p.bounds[2] - 500000) / 10)
+            r0, r1 = int((6620000 - p.bounds[3]) / 10), int((6620000 - p.bounds[1]) / 10)
+            expected.append(np.nanmean(data[r0:r1, c0:c1].astype(np.float64)))
+        np.testing.assert_allclose(got, expected, rtol=1e-6)
+
+    def test_subpixel_polygon_uses_all_touched(self, tmp_path):
+        data = np.zeros((10, 10), np.float32)
+        data[2, 3] = 0.8
+        path = _lulc_raster(tmp_path / "r.tif", data)
+        tiny = box(500000 + 32, 6620000 - 28, 500000 + 34, 6620000 - 26)  # inside pixel (2, 3)
+        got = lf.zonal_mean_from_raster(gpd.GeoDataFrame(geometry=[tiny], crs="EPSG:32755"), path)
+        assert got[0] == pytest.approx(0.8)
+
+    def test_all_nan_and_outside_give_nan(self, tmp_path):
+        data = np.full((10, 10), np.nan, np.float32)
+        path = _lulc_raster(tmp_path / "r.tif", data)
+        polys = [box(500010, 6619950, 500050, 6619990), box(0, 0, 10, 10)]
+        got = lf.zonal_mean_from_raster(gpd.GeoDataFrame(geometry=polys, crs="EPSG:32755"), path)
+        assert np.isnan(got).all()
+
+    def test_polygons_are_reprojected(self, tmp_path):
+        data = np.ones((100, 100), np.float32)
+        path = _lulc_raster(tmp_path / "r.tif", data)
+        poly = gpd.GeoSeries([box(500100, 6619100, 500500, 6619500)], crs="EPSG:32755")
+        got = lf.zonal_mean_from_raster(gpd.GeoDataFrame(geometry=poly.to_crs(4326)), path)
+        assert got[0] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# filter_by_lulc (raster mode, offline)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def namoi_raster_mode(tmp_path, nlcd_coverage):
+    """Raster-mode config over Namoi with a synthetic DW raster in the cache."""
+    cfg = _config(tmp_path, NAMOI, lulc_mode="raster")
+    selection = lf._select(cfg)
+    path = lf._lulc_raster_path(cfg, selection)
+    # 200 x 200 px at 10 m: left half crop 0.9, right half 0.1, NaN block at the top-right
+    data = np.full((200, 200), 0.1, np.float32)
+    data[:, :100] = 0.9
+    data[:40, 160:] = np.nan
+    _lulc_raster(
+        path,
+        data,
+        AGRIBOUND_LULC_DATASET="dynamic_world",
+        AGRIBOUND_LULC_ASSET="GOOGLE/DYNAMICWORLD/V1",
+        AGRIBOUND_LULC_BAND="crops",
+        AGRIBOUND_LULC_YEAR=selection.year_used,
+        AGRIBOUND_LULC_VALUE="mean annual-median Dynamic World crop probability",
+    )
+    polys = gpd.GeoDataFrame(
+        {"name": ["crop", "noncrop", "nan", "straddle"]},
+        geometry=[
+            box(500100, 6619000, 500500, 6619400),
+            box(501200, 6619000, 501600, 6619400),
+            box(501700, 6619700, 501900, 6619900),
+            box(500800, 6618000, 501200, 6618400),
+        ],
+        crs="EPSG:32755",
+    )
+    polys.attrs["engine_meta"] = {"backend": "stub"}
+    return cfg, polys
+
+
+class TestFilterRasterMode:
+    def test_threshold_nan_policy_and_columns(self, namoi_raster_mode):
+        cfg, polys = namoi_raster_mode
+        out = lf.filter_by_lulc(polys, cfg)
+        assert list(out["name"]) == ["crop", "nan", "straddle"]
+        frac = dict(zip(out["name"], out["lulc:crop_fraction"], strict=True))
+        assert frac["crop"] == pytest.approx(0.9)
+        assert np.isnan(frac["nan"])  # never 0
+        assert frac["straddle"] == pytest.approx(0.5)
+        assert out["lulc:valid"].tolist() == [True, False, True]
+        assert set(out["lulc:dataset"]) == {"dynamic_world"}
+        assert set(out["lulc:year"]) == {2023}
+        stats = out.attrs["lulc_stats"]
+        assert stats["n_in"] == 4 and stats["n_kept"] == 3 and stats["n_nan"] == 1
+        assert stats["n_below_threshold"] == 1 and stats["mode"] == "raster"
+        assert stats["dataset"] == "dynamic_world" and stats["year_used"] == 2023
+        assert out.attrs["engine_meta"] == {"backend": "stub"}
+        assert out.crs == polys.crs
+
+    def test_drop_policy(self, namoi_raster_mode):
+        cfg, polys = namoi_raster_mode
+        out = lf.filter_by_lulc(polys, cfg.merged(lulc_nodata_policy="drop"))
+        assert list(out["name"]) == ["crop", "straddle"]
+        assert out.attrs["lulc_stats"]["n_nan_dropped"] == 1
+
+    def test_threshold_zero_keeps_valid(self, namoi_raster_mode):
+        cfg, polys = namoi_raster_mode
+        # the threshold is not part of the cache key: the same raster is used
+        cfg0 = cfg.merged(lulc_crop_threshold=0.0)
+        assert len(lf.filter_by_lulc(polys, cfg0)) == 4
+
+
+class TestFilterServerMode:
+    def test_missing_means_are_nan(self, tmp_path, nlcd_coverage, monkeypatch):
+        monkeypatch.setattr("agribound.auth.ensure_gee", lambda config: None)
+        monkeypatch.setattr("agribound.composites.gee.ee_geometry", lambda g: "REGION")
+        meta = {"asset": "A", "band": "b", "year_used": 2023, "value": "v"}
+        monkeypatch.setattr(lf, "crop_image", lambda ds, year, region: ("IMG", meta))
+        monkeypatch.setattr(
+            lf, "server_zonal_means", lambda gdf, image, scale, batch_size: np.array([0.8, np.nan])
+        )
+        polys = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1), box(2, 2, 3, 3)], crs="EPSG:32755")
+        out = lf.filter_by_lulc(polys, _config(tmp_path, NAMOI))
+        assert len(out) == 2
+        assert np.isnan(out["lulc:crop_fraction"].iloc[1])
+        assert out.attrs["lulc_stats"]["mode"] == "server"
+
+    def test_failures_become_runtime_error(self, tmp_path, nlcd_coverage, monkeypatch):
+        monkeypatch.setattr("agribound.auth.ensure_gee", lambda config: None)
+        monkeypatch.setattr("agribound.composites.gee.ee_geometry", lambda g: "REGION")
+
+        def boom(*a, **k):
+            raise ConnectionError("network down")
+
+        monkeypatch.setattr(lf, "crop_image", boom)
+        polys = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:32755")
+        with pytest.raises(RuntimeError, match="network down"):
+            lf.filter_by_lulc(polys, _config(tmp_path, NAMOI))
+
+
+class _FakeEEError(Exception):
+    pass
+
+
+def _fake_ee_module(missing_every_other=True):
+    ee = types.ModuleType("ee")
+    ee.ee_exception = types.SimpleNamespace(EEException=_FakeEEError)
+    ee.Geometry = lambda geojson, proj=None, geodesic=None: geojson
+    ee.Feature = lambda geom, props: {"geometry": geom, "properties": props}
+    ee.FeatureCollection = lambda features: features
+    ee.Reducer = types.SimpleNamespace(mean=lambda: "mean")
+    return ee
+
+
+class _FakeReduced:
+    def __init__(self, features):
+        self.features = features
+
+    def select(self, props, new=None, retain=True):
+        assert props == ["_idx", "mean"] and retain is False
+        return self
+
+    def getInfo(self):  # noqa: N802 - ee API name
+        out = []
+        for f in self.features:
+            idx = f["properties"]["_idx"]
+            props = {"_idx": idx}
+            if idx % 2 == 0:
+                props["mean"] = idx / 10
+            out.append({"properties": props})
+        return {"features": out}
+
+
+class _FakeImage:
+    def __init__(self):
+        self.batches = []
+
+    def reduceRegions(self, collection, reducer, scale):  # noqa: N802 - ee API name
+        self.batches.append((len(collection), scale))
+        return _FakeReduced(collection)
+
+
+def test_server_zonal_means_batches_and_nan(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ee", _fake_ee_module())
+    image = _FakeImage()
+    polys = gpd.GeoDataFrame(geometry=[box(i, 0, i + 0.5, 0.5) for i in range(5)], crs=4326)
+    values = lf.server_zonal_means(polys, image, 30.0, batch_size=2)
+    assert image.batches == [(2, 30.0), (2, 30.0), (1, 30.0)]
+    np.testing.assert_allclose(values[[0, 2, 4]], [0.0, 0.2, 0.4])
+    assert np.isnan(values[[1, 3]]).all()
+
+
+class TestMisc:
+    def test_empty_gdf(self, tmp_path):
+        cfg = AgriboundConfig(
+            study_area="missing.geojson",
             source="local",
             local_tif_path="test.tif",
-            year=year,
-            output_path="test.gpkg",
-            lulc_filter=True,
-            lulc_crop_threshold=0.3,
-            **kwargs,
+            output_path=str(tmp_path / "t.gpkg"),
         )
+        out = lf.filter_by_lulc(gpd.GeoDataFrame(geometry=[], crs="EPSG:4326"), cfg)
+        assert len(out) == 0
+        assert {"lulc:crop_fraction", "lulc:dataset", "lulc:year", "lulc:valid"} <= set(out.columns)
+        assert out.attrs["lulc_stats"]["n_in"] == 0
 
-    def test_conus_detection(self):
-        """Study area in CONUS should be detected correctly."""
-        from agribound.postprocess.lulc_filter import _CONUS_BBOX
+    def test_prefetch_disabled_returns_none(self, tmp_path):
+        assert lf.prefetch_lulc_raster(_config(tmp_path, lulc_filter=False)) is None
 
-        # New Mexico (CONUS)
-        lon, lat = -106.0, 34.0
-        assert _CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2]
-        assert _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3]
+    def test_prefetch_reuses_cached_raster(self, namoi_raster_mode, monkeypatch):
+        cfg, _ = namoi_raster_mode
 
-        # Hawaii (not CONUS)
-        lon, lat = -155.5, 19.9
-        assert not (
-            _CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2] and _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3]
+        def no_gee(config):
+            raise AssertionError("must not contact Earth Engine")
+
+        monkeypatch.setattr("agribound.auth.ensure_gee", no_gee)
+        path = lf.prefetch_lulc_raster(cfg)
+        assert path.endswith(".tif") and "lulc_dynamic_world" in path
+
+
+# ---------------------------------------------------------------------------
+# Crop-image expressions (numeric ee stand-in), NLCD fallback, regions
+# ---------------------------------------------------------------------------
+
+
+class _Img:
+    """Tiny numeric stand-in for the ee.Image operations used by crop_image."""
+
+    def __init__(self, bands):
+        self.bands = {k: np.asarray(v, dtype=np.float64) for k, v in bands.items()}
+
+    def _one(self):
+        (arr,) = self.bands.values()
+        return arr
+
+    def select(self, band):
+        return _Img({band: self.bands[band]})
+
+    def eq(self, v):
+        return _Img({"x": (self._one() == v).astype(float)})
+
+    def Or(self, other):  # noqa: N802 - ee API name
+        return _Img({"x": ((self._one() != 0) | (other._one() != 0)).astype(float)})
+
+    def remap(self, src, dst, default):
+        out = np.full_like(self._one(), float(default))
+        for s, d in zip(src, dst, strict=True):
+            out[self._one() == s] = d
+        return _Img({"x": out})
+
+    def rename(self, name):
+        return _Img({name: self._one()})
+
+    def toFloat(self):  # noqa: N802 - ee API name
+        return self
+
+
+class _Collection:
+    def __init__(self, asset, log, images):
+        self.asset, self.log, self.images = asset, log, images
+
+    def filter(self, flt):
+        self.log.append((self.asset, flt))
+        return self
+
+    def first(self):
+        return self.images[self.asset]
+
+
+@pytest.fixture
+def crop_ee(monkeypatch):
+    log = []
+    images = {
+        lf.NLCD_ASSET: _Img({"b1": [[11, 81, 82, 21, 71]]}),
+        lf.NLCD_FALLBACK_ASSET: _Img({"landcover": [[82, 41]]}),
+        lf.CDL_ASSET: _Img({"cultivated": [[1, 2, 0]], "cropland": [[1, 1, 1]]}),
+        lf.C3S_ASSET: _Img({"b1": [[10, 11, 12, 20, 30, 40, 50, 210]]}),
+    }
+    module = types.ModuleType("ee")
+    module.ImageCollection = lambda asset: _Collection(asset, log, images)
+    module.Image = lambda x: x
+    module.Filter = types.SimpleNamespace(
+        calendarRange=lambda a, b, unit: ("calendarRange", a, b, unit)
+    )
+    monkeypatch.setitem(sys.modules, "ee", module)
+    return log
+
+
+class TestCropImage:
+    def test_nlcd_classes_81_82(self, crop_ee, monkeypatch):
+        monkeypatch.setattr(lf, "_nlcd_source", lambda year: (lf.NLCD_ASSET, "b1", int(year)))
+        image, meta = lf.crop_image("nlcd", 2023, "REGION")
+        assert image.bands["crop"].tolist() == [[0, 1, 1, 0, 0]]
+        assert meta == {
+            "asset": lf.NLCD_ASSET,
+            "band": "b1",
+            "year_used": 2023,
+            "value": lf.LULC_DATASETS["nlcd"].value,
+        }
+        assert crop_ee == [(lf.NLCD_ASSET, ("calendarRange", 2023, 2023, "year"))]
+
+    def test_nlcd_fallback_release(self, crop_ee, monkeypatch):
+        monkeypatch.setattr(
+            lf, "_nlcd_source", lambda year: (lf.NLCD_FALLBACK_ASSET, "landcover", 2021)
         )
+        image, meta = lf.crop_image("nlcd", 2024, "REGION")
+        assert image.bands["crop"].tolist() == [[1, 0]]
+        assert meta["asset"] == lf.NLCD_FALLBACK_ASSET and meta["year_used"] == 2021
+        assert meta["band"] == "landcover"
+        assert crop_ee == []  # the single-image 2021 release is not filtered by year
 
-        # Argentina (not CONUS)
-        lon, lat = -60.0, -34.0
-        assert not (
-            _CONUS_BBOX[0] <= lon <= _CONUS_BBOX[2] and _CONUS_BBOX[1] <= lat <= _CONUS_BBOX[3]
+    def test_cdl_cultivated_band(self, crop_ee):
+        image, meta = lf.crop_image("cdl", 2020, "REGION")
+        assert image.bands["crop"].tolist() == [[0, 1, 0]]
+        assert meta["band"] == "cultivated" and meta["year_used"] == 2020
+        assert crop_ee == [(lf.CDL_ASSET, ("calendarRange", 2020, 2020, "year"))]
+
+    def test_c3s_cropland_classes_include_11_and_12(self, crop_ee):
+        image, _ = lf.crop_image("c3s", 2010, "REGION")
+        assert image.bands["crop"].tolist() == [[1, 1, 1, 1, 1, 0, 0, 0]]
+
+    def test_dynamic_world_uses_annual_median(self, crop_ee, monkeypatch):
+        seen = {}
+
+        def fake_dw(region, year):
+            seen["args"] = (region, year)
+            return _Img({"crop": [[0.2, 0.8]]})
+
+        monkeypatch.setattr(
+            "agribound.composites.dynamic_world.dynamic_world_crop_probability", fake_dw
         )
+        image, meta = lf.crop_image("dynamic_world", 2023, "REGION")
+        assert seen["args"] == ("REGION", 2023)
+        assert image.bands["crop"].tolist() == [[0.2, 0.8]]
+        assert meta["asset"] == "GOOGLE/DYNAMICWORLD/V1"
 
-    def test_config_defaults(self):
-        """Default config should have LULC filter enabled."""
-        config = AgriboundConfig(
-            study_area="test.geojson",
-            source="local",
-            local_tif_path="test.tif",
-            output_path="test.gpkg",
+    def test_unknown_dataset(self, crop_ee):
+        with pytest.raises(ValueError, match="Unknown LULC dataset 'worldcover'"):
+            lf.crop_image("worldcover", 2021, "REGION")
+
+
+@pytest.mark.usefixtures("needs_ee")
+class TestNlcdSource:
+    def test_other_earth_engine_errors_do_not_fall_back(self, monkeypatch):
+        import ee
+
+        def fail(fn, context="", **kwargs):
+            raise ee.ee_exception.EEException(
+                "Earth Engine client library not initialized. See http://goo.gle/ee-auth."
+            )
+
+        monkeypatch.setattr(lf, "_gee_call_with_retry", fail)
+        with pytest.raises(ee.ee_exception.EEException, match="not initialized"):
+            lf._nlcd_source(2023)
+        assert 2023 not in lf._NLCD_SOURCE_CACHE
+
+    def test_unreadable_annual_asset_falls_back_with_warning(self, monkeypatch, caplog):
+        import ee
+
+        def fail(fn, context="", **kwargs):
+            raise ee.ee_exception.EEException(
+                f"ImageCollection.load: ImageCollection asset '{lf.NLCD_ASSET}' not found "
+                "(does not exist or caller does not have access)."
+            )
+
+        monkeypatch.setattr(lf, "_gee_call_with_retry", fail)
+        with caplog.at_level("WARNING"):
+            assert lf._nlcd_source(2023) == (lf.NLCD_FALLBACK_ASSET, "landcover", 2021)
+        assert any("unavailable" in r.message for r in caplog.records)
+
+    def test_missing_year_raises(self, monkeypatch):
+        monkeypatch.setattr(lf, "_gee_call_with_retry", lambda fn, context="", **k: 0)
+        with pytest.raises(RuntimeError, match="no image for 2023"):
+            lf._nlcd_source(2023)
+
+    def test_available_year_is_used_and_memoised(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            lf, "_gee_call_with_retry", lambda fn, context="", **k: calls.append(1) or 1
         )
-        assert config.lulc_filter is True
-        assert config.lulc_crop_threshold == 0.3
-
-    def test_config_disable(self):
-        """LULC filter can be disabled."""
-        config = AgriboundConfig(
-            study_area="test.geojson",
-            source="local",
-            local_tif_path="test.tif",
-            output_path="test.gpkg",
-            lulc_filter=False,
-        )
-        assert config.lulc_filter is False
-
-    def test_config_custom_threshold(self):
-        """Custom threshold is preserved."""
-        config = AgriboundConfig(
-            study_area="test.geojson",
-            source="local",
-            local_tif_path="test.tif",
-            output_path="test.gpkg",
-            lulc_crop_threshold=0.5,
-        )
-        assert config.lulc_crop_threshold == 0.5
-
-    def test_empty_gdf_returns_empty(self):
-        """Filtering an empty GeoDataFrame should return empty."""
-        from agribound.postprocess.lulc_filter import filter_by_lulc
-
-        gdf = gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
-        config = self._make_config(year=2020)
-        result = filter_by_lulc(gdf, config)
-        assert len(result) == 0
-
-    def test_crop_classes_defined(self):
-        """NLCD and C3S crop classes should be defined."""
-        from agribound.postprocess.lulc_filter import C3S_CROP_CLASSES, NLCD_CROP_CLASSES
-
-        assert 81 in NLCD_CROP_CLASSES
-        assert 82 in NLCD_CROP_CLASSES
-        assert 10 in C3S_CROP_CLASSES
-        assert 20 in C3S_CROP_CLASSES
-        assert 30 in C3S_CROP_CLASSES
+        assert lf._nlcd_source(2020) == (lf.NLCD_ASSET, "b1", 2020)
+        assert lf._nlcd_source(2020) == (lf.NLCD_ASSET, "b1", 2020)
+        assert len(calls) == 1
 
 
-class TestGdfToFc:
-    """Test the GeoDataFrame to FeatureCollection converter."""
+def test_server_region_covers_polygons_outside_study_area(tmp_path):
+    cfg = _config(tmp_path, NAMOI)
+    far = box(149.10, -30.60, 149.12, -30.58)  # east and south of the study area
+    gdf = gpd.GeoDataFrame(geometry=[far], crs="EPSG:4326")
+    region = lf._selection_region_4326(cfg, gdf)
+    assert region.contains(box(*NAMOI)) and region.contains(far)
 
-    @pytest.mark.gee
-    def test_indices_are_sequential(self):
-        """Feature indices should be 0-based and sequential."""
-        try:
-            import ee  # noqa: F401
-        except ImportError:
-            pytest.skip("earthengine-api not installed")
 
-        from agribound.postprocess.lulc_filter import _gdf_to_fc
+@pytest.mark.usefixtures("needs_ee")
+class TestGeeCallWithRetry:
+    """Restricted-mode warnings are logged even when the Earth Engine call raises."""
 
-        polys = [box(i, i, i + 1, i + 1) for i in range(5)]
-        gdf = gpd.GeoDataFrame(geometry=polys, crs="EPSG:4326")
+    QUOTA = (
+        "Your project has exceeded its noncommercial compute quota and is now in restricted mode."
+    )
 
-        try:
-            fc = _gdf_to_fc(gdf)
-            info = fc.getInfo()
-            indices = [f["properties"]["_idx"] for f in info["features"]]
-            assert indices == [0, 1, 2, 3, 4]
-        except Exception:
-            # GEE not initialized — skip the server call but confirm import works
-            pass
+    def test_warning_before_rate_limit_is_logged_and_call_retried(self, monkeypatch, caplog):
+        import warnings
+
+        import ee
+
+        monkeypatch.setattr(lf.time, "sleep", lambda s: None)
+        attempts = []
+
+        def fn():
+            attempts.append(1)
+            if len(attempts) == 1:
+                warnings.warn(self.QUOTA, stacklevel=1)
+                raise ee.ee_exception.EEException("429 Too Many Requests")
+            return 5
+
+        with caplog.at_level("WARNING"):
+            assert lf._gee_call_with_retry(fn, context="unit") == 5
+        assert len(attempts) == 2
+        assert any("restricted mode" in r.message for r in caplog.records)
+
+    def test_warning_before_other_error_is_logged_and_error_raised(self, caplog):
+        import warnings
+
+        import ee
+
+        def fn():
+            warnings.warn(self.QUOTA, stacklevel=1)
+            raise ee.ee_exception.EEException("Image.load: asset not found")
+
+        with caplog.at_level("WARNING"), pytest.raises(ee.ee_exception.EEException):
+            lf._gee_call_with_retry(fn, context="unit")
+        assert any("restricted mode" in r.message and "unit" in r.message for r in caplog.records)

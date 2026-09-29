@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+# setuptools>=77 reads the SPDX `license` string and `license-files` (PEP 639).
+requires = ["setuptools>=77", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,8 +8,9 @@ name = "agribound"
 dynamic = ["version"]
 description = "Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings."
 readme = "README.md"
-license = {text = "Apache-2.0"}
-requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
 authors = [
     {name = "Sayantan Majumdar"},
     {name = "Jeremy Rapp"},
@@ -34,76 +36,93 @@ keywords = [
     "segmentation",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: GIS",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Image Recognition",
 ]
 dependencies = [
-    "rasterio>=1.3",
-    "geopandas>=0.14",
-    "shapely>=2.0",
+    "rasterio>=1.4",
+    "geopandas>=1.0",
+    # make_valid(method="structure"), used to repair invalid geometries in
+    # agribound.evaluate, needs shapely>=2.1 (GEOS>=3.10, bundled with its wheels).
+    "shapely>=2.1",
     "pyproj>=3.6",
-    "fiona>=1.9",
     "pyarrow>=14",
-    "numpy>=1.24",
+    "numpy>=1.26",
     "scipy>=1.11",
     "scikit-learn>=1.3",
     "click>=8.1",
     "pyyaml>=6.0",
     "tqdm>=4.65",
-    "huggingface-hub>=0.20",
-    "dask[distributed]>=2024.1",
+    "huggingface-hub>=0.34,<2",
+    "psutil>=5.9",
     "leafmap>=0.30",
 ]
 
 [project.optional-dependencies]
 gee = [
-    "earthengine-api>=0.1.380",
-    "geemap>=0.30",
-    "geedim>=2.0",
+    "earthengine-api>=1.7.45,<2",
+    "geemap>=0.37",
+    "geedim>=2.0,<3",
 ]
+# numba is needed only by engine_params backend="reference", which runs the
+# Delineate-Anything repository's own pipeline: methods/main/inference.py imports
+# its simplification package, whose SimplificationWorker.py imports numba. That
+# backend also needs the GDAL Python bindings (osgeo; conda-forge `gdal`).
 delineate-anything = [
-    "ultralytics>=8.3",
+    "ultralytics>=8.4.80,<8.5",
     "opencv-python>=4.8",
+    "huggingface-hub>=0.34,<2",
+    "psutil>=5.9",
     "numba>=0.58",
 ]
+# ftw-tools 2.x is a pre-release on PyPI; the explicit pre-release lower bound
+# lets pip select it. ftw-tools pins lightning>=2,<2.6 itself, which conflicts
+# with terratorch (lightning>=2.6), so `ftw` and `prithvi` cannot share an env.
 ftw = [
-    "torch>=2.1",
-    "torchvision>=0.16",
-    "torchgeo>=0.6",
-    "segmentation-models-pytorch>=0.3",
-    "lightning>=2.6",
-    # PyPI ftw-tools (v1.x) provides semantic segmentation only.
-    # For instance segmentation (Delineate-Anything via FTW), install the
-    # dev version: pip install -e path/to/ftw-baselines
-    "ftw-tools>=1.4",
+    "ftw-tools>=2.0.0b5,<3",
+    "torch>=2.4",
+    "torchgeo>=0.9",
+    "segmentation-models-pytorch>=0.5",
 ]
 geoai = [
-    "geoai-py>=0.30",
-    "termcolor",
+    "geoai-py>=0.43.1",
 ]
+dinov3 = [
+    "geoai-py>=0.43.1",
+]
+# Use a separate environment (see environment-gfm.yml): conflicts with `ftw`.
 prithvi = [
-    "terratorch>=0.1",
-    "torch>=2.1",
-    "torchgeo>=0.6",
-    "kornia>=0.7",
+    "terratorch[peft]>=1.2.13,<1.3",
 ]
 samgeo = [
-    "segment-geospatial[samgeo2]>=1.3",
-    "torch>=2.1",
+    "segment-geospatial[samgeo2]>=1.4.2",
+]
+# SAM 3, Meta backend (sam_backend="sam3"): needs CUDA and triton. Meta supports Linux only; on Windows
+# the community triton-windows wheel is used (unverified by agribound). segment-geospatial 1.4.2 declares
+# triton-windows under `sys_platform == "windows"`, a marker that never matches (sys.platform is "win32"
+# on Windows), so it is declared here with the correct marker. The transformers backend
+# (sam_backend="sam3-hf") needs no triton and no extra beyond transformers>=5. Weights are gated on HF.
+# Both SAM 3 backends are untested in 1.0.0 (not run end to end); a WARNING is logged when used.
+sam3 = [
+    "segment-geospatial[samgeo3]>=1.4.2",
+    "triton-windows>=3.3.0.post19; sys_platform == 'win32'",
 ]
 tessera = [
-    "torch>=2.1",
-    "geoai-py>=0.30",
-    "geotessera",
+    "geotessera>=0.10.2,<0.11",
+]
+embedding = [
+    "agribound[tessera,gee]",
+]
+agent = [
+    "anthropic>=1.8,<2",
+    "mcp>=2.2,<3",
 ]
 docs = [
     "mkdocs>=1.5",
@@ -114,10 +133,16 @@ docs = [
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
+    "pytest-timeout>=2.2",
     "ruff>=0.3",
 ]
+# Everything except `prithvi` (conflicts with `ftw`) and `sam3` (needs CUDA + triton; see above).
 all = [
-    "agribound[gee,delineate-anything,ftw,geoai,prithvi,samgeo,tessera]",
+    "agribound[gee,delineate-anything,ftw,geoai,dinov3,samgeo,tessera,agent]",
+]
+# Geospatial-foundation-model stack: everything except `ftw` and `sam3`.
+all-gfm = [
+    "agribound[gee,delineate-anything,geoai,dinov3,prithvi,samgeo,tessera,agent]",
 ]
 
 [project.scripts]
@@ -136,7 +161,7 @@ version = {attr = "agribound._version.__version__"}
 include = ["agribound*"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
@@ -152,4 +177,5 @@ markers = [
     "gpu: requires GPU (deselect with '-m not gpu')",
     "gee: requires GEE authentication (deselect with '-m not gee')",
     "slow: long-running tests (deselect with '-m not slow')",
+    "network: requires network access (deselect with '-m not network')",
 ]

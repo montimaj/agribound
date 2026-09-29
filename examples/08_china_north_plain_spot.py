@@ -1,36 +1,51 @@
 """
-08 — China North Plain, SPOT 6/7 with Delineate-Anything
+08 — North China Plain: SPOT 6/7 with Delineate-Anything
 
-Delineates agricultural fields in the North China Plain using SPOT 6/7
-imagery at 6m resolution. SPOT access is restricted to select GEE users
-(internal DRI use only). External users can contact the package author
-to request processing on their behalf.
+Delineates fields in Hengshui (Hebei Province) from a SPOT 6/7 multispectral
+composite (6 m) with the Delineate-Anything engine (default model
+``large_v2``, label-free).
 
-Estimated runtime: ~15–30 minutes (1 year, 6m resolution, GPU).
+Data:
+    - SPOT 6/7 (AIRBUS/SPOT6_7), 2023, scenes with <= 15 % cloud cover. SPOT
+      composites hold per-band medians of raw digital numbers (radiometry
+      unverified); Delineate-Anything stretches each band to 8 bits with
+      scene-wide 1-99 percentiles, so it does not depend on the DN scale.
+      The collection ends on 2023-11-15.
+    - Study area: a 0.1 x 0.1 degree box (115.4-115.5 E, 37.6-37.7 N). On
+      2026-09-27 five SPOT scenes with <= 15 % cloud cover covered all of it
+      in 2023, and ESA WorldCover 2021 classifies ~89 % of it as cropland.
+
+SPOT 6/7 access is restricted to select Earth Engine users (internal DRI
+use). External users who need SPOT-based field boundaries can contact the
+package author to request processing. Without access, the run fails with the
+Earth Engine error, which the script prints.
+
+The LULC crop filter is on (Dynamic World is selected outside the US).
+
+Estimated runtime (not measured for 1.0): ~10-20 minutes (1 year, 6 m, GPU).
 
 Prerequisites:
-    pip install agribound[gee,delineate-anything]
+    pip install "agribound[gee,delineate-anything]"
     agribound auth --project YOUR_GEE_PROJECT
-
-Note:
-    SPOT 6/7 GEE access is restricted. If you receive an access error,
-    contact the agribound author to request field boundary processing
-    for your study area.
+    Run from the repository root: python examples/08_china_north_plain_spot.py
 """
 
 import argparse
+import json
+import logging
+import os
+import sys
 import warnings
 from pathlib import Path
 
-warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*STAC entry.*")
-warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*export size.*")
-warnings.filterwarnings("ignore", category=FutureWarning, message=".*MaskedImage.*deprecated.*")
-warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
-
-import logging
-
 import agribound
 
+# Paths below are relative to the repository root. The notebook version of this
+# script runs from examples/notebooks/, so it changes to the repository root first.
+if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
+    os.chdir(Path.cwd().parents[1])
+
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*STAC entry.*")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(message)s",
@@ -43,65 +58,82 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/china_north_plain")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
 SOURCE = "spot"
 ENGINE = "delineate-anything"
-YEAR = 2022
+YEAR = 2023
+
+AOI = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [115.40, 37.60],
+                        [115.50, 37.60],
+                        [115.50, 37.70],
+                        [115.40, 37.70],
+                        [115.40, 37.60],
+                    ]
+                ],
+            },
+            "properties": {"name": "North China Plain AOI (Hengshui, Hebei)"},
+        }
+    ],
+}
 
 
-def create_study_area():
-    """Create a study area GeoJSON in the North China Plain."""
-    import json
-
-    # AOI near Shijiazhuang, Hebei Province
-    aoi = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [
-                        [
-                            [114.40, 37.95],
-                            [114.55, 37.95],
-                            [114.55, 38.05],
-                            [114.40, 38.05],
-                            [114.40, 37.95],
-                        ]
-                    ],
-                },
-                "properties": {"name": "North China Plain AOI"},
-            }
-        ],
-    }
-    path = OUTPUT_DIR / "north_china_aoi.geojson"
-    with open(path, "w") as f:
-        json.dump(aoi, f)
-    return str(path)
-
-
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="China North Plain SPOT 6/7 field boundary delineation."
+def parse_args(argv=None):
+    """Parse command-line arguments (none are read inside Jupyter)."""
+    parser = argparse.ArgumentParser(description="North China Plain: SPOT 6/7 + DA.")
+    parser.add_argument(
+        "--gee-project",
+        default=None,
+        help=(
+            "Earth Engine project ID (default: $GEE_PROJECT, then the gcloud project, then "
+            "the project_id of the $AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY or "
+            "$GOOGLE_APPLICATION_CREDENTIALS file)."
+        ),
     )
-    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
-    return parser.parse_args()
+    if argv is None and "ipykernel" in sys.modules:
+        argv = []  # Jupyter passes its own kernel arguments in sys.argv
+    return parser.parse_args(argv)
+
+
+def map_ready(gdf):
+    """Copy of *gdf* with datetime columns as ISO-8601 text, for an HTML map.
+
+    leafmap 0.63 cannot write pandas Timestamp values (such as agribound's
+    ``determination:datetime`` column) into the map's HTML: it raises a JSON
+    serialisation error.
+    """
+    import pandas as pd
+
+    out = gdf.copy()
+    for column in out.columns:
+        if column != out.geometry.name and pd.api.types.is_datetime64_any_dtype(out[column]):
+            out[column] = out[column].map(lambda t: t.isoformat() if pd.notna(t) else None)
+    return out
+
+
+def show_in_notebook(web_map):
+    """Display *web_map* inline when this file runs as a Jupyter notebook."""
+    if "ipykernel" in sys.modules:
+        from IPython.display import display
+
+        display(web_map)
 
 
 def main():
-    """Run SPOT-based field delineation for the North China Plain."""
     args = parse_args()
-    gee_project = args.gee_project
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    study_area = str(OUTPUT_DIR / "north_china_aoi.geojson")
+    Path(study_area).write_text(json.dumps(AOI))
 
-    study_area = create_study_area()
-
-    print(f"Delineating fields from SPOT 6/7 ({YEAR})...")
-    print("Note: SPOT access is restricted. See docstring for details.")
-    output_path = OUTPUT_DIR / f"fields_spot_{YEAR}.gpkg"
-
+    output_path = OUTPUT_DIR / f"fields_{SOURCE}_{ENGINE}_{YEAR}.gpkg"
+    print(f"Delineating fields from SPOT 6/7 ({YEAR}) -> {output_path}")
     try:
         gdf = agribound.delineate(
             study_area=study_area,
@@ -109,39 +141,32 @@ def main():
             year=YEAR,
             engine=ENGINE,
             output_path=str(output_path),
-            gee_project=gee_project,
+            gee_project=args.gee_project,
             cloud_cover_max=15,
             min_area=3000,
             simplify=2.0,
         )
-
-        print(f"\nDelineated {len(gdf)} fields")
-        if "metrics:area" in gdf.columns:
-            area_ha = gdf["metrics:area"].sum() / 10000
-            print(f"Total agricultural area: {area_ha:,.1f} ha")
-
-        # --- Visualization ---
-        agribound.show_boundaries(
-            gdf,
-            basemap="Esri.WorldImagery",
-            output_html=str(OUTPUT_DIR / "map_north_china.html"),
-        )
-        print(f"\nMap saved to {OUTPUT_DIR / 'map_north_china.html'}")
-
     except Exception as exc:
-        import traceback
+        print(f"\nThe run failed: {type(exc).__name__}: {exc}")
+        print(
+            "If this is an Earth Engine permission error: SPOT 6/7 is restricted to select "
+            "users; contact the agribound author for processing."
+        )
+        return
 
-        print(f"\nError: {exc}")
-        traceback.print_exc()
-        if "restricted" in str(exc).lower() or "permission" in str(exc).lower():
-            print(
-                "\nSPOT 6/7 is restricted to select GEE users. "
-                "Contact the agribound author for processing assistance."
-            )
+    print(f"\nDelineated {len(gdf)} fields")
+    if len(gdf) and "metrics:area" in gdf.columns:
+        print(f"Total area: {gdf['metrics:area'].sum() / 10000:,.1f} ha")
+        print(f"Mean field size: {gdf['metrics:area'].mean() / 10000:,.2f} ha")
+
+    web_map = agribound.show_boundaries(
+        map_ready(gdf),
+        basemap="Esri.WorldImagery",
+        output_html=str(OUTPUT_DIR / "map_north_china.html"),
+    )
+    show_in_notebook(web_map)
+    print(f"\nMap saved to {OUTPUT_DIR / 'map_north_china.html'}")
 
 
 if __name__ == "__main__":
     main()
-    import os
-
-    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

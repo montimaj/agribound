@@ -1,160 +1,138 @@
 # Quickstart
 
-This tutorial walks through a basic field boundary delineation workflow in under five minutes.
-
 ## Prerequisites
 
-1. Python >= 3.10 with agribound installed.
-2. A study area boundary file (GeoJSON, Shapefile, or GeoParquet).
-3. For GEE-based sources: a Google Earth Engine project with authentication configured. See [GEE Setup](gee-setup.md).
+1. Python >= 3.12 with agribound and the extras you need (see
+   [Installation](../installation.md)). This page uses
+   `pip install "agribound[gee,delineate-anything]"`.
+2. A study area: a vector file (GeoJSON, GeoPackage, Shapefile, GeoParquet),
+   a `"bbox:minx,miny,maxx,maxy"` string, a WKT geometry (both EPSG:4326) or
+   a GEE vector asset ID.
+3. For Earth Engine sources, and for the LULC crop filter that is on by
+   default, an Earth Engine project with authentication (see
+   [GEE setup](gee-setup.md)).
 
-Install the required extras for this tutorial:
-
-```bash
-pip install agribound[gee,delineate-anything]
-```
-
-## Python Usage
-
-### Basic Delineation
+## Python
 
 ```python
 import agribound
 
 gdf = agribound.delineate(
-    study_area="my_area.geojson",
+    study_area="bbox:-96.64,40.38,-96.60,40.42",
     source="sentinel2",
     year=2024,
     engine="delineate-anything",
     gee_project="my-gee-project",
+    output_path="fields.gpkg",
 )
-
-print(f"Detected {len(gdf)} field boundaries")
-print(gdf.head())
+print(len(gdf), gdf.attrs["run_id"])
 ```
 
-The pipeline will:
+The pipeline:
 
-1. Build a cloud-free annual composite from Sentinel-2 imagery via GEE.
-2. Run the Delineate-Anything model to extract field boundaries.
-3. Post-process polygons (merge overlapping tiles, filter small areas, simplify).
-4. **LULC crop filter** — automatically remove non-agricultural polygons (roads, water, forest, urban) using the best available land cover dataset for your region.
-5. Export results to `fields_sentinel2_2024.gpkg`.
+1. seeds Python, NumPy and torch from `seed` (default 42);
+2. returns the existing `fields.gpkg` without recomputing if its provenance
+   record matches this configuration, or raises `FileExistsError` if it does
+   not (see [Reproducibility](reproducibility.md#output-reuse));
+3. builds a Sentinel-2 median composite for 2024 on Earth Engine over the
+   study area's bounding box, in the UTM zone of its centroid, as reflectance ×
+   10000 (cached in `.agribound_cache/` next to the output);
+4. runs Delineate-Anything (`large_v2` weights, pinned revision);
+5. keeps predictions whose representative point lies in the study area
+   (`aoi_selection`);
+6. merges overlapping polygons, removes polygons and holes below 2500 m²,
+   smooths and simplifies (2 m), then removes the polygons that smoothing and
+   simplification took below 2500 m²;
+7. removes polygons with a crop fraction below 0.3 in the LULC dataset chosen
+   for the area and year (here Annual NLCD, since the area is in the
+   conterminous US);
+8. adds metadata columns and writes `fields.gpkg` and
+   `fields.gpkg.provenance.json`.
 
-!!! note "Automatic crop filtering"
-    Agribound is the only field boundary package that automatically filters output to agricultural areas. It uses NLCD (CONUS, 1985–2024), Dynamic World (global, 2015–present), or C3S Land Cover (global, pre-2015, 1992–2022) depending on your study area location and year. Disable with `lulc_filter=False` for non-agricultural use cases or local files without GEE access.
-
-### Using a Configuration Object
-
-For more control, build an `AgriboundConfig` first:
+### Using a configuration object
 
 ```python
 from agribound import AgriboundConfig, delineate
 
 config = AgriboundConfig(
-    study_area="my_area.geojson",
+    study_area="area.geojson",
+    source="sentinel2",
+    year=2024,
+    engine="ftw",  # FTW_PRUE_EFNET_B5 by default (two seasonal windows)
+    gee_project="my-gee-project",
+    output_path="output/fields_ftw.gpkg",
+    min_field_area_m2=5000,
+)
+gdf = delineate(config=config)
+config.to_yaml("output/fields_ftw.yaml")
+```
+
+### A local GeoTIFF without Earth Engine
+
+```python
+gdf = agribound.delineate(
+    source="local",
+    local_tif_path="my_image.tif",  # study_area is optional for local rasters
+    engine="delineate-anything",
+    bands={"R": 1, "G": 2, "B": 3},
+    lulc_filter=False,  # the LULC filter needs Earth Engine
+    output_path="fields_local.gpkg",
+)
+```
+
+### Evaluation against reference boundaries
+
+```python
+gdf = agribound.delineate(
+    study_area="area.geojson",
     source="sentinel2",
     year=2024,
     engine="delineate-anything",
     gee_project="my-gee-project",
-    output_path="output/fields.gpkg",
-    composite_method="greenest",
-    min_field_area_m2=5000,
+    reference_boundaries="reference.gpkg",
 )
-
-gdf = delineate(config=config, study_area=config.study_area)
+print(gdf.attrs["evaluation_metrics"]["f1"])
 ```
 
-### Using a Local GeoTIFF
+See [Evaluation](evaluation.md) for all metrics and for evaluating an existing
+file with `agribound evaluate`.
 
-If you already have satellite imagery on disk:
-
-```python
-gdf = agribound.delineate(
-    study_area="my_area.geojson",
-    source="local",
-    engine="delineate-anything",
-    local_tif_path="composite.tif",
-)
-```
-
-### Visualizing Results
-
-```python
-m = agribound.show_boundaries(gdf)
-m  # displays in Jupyter
-```
-
-## CLI Usage
-
-### Run Delineation
+## CLI
 
 ```bash
 agribound delineate \
-    --study-area my_area.geojson \
-    --source sentinel2 \
-    --year 2024 \
+    --study-area "bbox:-96.64,40.38,-96.60,40.42" \
+    --source sentinel2 --year 2024 \
     --engine delineate-anything \
     --gee-project my-gee-project \
-    --output fields.gpkg
+    -o fields.gpkg
 ```
 
-### Using a YAML Config File
+Save the resolved configuration and run it later:
 
 ```bash
-agribound delineate --config run_config.yaml
+agribound delineate --dry-run --study-area area.geojson --source sentinel2 --year 2024 \
+    --engine delineate-anything --gee-project my-gee-project > run.yaml
+agribound delineate --config run.yaml
+agribound delineate --config run.yaml --year 2023 -o fields_2023.gpkg   # flags override the YAML
 ```
 
-Where `run_config.yaml` contains:
+## Visualising the result
 
-```yaml
-study_area: my_area.geojson
-source: sentinel2
-year: 2024
-engine: delineate-anything
-gee_project: my-gee-project
-output_path: fields.gpkg
-composite_method: median
-min_field_area_m2: 2500
+```python
+from agribound import show_boundaries
+
+m = show_boundaries(gdf)  # interactive leafmap map
+m
 ```
 
-### List Available Resources
+## Next steps
 
-```bash
-agribound list-engines
-agribound list-sources
-```
-
-## Viewing Results
-
-The output GeoPackage (or GeoJSON/GeoParquet) can be opened in:
-
-- **QGIS** -- drag and drop the `.gpkg` file.
-- **Python** -- `geopandas.read_file("fields.gpkg")`.
-- **Jupyter** -- use `agribound.show_boundaries(gdf)` for an interactive map.
-
-Each output polygon includes metadata columns:
-
-| Column | Description |
-|---|---|
-| `id` | Unique field identifier |
-| `metrics:area` | Field area in square meters |
-| `metrics:perimeter` | Field perimeter in meters |
-| `determination:method` | Always `auto-imagery` |
-| `determination:datetime` | Target year |
-| `agribound:engine` | Engine used for delineation |
-| `agribound:source` | Satellite source |
-| `agribound:year` | Target year |
-| `lulc:crop_fraction` | Crop probability/fraction from LULC filter (when `lulc_filter=True`) |
-
-## Examples
-
-Sixteen example scripts and Jupyter notebooks demonstrate workflows spanning six continents, nine satellite sources, and all delineation engines. See the [examples README](https://github.com/montimaj/agribound/tree/main/examples) for full details.
-
-| Situation | Approach | Example |
-|---|---|---|
-| **Reference boundaries available** | DINOv3 + SAM2 per source | Example 14 |
-| **No reference boundaries** | Embedding clustering + LULC filter + SAM2 | Example 15 |
-| **Multi-model ensemble** | All engines on same sensor, majority vote | Example 12 |
-| **Multi-year time series** | Single engine per year, fine-tune once | Example 01 |
-| **Quick local test** | Delineate-Anything on local GeoTIFF | Example 10 |
+- [Satellite sources](satellite-sources.md) and [engines](engines.md): what
+  each option does and when it applies.
+- [Configuration reference](configuration.md): every field.
+- [Fine-tuning](fine-tuning.md): GeoAI and DINOv3 need a checkpoint trained on
+  your reference boundaries.
+- [HPC and large areas](hpc.md): tiling regions for cluster runs.
+- [Examples](https://github.com/montimaj/agribound/tree/main/examples): 21
+  example scripts and notebooks.

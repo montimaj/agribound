@@ -12,8 +12,74 @@ from rasterio.transform import from_bounds
 from shapely.geometry import box
 
 # ---------------------------------------------------------------------------
+# Markers and global state
+# ---------------------------------------------------------------------------
+
+
+def pytest_configure(config):
+    """Register the markers used by the suite (also declared in pyproject.toml)."""
+    for line in (
+        "slow: long-running tests",
+        "gpu: tests that need a CUDA/MPS device",
+        "gee: tests that need Google Earth Engine credentials",
+        "network: tests that need internet access",
+    ):
+        config.addinivalue_line("markers", line)
+
+
+@pytest.fixture(autouse=True)
+def _reset_agribound_state():
+    """Forget process-level caches (GEE init state, AOI fingerprints) between tests."""
+    from agribound import _cache, auth
+
+    auth._reset_state()
+    _cache.clear_fingerprint_cache()
+    yield
+    auth._reset_state()
+    _cache.clear_fingerprint_cache()
+
+
+# ---------------------------------------------------------------------------
 # Raster fixtures
 # ---------------------------------------------------------------------------
+
+
+def _write_tif(
+    path, data, crs="EPSG:32611", bounds=(500000, 4000000, 500640, 4000640), nodata=None
+):
+    count, height, width = data.shape
+    transform = from_bounds(*bounds, width, height)
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=count,
+        dtype=str(data.dtype),
+        crs=crs,
+        transform=transform,
+        nodata=nodata,
+    ) as dst:
+        dst.write(data)
+    return str(path)
+
+
+@pytest.fixture
+def s2_reflectance_tif(tmp_path):
+    """12-band Sentinel-2-like composite: float32 reflectance x 10000, NaN nodata (1.0 layout)."""
+    rng = np.random.default_rng(0)
+    data = rng.uniform(200, 4000, (12, 64, 64)).astype(np.float32)
+    data[:, :2, :2] = np.nan
+    return _write_tif(tmp_path / "s2_x10000.tif", data, nodata=float("nan"))
+
+
+@pytest.fixture
+def naip_uint8_tif(tmp_path):
+    """4-band NAIP-like uint8 raster (R, G, B, N)."""
+    rng = np.random.default_rng(1)
+    data = rng.integers(0, 256, (4, 64, 64), dtype=np.uint8)
+    return _write_tif(tmp_path / "naip_uint8.tif", data)
 
 
 @pytest.fixture

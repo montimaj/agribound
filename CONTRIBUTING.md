@@ -1,102 +1,121 @@
 # Contributing to Agribound
 
-We welcome contributions! Whether it's a bug fix, new engine, satellite source, or documentation improvement, here's how to get started.
+We welcome contributions: bug fixes, engines, satellite sources, documentation
+and examples. The full guide is the
+[Contributing page](https://montimaj.github.io/agribound/contributing/) of the
+documentation.
 
-## Development Setup
+## Development setup
 
 ```bash
 git clone https://github.com/montimaj/agribound.git
 cd agribound
-conda create -n agribound python=3.12 gdal rasterio geopandas fiona shapely pyproj -c conda-forge
+conda env create -f environment.yml        # core environment, installs -e .[all,dev]
 conda activate agribound
-pip install -e ".[all,dev,docs]"
-
-# Required for DA instance segmentation on Sentinel-2
-git clone https://github.com/fieldsoftheworld/ftw-baselines.git ../ftw-baselines
-pip install -e ../ftw-baselines
+pip install -e ".[docs]"                   # optional: documentation toolchain
 ```
 
-## Running Tests
+Python >= 3.12 is required. Prithvi (terratorch) needs the separate
+`environment-gfm.yml` environment: terratorch requires `lightning>=2.6` and
+ftw-tools 2.x requires `lightning<2.6`.
+
+## Running tests
 
 ```bash
-# All tests (excluding GPU and GEE)
-pytest -m "not gpu and not gee"
+# Offline suite (what CI runs)
+python -m pytest -m "not gpu and not gee and not slow and not network"
 
 # With coverage
-pytest --cov=agribound --cov-report=html
-
-# Only fast tests
-pytest -m "not slow"
+python -m pytest --cov=agribound --cov-report=html
 ```
 
-Test markers: `gpu` (requires CUDA), `gee` (requires GEE auth), `slow` (long-running).
+Test markers: `gpu` (needs a GPU), `gee` (needs Earth Engine authentication),
+`network` (needs network access), `slow` (long-running). New behaviour needs an
+offline unit test.
 
-## Code Style
+## Code style
 
-We use [Ruff](https://docs.astral.sh/ruff/) for linting and formatting (config in `pyproject.toml`):
+[Ruff](https://docs.astral.sh/ruff/) is configured in `pyproject.toml`
+(line length 100, target Python 3.12, rules E, F, W, I, N, UP, B, SIM). CI
+checks the whole repository:
 
 ```bash
-ruff check agribound/ examples/ tests/
-ruff format agribound/
+ruff check .
+ruff format --check .      # ruff format . applies the formatting
 ```
 
-- Target: Python 3.10+
-- Line length: 100
-- Rules: E, F, W, I, N, UP, B, SIM
+Shell scripts (`*.sh`, `*.sbatch`) and the HPC profiles
+(`examples/hpc/profiles/*.env`, which bash sources) keep LF line endings in
+every checkout through `.gitattributes`, also on Windows with
+`core.autocrlf=true`: bash cannot run a script with CRLF endings.
+`tests/unit/test_repo_files.py` checks the endings and the attributes.
 
-## Adding a New Engine
+Use numpy-style docstrings, `from __future__ import annotations`, lazy imports
+of heavy or optional dependencies, and `logging.getLogger(__name__)`. Do not
+add silent fallbacks that change the method (another model, band set or
+engine): raise an actionable error or require an explicit opt-in recorded in
+`engine_meta`.
 
-1. Create `agribound/engines/my_engine.py` implementing `DelineationEngine`:
+## Adding an engine
 
-    ```python
-    from agribound.engines.base import DelineationEngine
-    from agribound.config import AgriboundConfig
-    import geopandas as gpd
+1. Implement `DelineationEngine` in `agribound/engines/my_engine.py`
+   (`delineate(raster_path, config)` returning a GeoDataFrame with a CRS and
+   `gdf.attrs["engine_meta"]`; `prefetch(config)` for offline weights).
+2. Register it in `agribound/registry.py`: an `ENGINE_REGISTRY` entry and an
+   `ENGINE_CLASSES` entry (`"module:Class"`). `VALID_ENGINES` in
+   `agribound/config.py` is derived from the registry.
+3. Use `get_canonical_band_indices(..., bands=config.bands)`, the value-scale
+   helpers in `agribound.io.raster`, `agribound._cache.cache_path` for
+   intermediates and `agribound._repro.get_rng` for randomness.
+4. If the engine is fine-tunable: a trainer in `agribound/engines/finetune/`
+   registered in `_TRAINERS` (`finetune/__init__.py`), and in
+   `finetune/_data.py` a `CHIP_FORMATS` entry, a default chip size and, if the
+   default is derived from the data, a `chip_size_rule()` branch (the rule is
+   part of the fine-tuning cache key).
+5. Add an extra in `pyproject.toml`, offline tests, documentation and, if
+   useful, an example.
 
-    class MyEngine(DelineationEngine):
-        name = "my-engine"
-        supported_sources = ["sentinel2", "local"]
-        requires_bands = ["R", "G", "B"]
+## Adding a satellite source
 
-        def delineate(self, raster_path: str, config: AgriboundConfig) -> gpd.GeoDataFrame:
-            ...
-    ```
+1. Add a `SOURCE_REGISTRY` entry in `agribound/registry.py` (`VALID_SOURCES`
+   is derived from it).
+2. Earth Engine sources: add a collection builder with cloud masking to
+   `_COLLECTION_BUILDERS` in `agribound/composites/gee.py` and the source to
+   `_OPTICAL_GEE_SOURCES` in `agribound/registry.py` (which defines
+   `GEE_IMAGERY_SOURCES`). Other sources: write a `CompositeBuilder` and add it
+   to `_BUILDERS` in `agribound/composites/base.py`.
+3. Raise `agribound.composites.NoDataError` when the source has no data for
+   the study area, and add the source to the engines that support it.
 
-2. Register in `agribound/engines/base.py` (`ENGINE_REGISTRY` + `get_engine()`)
-3. Add engine name to `VALID_ENGINES` in `agribound/config.py`
-4. Add optional dependencies in `pyproject.toml`
-5. Write tests in `tests/`
-6. Add an example script in `examples/`
-
-## Adding a New Satellite Source
-
-1. Register in `agribound/composites/base.py` (`SOURCE_REGISTRY`)
-2. Add source name to `VALID_SOURCES` in `agribound/config.py`
-3. Implement cloud masking (if GEE-based) in `agribound/composites/gee.py`
-4. Add a factory branch in `get_composite_builder()` if needed
-
-## Building Documentation
+## Building documentation
 
 ```bash
-pip install agribound[docs]
-mkdocs serve    # local preview at http://127.0.0.1:8000
-mkdocs build    # build static site
+mkdocs serve            # local preview at http://127.0.0.1:8000
+mkdocs build --strict   # what CI runs
 ```
 
-## Pull Request Guidelines
+## Building the package
+
+```bash
+python -m build                 # sdist and wheel; needs setuptools>=77 (PEP 639 licence metadata)
+twine check --strict dist/*
+```
+
+## Pull request guidelines
 
 - Create a feature branch from `main`
-- Keep PRs focused — one feature or fix per PR
+- Keep PRs focused: one feature or fix per PR
 - Add tests for new functionality
-- Run `ruff check` and `pytest` before submitting
+- Run `ruff check .`, `ruff format --check .`, the offline test suite and,
+  if you changed an example script, `python tools/sync_notebooks.py` (CI runs
+  it with `--check`) before submitting
 - Update documentation and examples if applicable
-- Follow existing code patterns and naming conventions
 
-## Reporting Issues
+## Reporting issues
 
 Please open an issue on [GitHub](https://github.com/montimaj/agribound/issues) with:
 
 - A clear description of the problem
 - Steps to reproduce
 - Python version, OS, and agribound version (`agribound --version`)
-- Full error traceback
+- The full error traceback, and the run's `*.provenance.json` if there is one

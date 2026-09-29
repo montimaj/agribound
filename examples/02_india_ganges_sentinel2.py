@@ -1,33 +1,54 @@
 """
-02 — India Nadia District (West Bengal), Multi-Approach Comparison
+02 — India, Nadia District (West Bengal): Four Label-Free Approaches
 
-Compares field boundary delineation in Nadia district, West Bengal using
-four approaches:
-    1. FTW (Sentinel-2) — supervised, country-specific model for India
-    2. Google embeddings (64-D) — unsupervised clustering + LULC filtering
-    3. TESSERA embeddings (128-D) — unsupervised clustering + LULC filtering
-    4. SPOT Panchromatic (1.5 m) — high-res grayscale with Delineate-Anything
+Runs four approaches that need no training labels on the same study area in
+Nadia district, West Bengal:
 
-All run on the same study area for 2024.
+    1. FTW on Sentinel-2 (2024) — the global default FTW model
+       (``FTW_PRUE_EFNET_B5``, two seasonal windows). agribound has no
+       country-specific FTW models; the FTW benchmark the model was trained
+       on includes India (``ftw_tools.settings.ALL_COUNTRIES``).
+    2. Google Satellite Embedding (AlphaEarth, 64-D, 2024) — K-means clustering.
+    3. TESSERA v1 embeddings (128-D, 2024) — K-means clustering. TESSERA v1 is
+       near-global only for 2024; all four v1 tiles of this box exist for 2024.
+    4. SPOT 6/7 panchromatic (1.5 m) with Delineate-Anything — SPOT ends in
+       November 2023, so this run uses 2020 (restricted access, see below).
 
-Estimated runtime: ~15–30 minutes (GPU recommended).
+Clustering (2, 3) gives land-cover segments, not field instances; the LULC
+crop filter (on by default; Dynamic World is selected outside the US) removes
+segments with a low crop value. Approaches 1-3 use 2024 and approach 4 uses
+2020, so the comparison mixes years.
+
+SPOT 6/7 (AIRBUS/SPOT6_7) is restricted to select Earth Engine users (internal
+DRI use). If your project has no access, approach 4 fails and the script
+continues with the other three.
+
+Estimated runtime (not measured for 1.0): ~15-30 minutes with a GPU (FTW,
+Delineate-Anything); the embedding runs use the CPU.
 
 Prerequisites:
-    pip install agribound[gee,ftw,tessera,delineate-anything]
+    pip install "agribound[gee,ftw,tessera,delineate-anything]"
     agribound auth --project YOUR_GEE_PROJECT
+    Run from the repository root: python examples/02_india_ganges_sentinel2.py
 """
 
 import argparse
 import json
 import logging
+import os
+import sys
 import warnings
 from pathlib import Path
 
 import agribound
 
+# Paths below are relative to the repository root. The notebook version of this
+# script runs from examples/notebooks/, so it changes to the repository root first.
+if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
+    os.chdir(Path.cwd().parents[1])
+
 warnings.filterwarnings("ignore", category=FutureWarning, module=r"geedim\..*")
 warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"geedim\..*")
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(message)s",
@@ -40,12 +61,11 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/india_nadia")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
 YEAR = 2024
-MIN_AREA = 100  # Smallholder fields — lower minimum area
+SPOT_YEAR = 2020  # AIRBUS/SPOT6_7 covers 2012-10-17 to 2023-11-15
+MIN_AREA = 100  # m^2; the minimum polygon area chosen for this example
 
-# Study area: Nadia district, West Bengal (dense rice paddies)
+# Study area: Nadia district, West Bengal
 STUDY_AREA_BBOX = {
     "type": "FeatureCollection",
     "features": [
@@ -69,148 +89,132 @@ STUDY_AREA_BBOX = {
 }
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="India Nadia District: FTW vs TESSERA comparison.")
-    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
-    return parser.parse_args()
+def run(label, results, **kwargs):
+    """Run agribound.delineate(); store the result under *label* or report the error."""
+    try:
+        gdf = agribound.delineate(**kwargs)
+    except Exception as exc:
+        print(f"  {label} failed: {type(exc).__name__}: {exc}")
+        return None
+    results[label] = gdf
+    print(f"  {label}: {len(gdf)} polygons -> {kwargs['output_path']}")
+    return gdf
+
+
+def parse_args(argv=None):
+    """Parse command-line arguments (none are read inside Jupyter)."""
+    parser = argparse.ArgumentParser(description="Nadia District: four label-free approaches.")
+    parser.add_argument(
+        "--gee-project",
+        default=None,
+        help=(
+            "Earth Engine project ID (default: $GEE_PROJECT, then the gcloud project, then "
+            "the project_id of the $AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY or "
+            "$GOOGLE_APPLICATION_CREDENTIALS file)."
+        ),
+    )
+    parser.add_argument("--skip-spot", action="store_true", help="Skip the SPOT-Pan run.")
+    if argv is None and "ipykernel" in sys.modules:
+        argv = []  # Jupyter passes its own kernel arguments in sys.argv
+    return parser.parse_args(argv)
+
+
+def show_in_notebook(web_map):
+    """Display *web_map* inline when this file runs as a Jupyter notebook."""
+    if "ipykernel" in sys.modules:
+        from IPython.display import display
+
+        display(web_map)
 
 
 def main():
     args = parse_args()
-    gee_project = args.gee_project
-
-    study_area_path = str(OUTPUT_DIR / "nadia_aoi.geojson")
-    with open(study_area_path, "w") as f:
-        json.dump(STUDY_AREA_BBOX, f)
-
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    study_area = str(OUTPUT_DIR / "nadia_aoi.geojson")
+    Path(study_area).write_text(json.dumps(STUDY_AREA_BBOX))
+    common = dict(study_area=study_area, gee_project=args.gee_project, min_area=MIN_AREA)
     results = {}
 
-    # ================================================================
-    # Approach 1: FTW (Sentinel-2, supervised)
-    # ================================================================
-    print(f"{'=' * 60}")
-    print("Approach 1: FTW on Sentinel-2 (supervised)")
-    print(f"{'=' * 60}")
-
-    ftw_path = OUTPUT_DIR / f"fields_ftw_s2_{YEAR}.gpkg"
-
-    gdf_ftw = agribound.delineate(
-        study_area=study_area_path,
+    print(f"{'=' * 60}\n1. FTW on Sentinel-2 ({YEAR})\n{'=' * 60}")
+    gdf_ftw = run(
+        "FTW (Sentinel-2)",
+        results,
+        **common,
         source="sentinel2",
         year=YEAR,
         engine="ftw",
-        output_path=str(ftw_path),
-        gee_project=gee_project,
-        composite_method="median",
+        output_path=str(OUTPUT_DIR / f"fields_sentinel2_ftw_{YEAR}.gpkg"),
         cloud_cover_max=30,
-        min_area=MIN_AREA,
         simplify=1.0,
     )
-    results["FTW (Sentinel-2)"] = gdf_ftw
-    print(f"  FTW: {len(gdf_ftw)} fields")
+    if gdf_ftw is not None:
+        meta = gdf_ftw.attrs.get("engine_meta", {})
+        print(f"  FTW model: {meta.get('model')}")
+        for key, window in (meta.get("windows") or {}).items():
+            if isinstance(window, dict) and "start" in window:
+                print(f"  Window {key.upper()}: {window['start']} to {window['end']}")
 
-    # ================================================================
-    # Approach 2: Google embeddings (unsupervised + LULC filter)
-    # ================================================================
-    print(f"\n{'=' * 60}")
-    print("Approach 2: Google embeddings (unsupervised + LULC filter)")
-    print(f"{'=' * 60}")
-
-    google_path = OUTPUT_DIR / f"fields_google_{YEAR}.gpkg"
-
-    gdf_google = agribound.delineate(
-        study_area=study_area_path,
+    print(f"\n{'=' * 60}\n2. Google Satellite Embedding ({YEAR})\n{'=' * 60}")
+    run(
+        "Google embedding",
+        results,
+        **common,
         source="google-embedding",
         year=YEAR,
         engine="embedding",
-        output_path=str(google_path),
-        gee_project=gee_project,
+        output_path=str(OUTPUT_DIR / f"fields_google-embedding_embedding_{YEAR}.gpkg"),
         device="cpu",
-        min_area=MIN_AREA,
     )
-    results["Google (unsupervised)"] = gdf_google
-    print(f"  Google: {len(gdf_google)} fields")
 
-    # ================================================================
-    # Approach 3: TESSERA embeddings (unsupervised + LULC filter)
-    # ================================================================
-    print(f"\n{'=' * 60}")
-    print("Approach 3: TESSERA embeddings (unsupervised + LULC filter)")
-    print(f"{'=' * 60}")
-
-    tessera_path = OUTPUT_DIR / f"fields_tessera_{YEAR}.gpkg"
-
-    gdf_tessera = agribound.delineate(
-        study_area=study_area_path,
+    print(f"\n{'=' * 60}\n3. TESSERA v1 embeddings ({YEAR})\n{'=' * 60}")
+    run(
+        "TESSERA embedding",
+        results,
+        **common,
         source="tessera-embedding",
+        tessera_version="v1",
         year=YEAR,
         engine="embedding",
-        output_path=str(tessera_path),
-        gee_project=gee_project,
+        output_path=str(OUTPUT_DIR / f"fields_tessera-embedding_embedding_{YEAR}.gpkg"),
         device="cpu",
-        min_area=MIN_AREA,
         engine_params={"n_clusters": 8},
     )
-    results["TESSERA (unsupervised)"] = gdf_tessera
-    print(f"  TESSERA: {len(gdf_tessera)} fields")
 
-    # ================================================================
-    # Approach 4: SPOT Panchromatic (1.5 m, restricted access)
-    # ================================================================
-    print(f"\n{'=' * 60}")
-    print("Approach 4: SPOT Panchromatic (1.5 m) + Delineate-Anything")
-    print(f"{'=' * 60}")
-
-    spot_pan_path = OUTPUT_DIR / "fields_spot_pan_2023.gpkg"
-
-    try:
-        gdf_spot = agribound.delineate(
-            study_area=study_area_path,
+    if not args.skip_spot:
+        print(f"\n{'=' * 60}\n4. SPOT-Pan 1.5 m + Delineate-Anything ({SPOT_YEAR})\n{'=' * 60}")
+        run(
+            f"SPOT-Pan DA ({SPOT_YEAR})",
+            results,
+            **common,
             source="spot-pan",
-            year=2020,  # SPOT available through 2023
+            year=SPOT_YEAR,
             engine="delineate-anything",
-            output_path=str(spot_pan_path),
-            gee_project=gee_project,
-            composite_method="median",
+            output_path=str(OUTPUT_DIR / f"fields_spot-pan_delineate-anything_{SPOT_YEAR}.gpkg"),
             cloud_cover_max=15,
-            min_area=MIN_AREA,
             simplify=1.0,
         )
-        results["SPOT Pan (1.5 m)"] = gdf_spot
-        print(f"  SPOT Pan: {len(gdf_spot)} fields")
-    except Exception as exc:
-        print(f"  SPOT Pan failed (restricted access): {exc}")
 
-    # ================================================================
-    # Comparison
-    # ================================================================
-    print(f"\n{'=' * 60}")
-    print("Comparison")
-    print(f"{'=' * 60}")
-
-    print(f"\n  {'Method':<30} {'Fields':>8} {'Area (ha)':>12}")
-    print(f"  {'-' * 30} {'-' * 8} {'-' * 12}")
-
+    print(f"\n{'=' * 60}\nComparison\n{'=' * 60}")
+    print(f"  {'Method':<30} {'Polygons':>9} {'Area (ha)':>12}")
     for label, gdf in results.items():
-        area = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0
-        print(f"  {label:<30} {len(gdf):>8} {area:>12,.1f}")
+        area = gdf["metrics:area"].sum() / 10000 if "metrics:area" in gdf.columns else 0.0
+        print(f"  {label:<30} {len(gdf):>9} {area:>12,.1f}")
 
-    # ================================================================
-    # Visualization
-    # ================================================================
+    if not results:
+        print("\nNo run succeeded; no map written.")
+        return
     from agribound.visualize import show_comparison
 
-    show_comparison(
+    map_path = OUTPUT_DIR / "map_ftw_google_tessera_spot.html"
+    web_map = show_comparison(
         list(results.values()),
         labels=list(results.keys()),
         basemap="Esri.WorldImagery",
-        output_html=str(OUTPUT_DIR / "map_ftw_google_tessera_spot.html"),
+        output_html=str(map_path),
     )
-    print(f"\n  Map: {OUTPUT_DIR / 'map_ftw_google_tessera_spot.html'}")
+    show_in_notebook(web_map)
+    print(f"\n  Map: {map_path}")
 
 
 if __name__ == "__main__":
     main()
-    import os
-
-    os._exit(0)  # Force exit — geedim's async runner hangs on cleanup

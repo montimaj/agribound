@@ -1,17 +1,38 @@
-"""Query published FTW polygons for small AOIs.
+"""
+17 — Query Published FTW Polygons (offline demo with a local tile store)
 
-This example is intentionally self-contained by default. It creates a tiny
-local FTW-like GeoParquet tile store and manifest, then runs
-``agribound.query_ftw`` against several AOIs.
+``agribound.query_ftw`` reads already-published Fields of The World (FTW)
+prediction polygons for a study area; it does not run FTW inference, and the
+polygons are model predictions, not ground truth.
 
-When no ``manifest_path`` or ``tile_dir`` is supplied, ``query_ftw`` uses the
-public Source Cooperative FTW GeoParquet source through the PyArrow backend.
-A commented live example is included below.
+This example is self-contained and needs no network: it writes a tiny
+FTW-like GeoParquet tile store and a tile manifest to a temporary directory
+and queries it with the ``manifest`` backend (clipped, unclipped and an empty
+AOI). The synthetic tiles use the legacy ``raw`` layout columns (``label``,
+``time``).
+
+Live data: without ``manifest_path``/``tile_dir``, ``query_ftw`` reads the
+public Source Cooperative GeoParquet with PyArrow. The default layout
+``"by-admin-conf"`` (``alpha/results-by-admin-conf``, partitioned by country
+and subdivision) holds 2024 and 2025 predictions with a ``confidence`` column
+(0-100); the dataset README recommends ``min_confidence=69``. Null confidence
+means the confidence raster has no data at the field, not a low score, and
+it is common: on 2026-09-27 it was null for all rows of the New Mexico
+partition and 99.7 % of New South Wales. See example 21 for a live query and
+an evaluation against reference boundaries.
+
+Runtime: about a second (tested 2026-09-27).
+
+Prerequisites:
+    pip install agribound
+    Run from the repository root: python examples/17_query_published_ftw_polygons.py
 """
 
 from __future__ import annotations
 
 import json
+import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -20,9 +41,16 @@ from shapely.geometry import box
 
 import agribound as ab
 
+# Paths below are relative to the repository root. The notebook version of this
+# script runs from examples/notebooks/, so it changes to the repository root first.
+if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
+    os.chdir(Path.cwd().parents[1])
+
+OUTPUT_DIR = Path("outputs/ftw_query_demo")
+
 
 def build_synthetic_ftw_store(base_dir: Path) -> tuple[Path, Path, Path]:
-    """Create a tiny FTW-like tile store for a runnable local example."""
+    """Create a tiny FTW-like tile store (two tiles) and its manifest."""
     tile_dir = base_dir / "ftw_tiles"
     tile_dir.mkdir(parents=True, exist_ok=True)
 
@@ -83,20 +111,28 @@ def build_synthetic_ftw_store(base_dir: Path) -> tuple[Path, Path, Path]:
     return manifest_path, tile_dir, aoi_path
 
 
+def show_in_notebook(web_map):
+    """Display *web_map* inline when this file runs as a Jupyter notebook."""
+    if "ipykernel" in sys.modules:
+        from IPython.display import display
+
+        display(web_map)
+
+
 def main() -> None:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="agribound-ftw-query-") as tmp:
         workspace = Path(tmp)
         manifest_path, tile_dir, aoi_path = build_synthetic_ftw_store(workspace)
+        backend = dict(source_backend="manifest", manifest_path=manifest_path, tile_dir=tile_dir)
 
         clipped = ab.query_ftw(
             study_area=aoi_path,
             year=2025,
             label="field",
             clip=True,
-            source_backend="manifest",
-            manifest_path=manifest_path,
-            tile_dir=tile_dir,
-            output_path=workspace / "ftw_demo_clipped.parquet",
+            output_path=OUTPUT_DIR / "ftw_demo_clipped.parquet",
+            **backend,
         )
         print(f"Clipped AOI result: {len(clipped)} polygons")
         print(clipped[["field_id", "source_tile_id"]])
@@ -106,43 +142,36 @@ def main() -> None:
             year=2025,
             label="field",
             clip=False,
-            source_backend="manifest",
-            manifest_path=manifest_path,
-            tile_dir=tile_dir,
+            **backend,
         )
         print(f"Unclipped AOI result: {len(full_polygons)} polygons")
 
         empty = ab.query_ftw(
-            study_area=[-95.0, 35.0, -94.0, 36.0],
-            year=2025,
-            label="field",
-            source_backend="manifest",
-            manifest_path=manifest_path,
-            tile_dir=tile_dir,
+            study_area=[-95.0, 35.0, -94.0, 36.0], year=2025, label="field", **backend
         )
         print(f"Empty AOI result: {len(empty)} polygons")
 
         summary = {
-            "manifest_path": str(manifest_path),
-            "tile_dir": str(tile_dir),
-            "aoi_path": str(aoi_path),
             "clipped_count": int(len(clipped)),
             "unclipped_count": int(len(full_polygons)),
             "empty_count": int(len(empty)),
         }
         print(json.dumps(summary, indent=2))
 
-    # Live public FTW example. Uncomment for a small online smoke test.
+    # Live public FTW polygons (network; ~20-30 s for a small AOI). Uncomment:
     #
     # live = ab.query_ftw(
-    #     study_area=[-93.55, 41.90, -93.50, 41.95],
-    #     year=2025,
-    #     label="field",
-    #     clip=True,
-    #     output_path="ftw_live_aoi.parquet",
-    #     max_features=1000,
+    #     study_area=[-106.80, 34.60, -106.75, 34.65],  # near Belen, New Mexico
+    #     year=2024,
+    #     min_confidence=69,  # recommended by the dataset README
+    #     keep_null_confidence=True,  # the US_NM partition has no confidence values
+    #     output_path=OUTPUT_DIR / "ftw_live_aoi.parquet",
     # )
-    # print(live.head())
+    # print(live.attrs["ftw_query"])
+
+    web_map = ab.show_boundaries(clipped, output_html=str(OUTPUT_DIR / "map_ftw_demo_clipped.html"))
+    show_in_notebook(web_map)
+    print(f"\nMap of the clipped synthetic polygons: {OUTPUT_DIR / 'map_ftw_demo_clipped.html'}")
 
 
 if __name__ == "__main__":

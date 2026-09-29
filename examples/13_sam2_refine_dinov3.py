@@ -1,214 +1,209 @@
 """
-13 — SAM2 Boundary Refinement on DINOv3 Field Boundaries
+13 — SAM Boundary Refinement of Existing DINOv3 Field Boundaries
 
-Standalone script that takes pre-computed DINOv3 field boundaries and
-refines them using SAM2 box-prompted segmentation.  Each polygon's
-bounding box is fed to SAM2 as a prompt, producing pixel-accurate masks
-that replace the original geometry.
+Refines a finished delineation with box-prompted SAM as a separate step:
+each polygon's bounding box is given to SAM as a single-object box prompt,
+and the polygon is replaced by SAM's mask, of which only the part inside the
+box padded by ``sam_crop_padding`` is kept. Polygons whose padded box is
+smaller than ``sam_min_crop_px`` pixels on either side are not prompted and
+keep their geometry (``gdf.attrs["sam_stats"]`` counts them).
 
-This demonstrates SAM2 refinement as a separate post-processing step,
-decoupled from the main delineation pipeline.
+Input: the Sentinel-2 DINOv3 output of example 12
+(``outputs/lea_county_ensemble/fields_sentinel2_dinov3_2022.gpkg``; run
+example 12 first, or pass ``--input``). The raster the polygons were
+delineated from and the run's configuration are read from the input's
+provenance record (``<input>.provenance.json``), so SAM sees exactly that
+composite.
 
-Input:  fields_presam_sentinel2_dinov3_2020.gpkg  (555 fields from DINOv3)
-Raster: sentinel2_2020_composite.tif              (Sentinel-2 annual composite)
-Output: fields_sam2_sentinel2_dinov3_2020.gpkg     (SAM2-refined boundaries)
+Backends (``--sam-backend``): ``sam2`` (default; SAM 2.0 via segment-geospatial),
+``sam2.1``, ``sam3`` (Meta SAM 3: CUDA GPU and triton required; Linux,
+Windows only through the community triton-windows wheel, not macOS) and
+``sam3-hf`` (Hugging Face transformers SAM 3, no triton). SAM 3 weights are
+gated on Hugging Face (request access first). Pipeline runs can do the same
+with ``sam_refine=True`` (example 14).
+
+Evaluation: against the reference boundaries recorded in the input's
+provenance record (``config.reference_boundaries``; for the default input,
+example 12's NMOSE polygons) or given with ``--reference``, restricted to the
+input's study area by the pipeline's rule (representative point inside). It
+is labelled in-sample when the input was fine-tuned (``config.fine_tune``)
+on that same reference file, as the default DINOv3 input was. Without a
+reference the evaluation is skipped.
+
+Estimated runtime (not measured for 1.0): a few minutes on a GPU for a few
+hundred polygons.
 
 Prerequisites:
-    pip install agribound[samgeo]
+    pip install "agribound[samgeo]"      (sam3: "agribound[sam3]")
+    Run from the repository root: python examples/13_sam2_refine_dinov3.py
 """
 
 import argparse
 import logging
+import os
+import sys
 import time
 from pathlib import Path
 
 import geopandas as gpd
+
+from agribound.provenance import read_provenance
+
+# Paths below are relative to the repository root. The notebook version of this
+# script runs from examples/notebooks/, so it changes to the repository root first.
+if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
+    os.chdir(Path.cwd().parents[1])
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
-# Suppress noisy SAM2 per-field "Image embeddings computed" messages
-logging.getLogger("root").setLevel(logging.WARNING)
-logging.getLogger().setLevel(logging.WARNING)
-logging.getLogger("agribound").setLevel(logging.INFO)
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/lea_county_ensemble")
-INPUT_GPKG = OUTPUT_DIR / "fields_sentinel2_dinov3_2020.gpkg"
-RASTER_PATH = OUTPUT_DIR / ".agribound_cache" / "sentinel2_2020_composite.tif"
-OUTPUT_GPKG = OUTPUT_DIR / "fields_sam2_sentinel2_dinov3_2020.gpkg"
-OUTPUT_CRS = "EPSG:26913"  # Match NMOSE reference CRS (NAD83 / UTM zone 13N)
-
-# SAM2 parameters
-SAM_MODEL = "large"  # "tiny", "small", "base_plus", "large"
-SAM_BATCH_SIZE = 100  # Number of field boxes per SAM2 batch
+INPUT_GPKG = OUTPUT_DIR / "fields_sentinel2_dinov3_2022.gpkg"
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="SAM2 boundary refinement on DINOv3 output.")
-    parser.add_argument("--input", default=str(INPUT_GPKG), help="Input field boundary GPKG.")
-    parser.add_argument("--raster", default=str(RASTER_PATH), help="Input satellite raster.")
-    parser.add_argument("--output", default=str(OUTPUT_GPKG), help="Output refined GPKG.")
+def parse_args(argv=None):
+    """Parse command-line arguments (none are read inside Jupyter)."""
+    parser = argparse.ArgumentParser(description="SAM refinement of an existing delineation.")
+    parser.add_argument("--input", default=str(INPUT_GPKG), help="agribound output to refine.")
+    parser.add_argument("--output", default=None, help="Refined output (default: derived).")
+    parser.add_argument(
+        "--sam-backend", default="sam2", choices=["sam2", "sam2.1", "sam3", "sam3-hf"]
+    )
     parser.add_argument(
         "--sam-model",
-        default=SAM_MODEL,
-        choices=["tiny", "small", "base_plus", "large"],
-        help="SAM2 model variant.",
+        default=None,
+        help="Model id or, for sam2/sam2.1, a size alias (tiny, small, base_plus, large). "
+        "Default: the backend's default (sam2: facebook/sam2-hiera-large).",
     )
-    parser.add_argument("--batch-size", type=int, default=SAM_BATCH_SIZE, help="SAM2 batch size.")
+    parser.add_argument("--batch-size", type=int, default=32, help="Boxes per SAM decoder call.")
+    parser.add_argument("--min-crop-px", type=int, default=64, help="sam_min_crop_px.")
+    parser.add_argument("--padding", type=float, default=0.15, help="sam_crop_padding.")
+    parser.add_argument("--overwrite", action="store_true", help="Recompute an existing output.")
     parser.add_argument(
-        "--smooth-only",
-        action="store_true",
-        help="Skip SAM2, load existing output, and re-apply smoothing.",
+        "--reference",
+        default=None,
+        help="Reference boundaries for the evaluation (default: the input's recorded reference).",
     )
-    parser.add_argument(
-        "--smooth-iterations", type=int, default=3, help="Chaikin smoothing iterations (default 3)."
-    )
-    parser.add_argument(
-        "--simplify-tolerance",
-        type=float,
-        default=2.0,
-        help="RDP simplification tolerance in meters (default 2.0).",
-    )
-    return parser.parse_args()
+    if argv is None and "ipykernel" in sys.modules:
+        argv = []  # Jupyter passes its own kernel arguments in sys.argv
+    return parser.parse_args(argv)
+
+
+def show_in_notebook(web_map):
+    """Display *web_map* inline when this file runs as a Jupyter notebook."""
+    if "ipykernel" in sys.modules:
+        from IPython.display import display
+
+        display(web_map)
 
 
 def main():
     args = parse_args()
-
     input_path = Path(args.input)
-    raster_path = Path(args.raster)
-    output_path = Path(args.output)
-
     if not input_path.exists():
-        raise FileNotFoundError(f"Input GPKG not found: {input_path}")
-    if not raster_path.exists():
-        raise FileNotFoundError(f"Raster not found: {raster_path}")
+        print(f"Input not found: {input_path}. Run example 12 first or pass --input.")
+        return
+    record = read_provenance(input_path)
+    if record is None or "raster_path" not in (record.get("facts") or {}):
+        print(f"{input_path} has no provenance record with a raster path; cannot refine it.")
+        return
+    raster_path = record["facts"]["raster_path"]
+    if not Path(raster_path).exists():
+        print(f"Raster {raster_path} (from the provenance record) no longer exists.")
+        return
+    output_path = Path(
+        args.output or input_path.with_name(f"{input_path.stem}_{args.sam_backend}.gpkg")
+    )
 
-    # Load input boundaries
     gdf = gpd.read_file(input_path)
-    print(f"Loaded {len(gdf)} field boundaries from {input_path}")
-    print(f"CRS: {gdf.crs}")
+    print(f"Loaded {len(gdf)} polygons from {input_path} ({gdf.crs})")
+    print(f"Raster: {raster_path}")
 
-    # --smooth-only: reload existing output and re-apply smoothing
-    if args.smooth_only:
-        if not output_path.exists():
-            raise FileNotFoundError(f"--smooth-only requires existing output: {output_path}")
-        print(f"\nLoading existing output for re-smoothing: {output_path}")
+    if output_path.exists() and not args.overwrite:
         refined = gpd.read_file(output_path)
-        print(f"Loaded {len(refined)} boundaries")
-
-        from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
-
-        refined = smooth_polygons(refined, iterations=args.smooth_iterations)
-        refined = simplify_polygons(refined, tolerance=args.simplify_tolerance)
-        print(
-            f"Re-smoothed: {len(refined)} fields "
-            f"(iterations={args.smooth_iterations}, tolerance={args.simplify_tolerance})"
-        )
-
-        if refined.crs is not None and str(refined.crs) != OUTPUT_CRS:
-            refined = refined.to_crs(OUTPUT_CRS)
-        if output_path.exists():
-            output_path.unlink()
-        refined.to_file(output_path, driver="GPKG", layer="fields")
-        print(f"Saved to {output_path}")
-
-    elif output_path.exists():
-        print(f"\nOutput already exists: {output_path}")
-        refined = gpd.read_file(output_path)
-        print(f"Loaded {len(refined)} refined boundaries")
+        print(f"Loaded existing refined output {output_path} (use --overwrite to recompute)")
     else:
-        # Configure SAM2 refinement
         from agribound.config import AgriboundConfig
         from agribound.engines.samgeo_engine import refine_boundaries
-
-        config = AgriboundConfig(
-            source="sentinel2",
-            engine="dinov3",
-            year=2020,
-            study_area="",
-            output_path=str(output_path),
-            engine_params={
-                "sam_model": args.sam_model,
-                "sam_batch_size": args.batch_size,
-            },
-            device="auto",
-        )
-
-        # Run SAM2 refinement
-        print(f"\nRunning SAM2 refinement (model={args.sam_model}, batch_size={args.batch_size})")
-        tic = time.time()
-        refined = refine_boundaries(gdf, str(raster_path), config)
-        elapsed = time.time() - tic
-        print(f"SAM2 refined {len(refined)} boundaries in {elapsed:.1f}s")
-
-        # Clean up invalid/empty geometries from SAM refinement
-        refined = refined[~refined.geometry.is_empty].copy()
-        refined = refined[refined.geometry.is_valid].copy()
-        refined = refined[refined.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
-        refined = refined.reset_index(drop=True)
-        print(f"{len(gdf) - len(refined)} fields removed due to invalid geometry")
-
-        # Smooth and simplify final boundaries
+        from agribound.postprocess import filter_polygons
         from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
 
-        refined = smooth_polygons(refined, iterations=args.smooth_iterations)
-        refined = simplify_polygons(refined, tolerance=args.simplify_tolerance)
-        print(
-            f"Smoothed and simplified to {len(refined)} fields "
-            f"(iterations={args.smooth_iterations}, tolerance={args.simplify_tolerance})"
+        config = AgriboundConfig.from_dict(record["config"]).merged(
+            sam_backend=args.sam_backend,
+            sam_model=args.sam_model,
+            sam_min_crop_px=args.min_crop_px,
+            sam_crop_padding=args.padding,
         )
-
-        # Reproject to match NMOSE reference CRS
-        if refined.crs is not None and str(refined.crs) != OUTPUT_CRS:
-            refined = refined.to_crs(OUTPUT_CRS)
-
-        # Save
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        if output_path.exists():
-            output_path.unlink()
+        tic = time.time()
+        refined = refine_boundaries(gdf, raster_path, config, batch_size=args.batch_size)
+        stats = refined.attrs.get("sam_stats", {})
+        print(
+            f"\nSAM ({stats.get('backend')}, {stats.get('model')}, {stats.get('device')}) in "
+            f"{time.time() - tic:.1f} s: refined {stats.get('n_refined')} of "
+            f"{stats.get('n_total')}; too small {stats.get('n_skipped_small')}, outside the "
+            f"raster {stats.get('n_skipped_outside')}, failed {stats.get('n_failed')}"
+        )
+        # Area filter, smoothing and simplification, as in the pipeline's post-processing.
+        refined = filter_polygons(
+            refined,
+            min_area_m2=config.min_field_area_m2,
+            remove_holes_below_m2=config.min_field_area_m2,
+        )
+        refined = smooth_polygons(refined, iterations=3)
+        refined = simplify_polygons(refined, tolerance=config.simplify_tolerance)
         refined.to_file(output_path, driver="GPKG", layer="fields")
-        print(f"Saved to {output_path}")
+        print(f"Saved {len(refined)} polygons to {output_path}")
 
-    # Compare before/after
+    from agribound.io.crs import get_equal_area_crs
+
+    ea = get_equal_area_crs()
     print(f"\n{'Metric':<20} {'Before':>10} {'After':>10}")
-    print(f"{'-' * 20} {'-' * 10} {'-' * 10}")
+    print(f"{'Polygons':<20} {len(gdf):>10} {len(refined):>10}")
+    before_ha = gdf.to_crs(ea).area.sum() / 10000
+    after_ha = refined.to_crs(ea).area.sum() / 10000
+    print(f"{'Total area (ha)':<20} {before_ha:>10,.1f} {after_ha:>10,.1f}")
 
-    # Project to metric CRS for area comparison
-    gdf_m = gdf.to_crs(OUTPUT_CRS) if gdf.crs and gdf.crs.is_geographic else gdf
-    ref_m = refined.to_crs(OUTPUT_CRS) if refined.crs and refined.crs.is_geographic else refined
-
-    area_before = gdf_m.geometry.area.sum() / 10000
-    area_after = ref_m.geometry.area.sum() / 10000
-    print(f"{'Fields':<20} {len(gdf):>10} {len(refined):>10}")
-    print(f"{'Total area (ha)':<20} {area_before:>10,.1f} {area_after:>10,.1f}")
-
-    # Evaluate against NMOSE reference if available
-    nmose_path = Path("examples/NMOSE Field Boundaries/WUCB ag polys.shp")
-    if nmose_path.exists():
+    layers, labels = [gdf, refined], ["Before SAM", f"After {args.sam_backend}"]
+    input_config = record["config"]
+    recorded_ref = input_config.get("reference_boundaries")
+    ref_file = args.reference or recorded_ref
+    if ref_file and Path(ref_file).exists():
+        from agribound.config import AgriboundConfig
         from agribound.evaluate import evaluate
+        from agribound.pipeline import select_in_study_area, study_area_in_crs
 
-        ref_gdf = gpd.read_file(nmose_path)
-        ref_county = ref_gdf[ref_gdf["County"] == "25"].copy()
+        ref = gpd.read_file(ref_file)
+        n_total = len(ref)
+        if input_config.get("study_area"):
+            aoi = study_area_in_crs(AgriboundConfig.from_dict(input_config), ref.crs)
+            ref = select_in_study_area(ref, aoi, "representative_point")[0]
+        in_sample = bool(input_config.get("fine_tune")) and (
+            recorded_ref is not None and Path(ref_file).resolve() == Path(recorded_ref).resolve()
+        )
+        label = "In-sample evaluation" if in_sample else "Evaluation"
+        m_before, m_after = evaluate(gdf, ref), evaluate(refined, ref)
+        print(f"\n{label} against {len(ref)} of {n_total} reference polygons ({ref_file}):")
+        print(f"{'':<26} {'Before':>10} {'After':>10}")
+        for key in ("f1", "precision", "recall", "iou_mean", "boundary_distance_mean_m"):
+            print(f"{key:<26} {m_before[key]:>10.3f} {m_after[key]:>10.3f}")
+        layers.append(ref)
+        labels.append("Reference")
+    else:
+        print("\nNo reference boundaries recorded for the input; evaluation skipped (--reference).")
 
-        print(f"\nEvaluation against NMOSE reference ({len(ref_county)} polygons):")
-        print(f"{'Metric':<20} {'Before':>10} {'After':>10}")
-        print(f"{'-' * 20} {'-' * 10} {'-' * 10}")
+    from agribound.visualize import show_comparison
 
-        try:
-            m_before = evaluate(gdf, ref_county)
-            m_after = evaluate(refined, ref_county)
-            for key in ["f1", "iou_mean", "precision", "recall"]:
-                print(f"{key:<20} {m_before[key]:>10.3f} {m_after[key]:>10.3f}")
-        except Exception as exc:
-            print(f"  Evaluation failed: {exc}")
+    map_path = output_path.with_suffix(".html")
+    web_map = show_comparison(
+        layers, labels=labels, basemap="Esri.WorldImagery", output_html=str(map_path)
+    )
+    show_in_notebook(web_map)
+    print(f"\nMap: {map_path}")
 
 
 if __name__ == "__main__":
     main()
-    import os
-
-    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

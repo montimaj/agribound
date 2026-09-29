@@ -1,5 +1,10 @@
 # Configuration
 
-The config module provides the `AgriboundConfig` dataclass for controlling every aspect of the delineation pipeline.
+`AgriboundConfig` controls every stage of the pipeline. See the
+[Configuration reference](../user-guide/configuration.md) for a grouped
+overview.
 
 ::: agribound.config
+    options:
+      members:
+        - AgriboundConfig

@@ -1,0 +1,133 @@
+# Region: Beauce plain, France
+# Read by examples/run_region_delineation.sh (via 'agribound tiles region') and
+# agribound.hpc.regions.load_region. 'run' holds the defaults the driver uses;
+# everything else documents how the region was checked. bbox values are EPSG:4326
+# [minx, miny, maxx, maxy]. Paths in 'run' are relative to this file.
+name: beauce_fr
+title: Beauce plain, France
+description: The Beauce cereal plain south-west of Paris (Eure-et-Loir and Loiret).
+country: FR
+bbox: [1.2, 47.9, 2.4, 48.6]
+bbox_source: hand-drawn box over the Beauce plain
+test_bbox: [1.4, 48.1, 1.55, 48.2]
+test_bbox_source: study area of examples/04_france_beauce_sentinel2.py
+study_area: null
+area_km2: 6936
+utm_zones: [31]
+run:
+  years: [2023, 2024]
+  sources: [sentinel2, landsat, hls, google-embedding, tessera-embedding]
+  engines: [delineate-anything, ftw, embedding]
+  tile_size_km: 20
+  halo_m: 1000
+  reference: null
+tiling:
+  n_tiles: 20
+  grid: utm
+  computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=20000, halo_m=1000, crs='utm', clip=True)
+  halo_note: halo_m is an agribound choice; it must exceed the largest field dimension expected here (fields
+    larger than the halo that cross a tile core boundary can be truncated). Check n_reaching_halo_edge
+    in the merge summary.
+verification:
+  worldcover_date: '2026-09-26'
+  method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
+    seed 0) sampled at 10 m inside the bbox, the same share among land points (Map != 80), and the mean
+    of the class-40 mask at 1 km (GEE pyramid, approximate).'
+  worldcover_v200_cropland_fraction: 0.719
+  worldcover_v200_cropland_fraction_of_land: 0.721
+  worldcover_v200_cropland_fraction_1km: 0.772
+  worldcover_points: 3595 cropland of 5000 valid points
+  test_bbox_worldcover_v200_cropland_fraction: 0.842
+sources:
+  checked: GEE image counts 2026-09-26 (with the author's Earth Engine project); TESSERA manifests fetched 2026-09-26;
+    USGS NAIP Plus catalogue queried 2026-09-27
+  sentinel2:
+    collection: COPERNICUS/S2_SR_HARMONIZED
+    images_intersecting_bbox:
+      2017: 235
+      2019: 585
+      2023: 590
+      2024: 592
+      2025: 814
+  landsat:
+    collection: LANDSAT/LC08|LC09/C02/T1_L2 (L8 + L9 counted)
+    images_intersecting_bbox:
+      2023: 196
+      2024: 164
+  hls:
+    collection: NASA/HLS/HLSL30/v002 + HLSS30/v002
+    l30_images:
+      2023: 301
+      2024: 255
+    s30_images:
+      2023: 1934
+      2024: 2028
+  naip: not available (US only)
+  usgs-naip-plus: not available (US only)
+  spot:
+    access: restricted (AIRBUS/SPOT6_7; DRI-internal GEE access)
+    scenes_intersecting_bbox_by_year:
+      2012: 3
+      2013: 26
+      2014: 10
+      2015: 21
+      2016: 22
+      2017: 30
+      2018: 30
+      2019: 30
+      2020: 30
+      2021: 9
+      2022: 15
+      2023: 8
+    note: 'Scene counts, not coverage: scenes may cover only part of the bbox.'
+  google-embedding:
+    collection: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
+    images_by_year:
+      2017: 1
+      2018: 1
+      2019: 1
+      2020: 1
+      2021: 1
+      2022: 1
+      2023: 1
+      2024: 1
+      2025: 1
+  tessera-embedding:
+    v1:
+      tiles_expected: 84
+      tiles_by_year:
+        2017: 84
+        2018: 84
+        2019: 84
+        2020: 84
+        2021: 84
+        2022: 84
+        2023: 84
+        2024: 84
+        2025: 84
+    v1.1:
+      tiles_expected: 84
+      tiles_by_year:
+        2017: 84
+        2018: 84
+        2019: 84
+        2020: 84
+        2021: 84
+        2022: 84
+        2023: 84
+        2024: 84
+        2025: 84
+    note: 'Tile counts from the TESSERA manifests (v1 ''vultr'', v1.1 ''cambridge'') fetched 2026-09-26:
+      0.1-degree tiles present per year vs. all tiles intersecting the bbox (expected includes water,
+      which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
+      before large runs.'
+reference_data:
+- 'FTW benchmark chips for France (ftw-tools: ''ftw data download''); these are sample chips, not wall-to-wall
+  boundaries.'
+ftw:
+  in_ftw_benchmark_countries: true
+  note: France is one of the FTW benchmark countries (ftw_tools.settings.ALL_COUNTRIES); the default FTW
+    model (FTW_PRUE_EFNET_B5) was trained on the full FTW data.
+  published_predictions: FTW Global prediction polygons exist for country FR (Source Cooperative alpha/results-by-admin-conf);
+    query them with 'agribound query-ftw --study-area bbox:... --year 2024'. They are model outputs, not
+    reference data.

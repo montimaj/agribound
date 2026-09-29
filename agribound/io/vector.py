@@ -7,10 +7,17 @@ including GeoJSON, GeoPackage, and fiboa-compliant GeoParquet.
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+import re
 from pathlib import Path
+from typing import Any
 
 import geopandas as gpd
-from shapely.geometry import shape
+from shapely.geometry import box, shape
+
+logger = logging.getLogger(__name__)
 
 
 def read_vector(path: str | Path) -> gpd.GeoDataFrame:
@@ -67,30 +74,45 @@ def write_vector(
     path : str or Path
         Destination file path.
     format : str or None
-        Override output format. If *None*, inferred from the file extension.
+        Output format (``"gpkg"``, ``"geojson"``, ``"parquet"``, ``"shp"``,
+        ``"fgb"``). If *None*, inferred from the file extension. A format
+        that contradicts a recognised extension raises :class:`ValueError`.
 
     Returns
     -------
     str
         Path to the written file.
+
+    Raises
+    ------
+    ValueError
+        If the format cannot be inferred, is unsupported, or contradicts the
+        file extension.
     """
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
+    suffix = path.suffix.lower()
+    format_map = {
+        ".gpkg": "gpkg",
+        ".geojson": "geojson",
+        ".json": "geojson",
+        ".parquet": "parquet",
+        ".geoparquet": "parquet",
+        ".shp": "shp",
+        ".fgb": "fgb",
+    }
+    implied = format_map.get(suffix)
     if format is None:
-        suffix = path.suffix.lower()
-        format_map = {
-            ".gpkg": "gpkg",
-            ".geojson": "geojson",
-            ".json": "geojson",
-            ".parquet": "parquet",
-            ".geoparquet": "parquet",
-            ".shp": "shp",
-            ".fgb": "fgb",
-        }
-        format = format_map.get(suffix)
+        format = implied
         if format is None:
             raise ValueError(f"Cannot infer format from extension {suffix!r}")
+    else:
+        format = str(format).lower().strip()
+        if implied is not None and implied != format:
+            raise ValueError(
+                f"format={format!r} contradicts the extension of {path.name!r} "
+                f"({implied!r}); change the extension or the format."
+            )
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     if format == "parquet":
         _write_fiboa_parquet(gdf, path)
@@ -142,16 +164,60 @@ def _write_fiboa_parquet(gdf: gpd.GeoDataFrame, path: Path) -> None:
     gdf.to_parquet(path, index=False)
 
 
-def read_study_area(path: str) -> gpd.GeoDataFrame:
-    """Read a study area definition.
+# A WKT type keyword followed by "(" or EMPTY (so file names like "polygons.gpkg" do not match).
+_WKT_RE = re.compile(
+    r"^\s*(SRID=\d+;\s*)?((MULTI)?(POLYGON|POINT|LINESTRING)|GEOMETRYCOLLECTION)"
+    r"\s*(ZM|Z|M)?\s*(\(|EMPTY\b)",
+    re.IGNORECASE,
+)
 
-    Handles local vector files and GEE asset ID strings.
+
+def parse_bbox(text: str) -> tuple[float, float, float, float]:
+    """Parse ``"bbox:minx,miny,maxx,maxy"`` (EPSG:4326 degrees).
+
+    Raises
+    ------
+    ValueError
+        If the string is malformed or the box is empty / outside lon-lat range.
+    """
+    body = text.split(":", 1)[1] if ":" in text else text
+    try:
+        values = tuple(float(v) for v in body.replace(" ", "").split(","))
+    except ValueError as exc:
+        raise ValueError(f"Invalid bbox {text!r}: expected 'bbox:minx,miny,maxx,maxy'") from exc
+    if len(values) != 4:
+        raise ValueError(f"Invalid bbox {text!r}: expected 4 numbers, got {len(values)}")
+    minx, miny, maxx, maxy = values
+    if not (-180 <= minx < maxx <= 180 and -90 <= miny < maxy <= 90):
+        raise ValueError(
+            f"Invalid bbox {text!r}: need -180 <= minx < maxx <= 180 and "
+            "-90 <= miny < maxy <= 90 (EPSG:4326 degrees)"
+        )
+    return minx, miny, maxx, maxy
+
+
+def read_study_area(path: str | Path, config: Any = None) -> gpd.GeoDataFrame:
+    """Read a study area definition.
 
     Parameters
     ----------
-    path : str
-        Path to a local vector file or a GEE asset ID string
-        (e.g. ``"projects/my-project/assets/my_aoi"``).
+    path : str or Path
+        One of:
+
+        - a local vector file (GeoJSON, GeoPackage, Shapefile, GeoParquet,
+          FlatGeobuf);
+        - a GEE FeatureCollection asset ID (``"projects/..."`` or
+          ``"users/..."``);
+        - a bounding box ``"bbox:minx,miny,maxx,maxy"`` in EPSG:4326;
+        - a WKT geometry (``POLYGON``, ``MULTIPOLYGON``, ...) in EPSG:4326, or
+          EWKT with an ``SRID=<epsg>;`` prefix.
+    config : AgriboundConfig or None
+        Used only for GEE asset IDs: Earth Engine is initialised with
+        :func:`agribound.auth.ensure_gee`, i.e. with the configured project,
+        service-account key, endpoint and workload tag. Without it, an
+        uninitialised Earth Engine client is set up with
+        :func:`agribound.auth.setup_gee` defaults (``GEE_PROJECT``, ``gcloud``
+        project or key project).
 
     Returns
     -------
@@ -161,22 +227,55 @@ def read_study_area(path: str) -> gpd.GeoDataFrame:
     Raises
     ------
     ValueError
-        If the path is not a recognized format or GEE asset.
+        If the string is not a recognised format, or the bbox/WKT is invalid.
+    FileNotFoundError
+        If a vector file path does not exist.
     """
-    # Check if it looks like a GEE asset ID
-    if path.startswith("projects/") or path.startswith("users/"):
-        return _read_gee_asset(path)
+    text = str(path).strip()
 
-    return read_vector(path)
+    # GEE asset ID
+    if text.startswith("projects/") or text.startswith("users/"):
+        return _read_gee_asset(text, config=config)
+
+    # Bounding box
+    if text.lower().startswith("bbox:"):
+        minx, miny, maxx, maxy = parse_bbox(text)
+        return gpd.GeoDataFrame(
+            {"name": ["bbox"]}, geometry=[box(minx, miny, maxx, maxy)], crs="EPSG:4326"
+        )
+
+    # WKT geometry
+    if _WKT_RE.match(text):
+        from shapely import wkt
+
+        crs = "EPSG:4326"
+        wkt_text = text
+        if text.upper().startswith("SRID="):
+            srid, wkt_text = text.split(";", 1)
+            crs = f"EPSG:{int(srid.split('=', 1)[1])}"
+        try:
+            geom = wkt.loads(wkt_text)
+        except Exception as exc:
+            raise ValueError(f"Invalid WKT study area: {exc}") from exc
+        if geom.is_empty:
+            raise ValueError("WKT study area is empty")
+        return gpd.GeoDataFrame({"name": ["wkt"]}, geometry=[geom], crs=crs)
+
+    return read_vector(text)
 
 
-def _read_gee_asset(asset_id: str) -> gpd.GeoDataFrame:
+def _read_gee_asset(asset_id: str, config: Any = None) -> gpd.GeoDataFrame:
     """Load a GEE FeatureCollection asset as a GeoDataFrame.
 
     Parameters
     ----------
     asset_id : str
         GEE asset ID.
+    config : AgriboundConfig or None
+        When given, Earth Engine is initialised with
+        :func:`agribound.auth.ensure_gee` (configured project and
+        credentials; idempotent). Otherwise :func:`agribound.auth.setup_gee`
+        is called with its defaults if the client is not initialised.
 
     Returns
     -------
@@ -191,9 +290,11 @@ def _read_gee_asset(asset_id: str) -> gpd.GeoDataFrame:
             "Install with: pip install agribound[gee]"
         ) from None
 
-    from agribound.auth import check_gee_initialized, setup_gee
+    from agribound.auth import check_gee_initialized, ensure_gee, setup_gee
 
-    if not check_gee_initialized():
+    if config is not None:
+        ensure_gee(config)
+    elif not check_gee_initialized():
         setup_gee()
 
     fc = ee.FeatureCollection(asset_id)
@@ -202,6 +303,96 @@ def _read_gee_asset(asset_id: str) -> gpd.GeoDataFrame:
     properties = [f.get("properties", {}) for f in features]
 
     gdf = gpd.GeoDataFrame(properties, geometry=geometries, crs="EPSG:4326")
+    return gdf
+
+
+def study_area_cache_file(config: Any) -> Path | None:
+    """Path of the local copy of a GEE-asset study area, or *None* for other study areas.
+
+    The copy is ``<working dir>/study_area_gee_<key>.geojson``, where
+    ``<key>`` is :func:`agribound._cache.gee_asset_fingerprint` of the asset
+    ID (the study-area part of every cache key) and the working directory is
+    :meth:`agribound.config.AgriboundConfig.get_working_dir`. See
+    :func:`read_config_study_area`.
+    """
+    from agribound._cache import gee_asset_fingerprint
+
+    text = str(getattr(config, "study_area", "") or "").strip()
+    if not text.startswith(("projects/", "users/")):
+        return None
+    return Path(config.get_working_dir()) / f"study_area_gee_{gee_asset_fingerprint(text)}.geojson"
+
+
+def read_config_study_area(config: Any) -> gpd.GeoDataFrame:
+    """Read ``config.study_area``, keeping a local copy of a GEE asset.
+
+    Vector files, ``"bbox:..."`` strings and WKT are read with
+    :func:`read_study_area`. A GEE asset ID is read from its local copy
+    (:func:`study_area_cache_file`) when that file exists, without contacting
+    Earth Engine; otherwise it is read from Earth Engine with the configured
+    credentials (``read_study_area(..., config=config)``) and its geometries
+    are written to the copy. The pipeline stages that read the study area
+    (composite builders, study-area selection, evaluation, FTW window dates,
+    LULC filter) do so through this function, so a GEE-asset study area read
+    once on a node with network access (e.g. by ``agribound composite``) is
+    available to a later ``agribound delineate`` with the same cache
+    directory on a node without it.
+
+    The copy holds the geometries only (EPSG:4326, no properties). Like the
+    cached composites, it is keyed by the asset ID, not by the asset's
+    content: after changing an asset in place, delete the copy (and the
+    cached composites) or use another cache directory. A copy that cannot be
+    read is replaced; a copy that cannot be written is skipped with a
+    WARNING.
+
+    Parameters
+    ----------
+    config : AgriboundConfig
+        Configuration with a ``study_area``.
+
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        Study area geometry (for a GEE asset read from Earth Engine, with the
+        asset's properties; from the copy, without them).
+    """
+    from shapely.geometry import mapping
+
+    path = study_area_cache_file(config)
+    if path is None:
+        return read_study_area(config.study_area, config=config)
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+            geometries = [
+                shape(f["geometry"]) if f.get("geometry") else None for f in data["features"]
+            ]
+            logger.debug("Using the local copy of study area %s: %s", config.study_area, path)
+            return gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            logger.warning("Ignoring unreadable study-area copy %s: %s", path, exc)
+    gdf = read_study_area(config.study_area, config=config)
+    geoms_4326 = gdf.geometry if gdf.crs is None else gdf.geometry.to_crs("EPSG:4326")
+    features = [
+        {
+            "type": "Feature",
+            "geometry": None if g is None or g.is_empty else mapping(g),
+            "properties": {},
+        }
+        for g in geoms_4326
+    ]
+    payload = {
+        "type": "FeatureCollection",
+        "agribound:asset_id": str(config.study_area).strip(),
+        "features": features,
+    }
+    partial = path.with_name(path.name + ".partial")
+    try:
+        partial.write_text(json.dumps(payload))
+        os.replace(partial, path)
+        logger.info("Saved a local copy of study area %s: %s", config.study_area, path)
+    except OSError as exc:
+        logger.warning("Could not save a local copy of study area %s: %s", config.study_area, exc)
     return gdf
 
 

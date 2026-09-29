@@ -11,11 +11,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[gee,dev]
+          python -m pip install ".[gee,dev]"
       - name: Authenticate with GEE
         env:
           GEE_SERVICE_ACCOUNT_KEY: ${{ secrets.GEE_SERVICE_ACCOUNT_KEY }}
@@ -31,7 +31,8 @@ jobs:
         env:
           GEE_SERVICE_ACCOUNT_KEY: ${{ secrets.GEE_SERVICE_ACCOUNT_KEY }}
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/gee-key.json
-        run: pytest tests/ -m gee --tb=short -q
+          AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY: /tmp/gee-key.json
+        run: python -m pytest tests/ -m "gee and not gpu" --tb=short -q
       - name: Cleanup credentials
         if: always()
         run: rm -f /tmp/gee-key.json

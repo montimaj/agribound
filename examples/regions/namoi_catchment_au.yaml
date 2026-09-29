@@ -1,0 +1,151 @@
+# Region: Namoi catchment, New South Wales, Australia
+# Read by examples/run_region_delineation.sh (via 'agribound tiles region') and
+# agribound.hpc.regions.load_region. 'run' holds the defaults the driver uses;
+# everything else documents how the region was checked. bbox values are EPSG:4326
+# [minx, miny, maxx, maxy]. Paths in 'run' are relative to this file.
+name: namoi_catchment_au
+title: Namoi catchment, New South Wales, Australia
+description: 'Namoi River catchment in northern New South Wales (Murray-Darling Basin): irrigated and
+  dryland cropping on the plains around Narrabri, Wee Waa and Gunnedah. The bbox is the full extent of
+  the 82 digitised field polygons in examples/namoi_polygons.geojson.'
+country: AU
+bbox: [147.6106, -31.5362, 151.0296, -29.863]
+bbox_source: total bounds of examples/namoi_polygons.geojson (82 polygons, EPSG:4326), rounded outwards
+  to 1e-4 degrees
+test_bbox: [151.0, -31.245, 151.05, -31.195]
+test_bbox_source: examples/namoi_test_aoi.geojson (~4.8 x 5.6 km, 4 fields); it extends 0.02 degrees east
+  of the polygon extent, so 59 % of it lies inside the bbox
+study_area: null
+area_km2: 60761
+utm_zones: [55, 56]
+run:
+  years: [2023, 2024]
+  sources: [sentinel2, landsat, hls, google-embedding, tessera-embedding]
+  engines: [delineate-anything, ftw, embedding]
+  tile_size_km: 20
+  halo_m: 2000
+  reference: ../namoi_polygons.geojson
+  tessera_version: v1.1
+tiling:
+  n_tiles: 178
+  grid: utm
+  computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=20000, halo_m=2000, crs='utm', clip=True)
+  halo_note: 'halo_m is an agribound choice; fields longer than the halo that cross a tile core boundary
+    can be truncated. 2000 m covers 77 of the 84 single-part reference polygons (bounding-box long side
+    in the UTM zone of each polygon, checked 2026-09-28: median 908 m, p99 2744 m, max 2830 m; 7 exceed
+    2000 m). Use about 3000 m to cover every reference field, and check n_reaching_halo_edge in the merge
+    summary.'
+verification:
+  worldcover_date: '2026-09-26'
+  method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
+    seed 0) sampled at 10 m inside the bbox, the same share among land points (Map != 80), and the mean
+    of the class-40 mask at 1 km (GEE pyramid, approximate).'
+  worldcover_v200_cropland_fraction: 0.303
+  worldcover_v200_cropland_fraction_of_land: 0.304
+  worldcover_v200_cropland_fraction_1km: 0.305
+  worldcover_points: 1517 cropland of 5000 valid points
+  test_bbox_worldcover_v200_cropland_fraction: 0.53
+sources:
+  checked: GEE image counts 2026-09-26 (with the author's Earth Engine project); TESSERA manifests fetched 2026-09-26;
+    USGS NAIP Plus catalogue queried 2026-09-27
+  sentinel2:
+    collection: COPERNICUS/S2_SR_HARMONIZED
+    images_intersecting_bbox:
+      2017: 364
+      2019: 1741
+      2023: 1793
+      2024: 1775
+      2025: 2097
+  landsat:
+    collection: LANDSAT/LC08|LC09/C02/T1_L2 (L8 + L9 counted)
+    images_intersecting_bbox:
+      2023: 335
+      2024: 345
+  hls:
+    collection: NASA/HLS/HLSL30/v002 + HLSS30/v002
+    l30_images:
+      2023: 1069
+      2024: 1073
+    s30_images:
+      2023: 3106
+      2024: 3280
+  naip: not available (US only)
+  usgs-naip-plus: not available (US only)
+  spot:
+    access: restricted (AIRBUS/SPOT6_7; DRI-internal GEE access)
+    scenes_intersecting_bbox_by_year:
+      2012: 2
+      2013: 28
+      2014: 73
+      2015: 51
+      2016: 62
+      2017: 20
+      2018: 13
+      2019: 33
+      2020: 28
+      2021: 13
+      2022: 6
+      2023: 15
+    note: 'Scene counts, not coverage: scenes may cover only part of the bbox.'
+  google-embedding:
+    collection: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
+    images_by_year:
+      2017: 6
+      2018: 6
+      2019: 6
+      2020: 6
+      2021: 6
+      2022: 6
+      2023: 6
+      2024: 6
+      2025: 6
+  tessera-embedding:
+    v1:
+      tiles_expected: 630
+      tiles_by_year:
+        2017: 114
+        2018: 47
+        2019: 46
+        2020: 40
+        2021: 41
+        2022: 46
+        2023: 44
+        2024: 630
+    v1.1:
+      tiles_expected: 630
+      tiles_by_year:
+        2017: 630
+        2018: 630
+        2019: 630
+        2020: 630
+        2021: 630
+        2022: 630
+        2023: 630
+        2024: 630
+        2025: 630
+    note: 'Tile counts from the TESSERA manifests (v1 ''vultr'', v1.1 ''cambridge'') fetched 2026-09-26:
+      0.1-degree tiles present per year vs. all tiles intersecting the bbox (expected includes water,
+      which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
+      before large runs.'
+reference_data:
+- 'examples/namoi_polygons.geojson: 82 manually digitised field polygons (local file, not distributed:
+  *.geojson is gitignored). Sparse over the bbox, so precision is not meaningful; use recall / area-weighted
+  recall of the matched fields.'
+ftw:
+  in_ftw_benchmark_countries: false
+  note: Not an FTW benchmark country (ftw_tools.settings.ALL_COUNTRIES), so FTW models run out of their
+    training distribution here; compare with Delineate-Anything and check a reference sample.
+  published_predictions: FTW Global prediction polygons exist for country AU (Source Cooperative alpha/results-by-admin-conf);
+    query them with 'agribound query-ftw --study-area bbox:... --year 2024'. They are model outputs, not
+    reference data.
+example_aois:
+- script: examples/03_australia_murray_darling_hls.py
+  bbox: [149.7, -30.3, 149.85, -30.15]
+  worldcover_v200_cropland_fraction: 0.571
+notes:
+- Use the bbox (not the polygon file) as the study area. Tiled runs clip the tile cores to the study area
+  and merge_tiles keeps only polygons whose representative point lies inside it, so a study area made
+  of the reference fields would drop every detection outside them and inflate precision.
+- TESSERA v1 is complete only for 2024 here; v1.1 covers all 630 tiles 2017-2025, hence tessera_version
+  v1.1.
+- 'Southern-hemisphere season: FTW''s crop-calendar windows roll over into year + 1 automatically.'

@@ -1,201 +1,362 @@
 # Delineation Engines
 
-Agribound provides seven delineation engines, each suited to different use cases, satellite sources, and hardware configurations.
+An engine turns the stage-A raster into field polygons. Seven engines are
+registered in `agribound.registry.ENGINE_REGISTRY` (`agribound list-engines`,
+`agribound.list_engines()`). The configuration is validated against the
+registry: an engine that does not support the source, or `fine_tune=True` for
+an engine that cannot be fine-tuned, raises `ValueError` before anything is
+downloaded.
 
-## Engine Comparison
+## Overview
 
-| Engine | Key | Approach | Strengths | GPU Required | Reference |
-|---|---|---|---|---|---|
-| Delineate-Anything | `delineate-anything` | YOLO instance segmentation (2 model variants) | Fast; resolution-agnostic (1--10 m+); routes through FTW for S2 with native MPS support | Recommended | [Lavreniuk et al. (2025)](https://arxiv.org/abs/2504.02534) |
-| Fields of The World | `ftw` | Semantic segmentation (14+ models: EfficientNet-B3/B5/B7, UNet, UPerNet) | Strong generalization; 25-country training set; bi-temporal input (planting + harvest); all models via `list_ftw_models()` | Yes | [Kerner et al. (2025)](https://fieldsofthe.world/) |
-| GeoAI Field Boundary | `geoai` | Mask R-CNN instance segmentation | Built-in NDVI support; auto-falls back to CPU on Apple Silicon (MPS). **Without fine-tuning on region-specific reference data, GeoAI typically does not delineate any fields** | No | [Wu (2026)](https://github.com/opengeos/geoai) |
-| DINOv3 | `dinov3` | DINOv3 ViT backbone (SAT-493M satellite-pretrained) + DPT segmentation head | Satellite-native ViT features pretrained on 493M satellite images; LoRA fine-tuning; resolution-agnostic | Yes | [Siméoni et al. (2025)](https://arxiv.org/abs/2508.10104) |
-| Prithvi-EO-2.0 | `prithvi` | NASA/IBM ViT foundation model (embed / PCA / segment modes) | 1024-D ViT embeddings from 6 HLS bands; PCA baseline for comparison. **ViT embed mode requires fine-tuning for good results** | Recommended (embed); No (PCA) | [Szwarcman et al. (2024)](https://arxiv.org/abs/2412.02732) |
-| Embedding | `embedding` | Unsupervised clustering of pre-computed embeddings | No GPU needed; no labeled data required | No | [Brown et al. (2025)](https://arxiv.org/abs/2507.22291), [Feng et al. (2025)](https://arxiv.org/abs/2506.20380) |
-| Ensemble | `ensemble` | Multi-engine or multi-model consensus (vote / union / intersection) | Best accuracy; supports running same engine with different models | Depends on engines | -- |
+"Label-free" means the engine runs without a checkpoint trained by the user.
+"GPU recommended" is a speed recommendation; every engine also runs on CPU.
 
-## Engine Details
+| Engine | Key | Approach | Label-free | Fine-tunable | GPU recommended | Sources | Extra |
+|---|---|---|---|---|---|---|---|
+| Delineate-Anything | `delineate-anything` | YOLO11-seg instance segmentation (Ultralytics) | yes (published weights) | yes | yes | all imagery sources and `local` | `delineate-anything` |
+| Fields of The World | `ftw` | semantic segmentation (field / boundary / background) with ftw-tools checkpoints, polygonised | yes (published weights) | **no** | yes | `sentinel2`, `landsat`, `hls`, `local` | `ftw` |
+| GeoAI | `geoai` | Mask R-CNN ResNet50-FPN instance segmentation (geoai-py) | **no** (no published field weights) | yes | yes | all imagery sources and `local` | `geoai` |
+| DINOv3 | `dinov3` | DINOv3 ViT backbone + DPT head (geoai-py) | **no** (no published field weights) | yes | yes | all imagery sources and `local` | `dinov3` |
+| Prithvi-EO-2.0 | `prithvi` | Prithvi-EO-2.0 ViT (terratorch): clustering of patch embeddings or a fine-tuned segmentation model | only in `mode="embed"` (and the `pca` baseline) | yes | yes | `sentinel2`, `landsat`, `hls`, `local` | `prithvi` (GFM environment) |
+| Embedding clustering | `embedding` | K-means (or spectral) clustering of pre-computed embeddings | yes | no | no (CPU) | `google-embedding`, `tessera-embedding` | `embedding` |
+| Ensemble | `ensemble` | intersection, union or pixel vote of several engines/models | depends on the members | no | yes | depends on the members | members' extras |
 
-### Delineate-Anything
+"All imagery sources" = `landsat`, `sentinel2`, `hls`, `naip`,
+`usgs-naip-plus`, `spot`, `spot-pan`, `local`.
 
-Instance segmentation based on Ultralytics YOLO (DelineateAnything and DelineateAnything-S), trained on the FBIS-22M dataset. Resolution-agnostic: works across 1 m (NAIP) to 10 m+ (Sentinel-2) imagery.
+Every engine attaches `gdf.attrs["engine_meta"]` (backend, model key, weights
+repository, revision and SHA-256 where applicable, thresholds, device, ...),
+which the pipeline copies into the [provenance record](reproducibility.md).
+There are no silent fallbacks to another model, band set or engine: a
+configuration that cannot run raises an error that says what is missing, and
+anything that degrades is logged at WARNING and recorded in `engine_meta`.
 
-For **Sentinel-2**, DA automatically routes through FTW's built-in instance segmentation with proper S2 preprocessing (`/3000` normalization) and native MPS (Apple GPU) support. For all other sensors, the standalone DA pipeline with sensor-agnostic percentile normalization is used.
+Every engine class implements `prefetch(config)`, which downloads its weights
+for offline use (`agribound prefetch --engine <name>`, see
+[HPC](hpc.md#prefetching-weights)).
 
-```bash
-pip install agribound[delineate-anything]
-```
+---
 
-**Supported sources**: `landsat`, `sentinel2`, `hls`, `naip`, `spot`, `local`
+## Delineate-Anything (`delineate-anything`)
 
-**Fine-tuning**: Supported (YOLO). Chips are converted to PNG with percentile-normalized uint8 RGB.
+YOLO11-seg instance segmentation trained on 0.25-10 m imagery. The weights come
+from the Hugging Face repository `MykolaL/DelineateAnything` at **pinned
+revisions**, and the SHA-256 of each file is checked before use:
 
-**Reference**: arXiv:2504.02534
+| `engine_params["da_model"]` | File | Model | Default `conf_threshold` |
+|---|---|---|---|
+| `large_v2` (default) | `DelineateAnythingv2.pt` @ `369d0b4c` | Delineate Anything v2, YOLO11x-seg, trained on FBIS-73M | 0.15 |
+| `large` | `DelineateAnything.pt` @ `029e9a94` | YOLO11x-seg, trained on FBIS-22M | 0.005 |
+| `small` | `DelineateAnything-S.pt` @ `029e9a94` | YOLO11n-seg, trained on FBIS-22M | 0.005 |
 
-### Fields of The World (FTW)
+The default confidences are those of the upstream sample configurations. The
+aliases `"DelineateAnythingV2"`, `"DelineateAnything"` and
+`"DelineateAnything-S"` are accepted; the legacy `model_size`
+(`"large"`/`"small"`) selects the v1 models.
 
-Semantic segmentation using EfficientNet-B3/B5/B7, UNet, UPerNet, and DeepLabV3+ architectures. Ships with 14+ pre-trained models covering 25 countries. All models are available via `agribound.list_ftw_models()`. Produces field interior and boundary masks that are then polygonized.
+**Backends** (`engine_params["backend"]`, no automatic fallback between them):
 
-```bash
-pip install agribound[ftw]
-```
+- `"native"` (default): agribound's own tiled Ultralytics inference. It
+  reproduces the reference pipeline's preprocessing: a scene-level per-band
+  1-99 percentile stretch to uint8 (uint8 rasters are used unchanged), 512 px
+  tiles below 4 m ground sampling distance (GSD), else 256 px tiles upsampled
+  2× so the model input is always 512 × 512, 50 % tile overlap, BGR channel
+  order for Ultralytics, FP16 on GPU/MPS. Detections from all tiles are
+  combined at polygon level: tile-cut pieces of one field are merged
+  (`merge_tile_pieces`, default True, so fields larger than a tile are rebuilt),
+  then greedy non-maximum suppression and overlap resolution. Results are close
+  to, but not identical with, the `reference` backend. Returns a `confidence`
+  column.
+- `"reference"`: runs the upstream Delineate-Anything pipeline
+  (`methods.main.inference.execute`) in a subprocess from a checkout given by
+  `engine_params["da_repo"]` or `AGRIBOUND_DA_REPO`. Needs the GDAL Python
+  bindings (`osgeo`, conda-forge `gdal`) and `numba` (included in the
+  `delineate-anything` extra), and a checkout at upstream commit 34eddf7 or
+  later.
+- `"ftw"`: `ftw_tools.inference.inference.run_instance_segmentation`. FTW's
+  wrapper divides the first three bands by 3000, so only
+  `reflectance_x10000` composites are accepted. `large_v2` needs an ftw-tools
+  build whose model registry contains `DelineateAnythingV2` (ftw-baselines
+  main at fa86d4a or later; not in ftw-tools 2.0.0b5).
 
-**Supported sources**: `landsat`, `sentinel2`, `hls`, `local`
+**Parameters** (all optional; the full list is in the
+[API reference](../api/engines.md#delineate-anything)):
+`conf_threshold`, `batch_size` (4), `checkpoint_path` (fine-tuned weights;
+set by the pipeline after fine-tuning), `super_resolution` (1, 2 or 4),
+`tile_step` (0.5), `half`, `iou_threshold` (NMS IoU, 0.3), `max_detections`
+(300), `dedup_iou` (0.3), `dedup_containment` (0.8), `merge_tile_pieces`
+(True), `resolve_overlaps` (True), `min_hole_area_m2` (reference backend,
+2500 m²). A parameter that the selected backend cannot honour raises
+`ValueError`.
 
-**Fine-tuning**: Not yet supported (requires paired temporal windows). Pre-trained weights are used directly.
+!!! warning "Changed in 1.0.0"
+    The confidence parameter is `conf_threshold`; the old names
+    `confidence` and `minimal_confidence` now raise `ValueError`.
 
-**Reference**: Fields of The World (FTW) dataset
+`min_field_area_m2` is applied as an absolute area computed in the equal-area
+EPSG:6933 by every backend. For rasters whose GSD lies more than 5 % outside
+the 0.25-10 m training range (for example 30 m Landsat or HLS) a WARNING is
+logged and `engine_meta["gsd_outside_training_range"]` is True. Example 20
+runs Delineate Anything v2 as released on 2018 composites of San Juan County,
+New Mexico. Against the NMOSE polygons, which were not used for training or
+fine-tuning in these runs (whether the model's training set, FBIS-73M,
+includes them was not checked), F1 was 0.15 on Landsat (30 m), 0.34 on
+Sentinel-2 (10 m), 0.33 on SPOT 6/7 (6 m) and 0.43 on NAIP (1 m); see the
+[gallery](../gallery.md).
 
-### GeoAI Field Boundary
+The Delineate-Anything model code and weights, and Ultralytics, are AGPL-3.0.
 
-Mask R-CNN instance segmentation from the `geoai-py` package. Includes built-in NDVI computation for enhanced multi-spectral input.
+## Fields of The World (`ftw`)
 
-```bash
-pip install agribound[geoai]
-```
+Runs an ftw-tools checkpoint on R, G, B and NIR and polygonises the predicted
+field class. The default model is the ftw-tools `MODEL_REGISTRY` entry marked
+`default`, which in ftw-tools 2.0.0b5 is `FTW_PRUE_EFNET_B5` (a PRUE U-Net
+with an EfficientNet-B5 encoder, two input windows). List the models with
+`agribound list-ftw-models` (`--all` includes legacy models) and choose one
+with `engine_params["model"]`, or pass a local checkpoint with
+`engine_params["checkpoint_path"]`. Instance-segmentation registry entries
+(Delineate-Anything) are rejected; use the `delineate-anything` engine.
 
-**Supported sources**: `sentinel2`, `naip`, `local`
+**Two-window models.** The number of windows follows the model (registry
+`requires_window`, or `in_channels` of a checkpoint: 4 = one window, 8 =
+two). Two-window models take `[R, G, B, NIR]` of an early-season window A
+followed by the same bands of a late-season window B, the order that
+ftw-tools' own inference input builder writes (FTW's training data layout
+stacks the windows in the other order; in a live Beauce 2024 test, swapping
+the order changed about 2 % of the predicted pixels). The window centres are FTW's
+summer-crop start and end of season over the study-area bounding box (from
+ftw-tools' crop calendar; the end moves to `year + 1` for southern-hemisphere
+seasons). Each window is a median composite over `centre ± window_days`
+(default 30) built by the source's composite builder with its own cache
+entry. `engine_params["window_dates"]` (two `"YYYY-MM-DD"` centres) replaces
+the crop calendar. If a window has no imagery the run fails with an error
+that names `window_dates`, `window_days` and `allow_annual_fallback`;
+`allow_annual_fallback=True` uses the annual composite for that window
+(WARNING, recorded in `engine_meta`). For `source="local"` a two-window model
+needs `stacked_windows=True` with bands 1-4 and 5-8 holding the two windows,
+or `allow_annual_fallback=True`.
 
-**Reference**: geoai-py package
+**Radiometry.** ftw-tools divides the input by 3000, i.e. it expects
+Sentinel-2 L2A reflectance × 10000. Sentinel-2, Landsat and HLS composites
+are on that scale and are used unchanged; Landsat and HLS are nevertheless
+outside the Sentinel-2 training distribution (WARNING,
+`engine_meta["out_of_distribution_source"] = True`). `local` rasters need
+`engine_params["value_scale"]`.
 
-!!! warning "Apple Silicon (MPS)"
-    Mask R-CNN is unstable on Apple Silicon GPUs via MPS (Metal Performance Shaders). Metal command buffer errors cause crashes during both training and inference. Agribound automatically detects MPS and falls back to CPU for all GeoAI operations. All other engines (FTW, Delineate-Anything, Prithvi) work correctly on MPS.
+**Polygonisation.** Prediction rasters in a geographic CRS, a CRS whose unit
+is not the metre, or a Mercator/Web Mercator CRS are reprojected to the UTM
+zone of the study-area centre before `polygonize`, so `simplify` and
+`min_size` are in metres. `close_interiors` (default True) fills holes;
+combining it with `erode_dilate` or `dilate_erode` needs ftw-baselines main
+(ftw-tools 2.0.0b5 raises, and agribound raises `ValueError` before building
+any input).
 
-### DINOv3
+!!! note "macOS: use a `__main__` guard"
+    ftw-tools' data-loader workers (`num_workers = config.n_workers`) use the
+    `spawn` start method on macOS, which re-imports the main script. Scripts
+    that run FTW (or the Delineate-Anything `ftw` backend) must put their code
+    under `if __name__ == "__main__":`, otherwise the run crashes. Setting
+    `n_workers=0` loads data in the main process.
 
-DINOv3 Vision Transformer backbone with a DPT (Dense Prediction Transformer) segmentation head. Uses LoRA-efficient fine-tuning with a frozen backbone for fast adaptation on reference boundaries. Resolution-agnostic — works across all satellite sources.
+FTW models cannot be fine-tuned in agribound: its one-composite-per-chip
+training data does not match FTW's training layout. Train with ftw-baselines
+(`ftw model fit -c <config.yaml>`) and pass the checkpoint with
+`engine_params={"checkpoint_path": ...}`.
 
-```bash
-pip install agribound[geoai]
-```
+## GeoAI (`geoai`)
 
-**Supported sources**: `landsat`, `sentinel2`, `hls`, `naip`, `spot`, `local`
+torchvision Mask R-CNN ResNet50-FPN (2 classes) run through geoai-py's
+instance-segmentation workflow. **No field-boundary weights are published**
+for geoai (as of 2026-09 the `giswqs/geoai` Hugging Face repository holds
+building, car, ship, solar-panel, parking, water and wetland models, and
+geoai's default detector weights detect buildings). The engine therefore
+requires a checkpoint and never falls back to other weights:
 
-**Requires fine-tuning**: Yes — DINOv3 requires fine-tuning on reference boundaries to produce meaningful field segmentation. Set `fine_tune=True` with `reference_boundaries`.
+- `fine_tune=True` with `reference_boundaries` (see [Fine-tuning](fine-tuning.md)), or
+- `engine_params["checkpoint_path"]` (a 2-class, 3-channel Mask R-CNN state
+  dict), or `repo_id` + `filename` (+ `revision`) for a file on Hugging Face.
+  `checkpoint_path` and `repo_id` cannot both be set.
 
-**Reference**: Siméoni et al. (2025), DINOv3
+Input: canonical R, G, B with a scene-level 1-99 percentile stretch to uint8,
+the same as the fine-tuning chips. Mask R-CNN resizes every image so its
+shorter side is 800 px, so the inference window sets the apparent field size;
+the window (`window_size`) therefore defaults to the training chip size
+recorded next to the checkpoint (keep them equal). Mask R-CNN cannot detect a
+field larger than the window as one instance, so fine-tuning sizes the chip
+from the reference fields by default (1.25 × their 90th-percentile
+bounding-box side, rounded up to a
+multiple of 32 px and clamped to 256–1024 px; see
+[Fine-tuning](fine-tuning.md#training-data)). geoai keeps partial detections
+of a field from overlapping windows, so the engine joins instances split
+along the window edges (`merge_window_seams`, default True): two instances
+are joined when they meet across an interior window edge along at least
+`seam_min_px` pixels (default 16) and at least half the shorter of their two
+runs on that edge, with at most `seam_max_gap_px` background pixels (default
+2) between them; those gaps are then filled. Instances that touch anywhere
+else are not joined. `engine_meta` records `n_instances_merged_at_seams` and
+`n_seam_gap_pixels_filled`. In example 12's NAIP run (centre pivots of
+about 800 m at 1 m), F1 against NMOSE was 0.01 with 256 px chips, 0.25 with
+1,024 px chips and 0.48 after joining (in-sample; see the
+[gallery](../gallery.md)). Mask R-CNN
+keeps at most 100 detections per window, and a `confidence_threshold` (default
+0.5) below its internal score threshold of 0.05 acts as 0.05; for dense small
+fields, fine-tune with a smaller `chip_size`. On Apple MPS the model runs on CPU
+(WARNING): on MPS it reported Metal command-buffer errors and its detections
+differed from CPU.
 
-### Prithvi-EO-2.0
+## DINOv3 (`dinov3`)
 
-NASA/IBM foundation model (300M-parameter Vision Transformer) pretrained on HLS imagery with masked autoencoders. Supports three modes:
+geoai-py's `DINOv3Segmenter`: a DINOv3 ViT backbone with a DPT decoder,
+trained by agribound into background / field interior / field boundary.
+**There are no published field-boundary weights**, so a fine-tuned
+checkpoint (`fine_tune=True`, or `engine_params["checkpoint_path"]`) is
+required.
 
-- **`embed`** (default) — Extracts 1024-D ViT encoder embeddings from 224×224 patches, then K-means clusters them to delineate fields. Uses all 6 HLS bands (Blue, Green, Red, NIR, SWIR1, SWIR2) with Prithvi's pre-training normalization. GPU recommended. **Without fine-tuning, ViT embeddings tend to produce very few, over-merged fields.** Fine-tuning on reference boundaries is recommended for production use.
-- **`pca`** — Lightweight baseline that clusters PCA-reduced spectral bands (R, G, B, NIR) without running the ViT encoder. No GPU or `transformers` needed. Useful for comparison.
-- **`segment`** — Fine-tuned UPerNet decoder via terratorch. Requires a checkpoint from fine-tuning on reference boundaries.
+- Backbone: SAT-493M ViT-L/16 (`giswqs/geoai` / `dinov3_vitl16_sat493m.pth`)
+  built with `torch.hub` from `facebookresearch/dinov3` (or the local clone in
+  `DINOV3_LOCATION`). SAT-493M weights exist only for ViT-L/16 and ViT-7B/16;
+  other sizes (`dinov3_model="small"`/`"base"`) need `weights_path`.
+- Fine-tuning defaults to **full fine-tuning** (about 303 M backbone
+  parameters for ViT-L/16 plus the decoder). `use_lora=True` trains rank-4
+  LoRA adapters on the attention `qkv` layers (about 0.39 M parameters) on a
+  frozen backbone; `freeze_backbone=True` alone trains the decoder only.
+- Input: canonical R, G, B with a scene-level percentile stretch, as float
+  `uint8 / 255`. geoai applies no mean/standard-deviation normalisation, so
+  the backbone does not see the SAT-493M pre-training normalisation; this
+  matters most with a frozen backbone.
+- Inference window: the training chip size (a multiple of 16), capped at the
+  raster size, with the input mirror-padded so that no window is zero-padded.
+- Each field-interior region is grown back over the predicted boundary class
+  by the training boundary width, so neighbouring polygons never overlap;
+  right-angled convex corners lose k(k+1)/2 pixels (3 px at the default
+  k = 2).
 
-```bash
-pip install agribound[prithvi]
-```
+Offline nodes: run `agribound prefetch --engine dinov3` first, then set
+`DINOV3_LOCATION` to the returned hub directory and `HF_HUB_OFFLINE=1`.
 
-```python
-# ViT embedding mode (default)
-agribound.delineate(..., engine="prithvi", engine_params={"mode": "embed"})
+Licence: the DINOv3 weights are Meta's "DINO Materials" under the
+[DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md)
+(a custom licence, not OSI-approved; last updated 19 August 2025), which also
+covers re-hosted copies such as the `giswqs/geoai` file above. Its clause
+1.b.ii requires publications of research performed using DINO Materials to
+acknowledge their use, and clause 1.b.i requires a copy of the licence to be
+provided when the weights (or derivatives, such as fine-tuned checkpoints) are
+redistributed.
 
-# PCA baseline
-agribound.delineate(..., engine="prithvi", engine_params={"mode": "pca"})
+## Prithvi-EO-2.0 (`prithvi`)
 
-# Fine-tuned segmentation
-agribound.delineate(..., engine="prithvi",
-                    engine_params={"mode": "segment", "checkpoint_path": "..."})
-```
+Prithvi-EO-2.0 (default `model_name="Prithvi-EO-2.0-300M-TL"`) built from the
+terratorch backbone registry and run on single-date composites
+(`num_frames=1`). It needs terratorch, which requires `lightning>=2.6` and
+therefore cannot share an environment with ftw-tools 2.x; use
+`environment-gfm.yml` or `pip install "agribound[all-gfm]"`.
 
-**Supported sources**: `landsat`, `sentinel2`, `hls`, `local`
-
-**Reference**: [Szwarcman et al. (2024), Prithvi-EO-2.0](https://arxiv.org/abs/2412.02732)
-
-### Embedding Clustering
-
-Unsupervised approach using K-means or spectral clustering on pre-computed pixel embeddings. Does not require a GPU. Designed for use with the Google Satellite Embedding V1 and TESSERA embedding datasets.
-
-```bash
-pip install agribound                # Google Embeddings (no extra deps)
-pip install agribound[tessera]       # TESSERA Embeddings
-```
-
-**Supported sources**: `google-embedding`, `tessera-embedding`
-
-**Reference**: [Google AlphaEarth](https://arxiv.org/abs/2507.22291), [TESSERA (Feng et al.)](https://arxiv.org/abs/2506.20380)
-
-### Ensemble
-
-Combines outputs from multiple engines using majority vote or polygon intersection. Runs the specified constituent engines and merges their results to improve robustness.
-
-```bash
-pip install agribound[all]
-```
-
-**Supported sources**: `landsat`, `sentinel2`, `hls`, `naip`, `spot`, `local`
-
-!!! warning "When to use ensembles"
-    Ensembles work best when **multiple models run on the same sensor data**. Each architecture has different biases, and vote-merging cancels out individual errors because every model sees the same pixels.
-
-    Ensembles across **different sensors** (e.g., Sentinel-2 + Landsat + NAIP) do not work well due to resolution mismatch (1 m vs 30 m polygons), temporal mismatch (different overpass dates), and spatial alignment errors. For multi-sensor analysis, compare per-source results independently rather than merging them.
-
-## SAM2 Boundary Refinement
-
-SAM2 is not a standalone engine — it is an optional **post-processing step** that refines field boundaries. Each polygon's bounding box is fed to SAM2 as a prompt, and SAM2 produces a pixel-accurate mask that replaces the original geometry.
-
-```bash
-pip install agribound[samgeo]
-```
-
-**Recommended usage:** Apply SAM2 to the **final ensemble output** rather than per-engine, since refinement scales linearly with the number of polygons. For large study areas (thousands of fields), use `sam_model="tiny"` for faster processing.
-
-For single-engine runs, enable via `engine_params`:
-
-```python
-gdf = agribound.delineate(
-    ...,
-    engine_params={"sam_refine": True, "sam_model": "tiny"},
-)
-```
-
-For ensemble workflows, call `refine_boundaries()` directly on the merged result:
-
-```python
-from agribound.engines.samgeo_engine import refine_boundaries
-
-gdf = refine_boundaries(ensemble_gdf, raster_path, config)
-```
-
-SAM2 model variants: `"tiny"`, `"small"`, `"base_plus"`, `"large"` (default). Batch size configurable via `engine_params["sam_batch_size"]` (default 100).
-
-**Reference**: [Wu & Osco (2023)](https://doi.org/10.21105/joss.05663), [Ravi et al. (2024)](https://arxiv.org/abs/2408.00714)
-
-## When to Use Each Engine
-
-| Scenario | Recommended Engine |
-|---|---|
-| High-resolution imagery (1--6 m), NAIP or SPOT | `delineate-anything` |
-| Sentinel-2 in a country covered by FTW pre-trained models | `ftw` |
-| General-purpose Sentinel-2 or NAIP with NDVI | `geoai` |
-| Fine-tuning on reference boundaries (any sensor) | `dinov3` (SAT-493M) |
-| Multi-temporal Landsat/HLS analysis (6 bands) | `prithvi` (embed mode) |
-| No GPU, no reference data, global coverage | `embedding` + LULC filter |
-| Maximum accuracy, multiple engines on same sensor | `ensemble` |
-
-## Recommended Workflows
-
-| Situation | Approach | Example |
+| `engine_params["mode"]` | Label-free | What it does |
 |---|---|---|
-| **Reference boundaries available** | DINOv3 + SAM2 per source | Example 14 |
-| **No reference boundaries** | Embedding clustering + LULC filter + SAM2 | Example 15 |
-| **Multi-model ensemble** | All engines on same sensor, majority vote | Example 12 |
-| **Multi-year time series** | Single engine per year, fine-tune once | Example 01 |
-| **Quick local test** | Delineate-Anything on local GeoTIFF | Example 10 |
+| `"embed"` (default without a checkpoint) | yes | Patch-token features of one encoder layer, interpolated to pixel resolution and clustered with K-means; 4-connected regions of one cluster become polygons. Clusters are land-cover segments, not field instances. |
+| `"segment"` (default with `checkpoint_path`) | no | A Prithvi + UPerNet segmentation model fine-tuned by agribound (or any terratorch `SemanticSegmentationTask` checkpoint with the same bands, normalisation and classes: 1 field interior, 2 field boundary), run with terratorch's tiled inference. Interiors are grown over the boundary class, as for DINOv3. |
+| `"pca"` | yes | Baseline without the ViT: K-means on the PCA of per-band z-scores of R, G, B, NIR. |
 
-## GPU Requirements
+Inputs are Blue, Green, Red, narrow NIR, SWIR 1 and SWIR 2 as reflectance ×
+10000, normalised with the Prithvi-EO-2.0 means and standard deviations. The
+NIR input is `NIR_NARROW` where the source defines it (Sentinel-2 B8A, HLS B5)
+and `NIR` (SR_B5) for Landsat, which is the broad TM/ETM+ NIR on Landsat 5/7.
+`local` rasters need `engine_params["value_scale"]`
+(`"reflectance_x10000"` or `"unit"`).
 
-All engines except `embedding` require a CUDA-capable GPU for inference. The `device` configuration parameter controls hardware selection:
+On Apple MPS, Prithvi + UPerNet runs only where the coarsest feature map is
+1 px or a multiple of 6 px (for example 192 px tiles with `tile_size=192` and
+`chip_size=192`); other sizes run on CPU with a WARNING.
 
-```python
-config = AgriboundConfig(
-    device="auto",  # auto-detect: cuda > mps > cpu
-    ...
-)
-```
+## Embedding clustering (`embedding`)
 
-Supported values: `auto`, `cuda`, `cpu`, `mps` (Apple Silicon).
+Clusters pre-computed per-pixel embeddings (`google-embedding`, 64-D;
+`tessera-embedding`, 128-D) and polygonises every connected region of every
+cluster. No labels, weights or GPU are needed. Clusters are land-cover
+segments, not field instances; non-cropland segments are removed only by the
+area and LULC filters.
 
-!!! warning
-    Running GPU-required engines on CPU is technically possible but will be extremely slow for anything beyond small test areas.
+Defaults (`engine_params`): `use_pca=True`, `pca_components=16`,
+`n_clusters="auto"` (silhouette over `k_candidates` 5, 10, 15, 20, 30, 50),
+`clustering_method="kmeans"` (`"spectral"` is slower), sample sizes
+100 000 / 50 000 / 5 000 for PCA, clustering and silhouette, and
+`max_block_mb=256` (the raster is read in row blocks, so memory is bounded).
+`matryoshka_depth` (4, 16, 32 or 64) clusters a Matryoshka prefix of TESSERA
+v2 embeddings instead of PCA. Every random choice is seeded from
+`config.seed`.
+
+`engine="embedding"` accepts only the embedding sources; `source="local"` is
+rejected. With `sam_refine=True` the engine refines its own polygons on the
+embedding raster and then needs `engine_params["sam_rgb_bands"]` (three
+1-based embedding dimensions used as a pseudo-RGB image); without it the
+engine raises before clustering. To refine embedding polygons on optical
+imagery instead, call `agribound.engines.samgeo_engine.refine_boundaries`
+with the optical raster and a configuration for that source.
+
+## Ensemble (`ensemble`)
+
+Runs several engines, or one engine with different models, on the same
+composite and combines them. Members are given in
+`engine_params["engines"]` as names or dicts
+(`{"engine": ..., "engine_params": {...}, "label": ...}`); the default
+members are `delineate-anything` and `ftw`. Every member, including the
+defaults, is checked against the source when the configuration is validated
+(so `engine="ensemble"` on `naip` without explicit members fails at once,
+listing members that support the source).
+
+| `merge_strategy` | Rule |
+|---|---|
+| `"intersection"` (default) | Successive overlay intersections: the areas every member covers. Small slivers can appear where boundaries disagree; the area filter removes those below `min_field_area_m2`. |
+| `"union"` | All polygons pooled; duplicates (IoU ≥ `union_iou_threshold` 0.3 or containment ≥ `union_containment_threshold` 0.8) fused. |
+| `"vote"` | Members' polygons rasterised on the input grid; a pixel is kept when at least `min_votes` members cover it; kept pixels are polygonised. |
+
+Vote rule: members that returned no polygons are left out (WARNING,
+`vote_stats["empty_members"]`); for the `n` remaining members
+`min_votes = max(min(2, n), ceil(vote_threshold × n))` (default
+`vote_threshold=0.5`), i.e. at least two members must agree whenever two or
+more have polygons, as in agribound 0.1.x. `engine_params["min_votes"]` sets it
+directly. Adjacent fields that are both kept merge where they touch on the
+pixel grid.
+
+Output columns: `engine_count`; `ensemble:members` (intersection, union),
+`ensemble:n_members` (union); `vote_count` (the **maximum** number of
+agreeing members inside the polygon; in 0.1.x this column held the constant
+`min_votes`), `vote_count_mean` and `min_votes` (vote).
+
+Other parameters: `vote_resolution`, `on_member_error` (`"raise"` default,
+or `"skip"`), `isolate_member_caches` (default True: each member caches in
+its own sub-directory). Members receive only the `engine_params` of their own
+spec and run with `sam_refine=False`; the pipeline refines the ensemble output.
+The ensemble cannot be fine-tuned; fine-tune each member in its own run and
+pass its checkpoint in the member spec.
+
+---
+
+## SAM refinement
+
+Box-prompted SAM refinement (`sam_refine=True`) is a separate stage that runs
+after any engine except `embedding`; see [SAM refinement](sam-refinement.md).
+
+## References
+
+- Lavreniuk, M., et al. (2025). Delineate Anything: Resolution-agnostic field
+  boundary delineation on satellite imagery. ECAI 2025. arXiv:2504.02534.
+- Lavreniuk, M., et al. (2026). Delineate Anything v2: A global foundation
+  model for field delineation. ECCV 2026 Workshops (ECCVW), GAIA workshop.
+  arXiv:2607.19069.
+- Kerner, H., et al. (2025). Fields of The World. *AAAI* 39(27), 28151-28159.
+  <https://doi.org/10.1609/aaai.v39i27.35034>
+- Muhawenayo, G., et al. (2026). PRUE: A practical recipe for field boundary
+  segmentation at scale. arXiv:2603.27101 (the `FTW_PRUE_*` models).
+- Wu, Q. (2026). GeoAI. *JOSS* 11(118), 9605.
+  <https://doi.org/10.21105/joss.09605>
+- He, K., et al. (2017). Mask R-CNN. ICCV, 2980-2988.
+  <https://doi.org/10.1109/ICCV.2017.322>
+- Siméoni, O., et al. (2025). DINOv3. arXiv:2508.10104.
+- Szwarcman, D., et al. (2026). Prithvi-EO-2.0. *IEEE TGRS* 64, 1-20.
+  <https://doi.org/10.1109/TGRS.2025.3642610>
+- Feng, Z., et al. (2026). TESSERA. CVPR 2026. arXiv:2506.20380.
+- Brown, C. F., et al. (2025). AlphaEarth Foundations. arXiv:2507.22291.
+
+Full citations: [Citation & References](../citation.md).

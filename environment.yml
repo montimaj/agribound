@@ -1,3 +1,11 @@
+# Core agribound environment: every engine except Prithvi (terratorch) and SAM 3.
+#
+# Create it from the repository root (the editable install below uses "."):
+#   conda env create -f environment.yml
+#   conda activate agribound
+#
+# Prithvi needs terratorch, which requires lightning>=2.6, while ftw-tools 2.x
+# requires lightning<2.6. Use environment-gfm.yml for the Prithvi/terratorch stack.
 name: agribound
 channels:
   - conda-forge
@@ -6,9 +14,9 @@ dependencies:
   - gdal
   - rasterio
   - geopandas
-  - fiona
-  - shapely
+  - pyogrio
+  - shapely>=2.1
   - pyproj
   - pip
   - pip:
-      - agribound[all]
+      - -e .[all,dev]

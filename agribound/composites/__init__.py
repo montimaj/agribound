@@ -5,6 +5,11 @@ Handles creating annual composites from various satellite sources via
 Google Earth Engine or loading local GeoTIFF files.
 """
 
-from agribound.composites.base import CompositeBuilder, get_composite_builder, list_sources
+from agribound.composites.base import (
+    CompositeBuilder,
+    NoDataError,
+    get_composite_builder,
+    list_sources,
+)
 
-__all__ = ["CompositeBuilder", "get_composite_builder", "list_sources"]
+__all__ = ["CompositeBuilder", "NoDataError", "get_composite_builder", "list_sources"]

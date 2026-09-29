@@ -1,5 +1,6 @@
 # Visualization
 
-The visualize module provides interactive map visualization for field boundaries, displaying predicted polygons overlaid on satellite basemaps. Uses leafmap for single-layer display (`show_boundaries`) and folium for multi-layer comparison maps (`show_comparison`) with stable layer toggling and HTML legend.
+Interactive maps of field boundaries: `show_boundaries` (leafmap, single
+layer) and `show_comparison` (folium, several layers with a legend).
 
 ::: agribound.visualize

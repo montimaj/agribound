@@ -1,0 +1,5276 @@
+{
+  "02": {
+    "example": "02",
+    "image": "assets/gallery_1.0/India_example.png",
+    "preview": "assets/gallery_1.0/preview/India_example.webp",
+    "title": "West Bengal: FTW on Sentinel-2 vs Delineate-Anything on SPOT-Pan",
+    "background": "composite",
+    "background_note": "Background: Left: Sentinel-2 L2A 10 m median composite, 2024-05-04 to 2024-07-04\n(end exclusive), 6 images; FTW window A, one of FTW's two season inputs\nRight: SPOT 6/7 panchromatic 1.5 m median composite, 2020-01-01 to 2021-01-01 (end exclusive), 4 images; the engine's input\nModel: FTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)\nDelineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: India outline from the Survey of India State Map via DataMeet; other boundaries from Natural Earth",
+    "model_notes": [
+      "FTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)",
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": 88.4192,
+      "lat": 23.3869,
+      "country": "India",
+      "country_label": "India",
+      "country_a3": "IND",
+      "admin1": "West Bengal"
+    },
+    "layers": [
+      {
+        "label": "FTW, Sentinel-2 10 m, 2024",
+        "file": "outputs/india_nadia/fields_sentinel2_ftw_2024.gpkg",
+        "n_polygons": 20765,
+        "area_ha_total": 1231.4,
+        "area_ha_p10": 0.01,
+        "area_ha_median": 0.04,
+        "area_ha_p90": 0.12,
+        "source": "sentinel2",
+        "engine": "ftw",
+        "year": 2024,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 100,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2024-01-01",
+          "date_end_exclusive": "2025-01-01",
+          "n_images": "66",
+          "crs": "EPSG:32645",
+          "resolution_m": "10.0",
+          "image_years": "2024"
+        },
+        "ftw_windows": {
+          "a": {
+            "start": "2024-05-04",
+            "end": "2024-07-03",
+            "n_images": 6,
+            "status": "composite"
+          },
+          "b": {
+            "start": "2024-11-25",
+            "end": "2025-01-24",
+            "n_images": 18,
+            "status": "composite"
+          }
+        },
+        "engine_meta": {
+          "backend": "ftw-tools",
+          "batch_size": 2,
+          "checkpoint_sha256": "fcb6134b36ed0e20c00edb2bcd40c10825e01e9cfe150316527f58e9ca590d50",
+          "checkpoint_url": "https://github.com/fieldsoftheworld/ftw-baselines/releases/download/v3/prue_efnet5_checkpoint.ckpt",
+          "device": "mps",
+          "ftw_input": "outputs/india_nadia/.agribound_cache/ftw_input_b37839b961f7.tif",
+          "ftw_tools_version": "2.0.0b5",
+          "in_channels": 8,
+          "input_units": "S2 L2A reflectance x10000 (composite values copied unchanged; NaN, inf and declared nodata -> 0); ftw-tools divides by 3000",
+          "model": "FTW_PRUE_EFNET_B5",
+          "model_license": "Mixed Open Licenses",
+          "model_version": "v3",
+          "n_output": 63485,
+          "n_windows": 2,
+          "out_of_distribution_source": false,
+          "patch_size": 1024,
+          "prediction_crs": "EPSG:32645",
+          "resize_factor": 2,
+          "save_scores": false,
+          "value_scale": "reflectance_x10000"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "Delineate-Anything, SPOT-Pan 1.5 m, 2020",
+        "file": "outputs/india_nadia/fields_spot-pan_delineate-anything_2020.gpkg",
+        "n_polygons": 55995,
+        "area_ha_total": 9574.8,
+        "area_ha_p10": 0.04,
+        "area_ha_median": 0.12,
+        "area_ha_p90": 0.32,
+        "source": "spot-pan",
+        "engine": "delineate-anything",
+        "year": 2020,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 100,
+        "composite": {
+          "collections": "AIRBUS/SPOT6_7",
+          "composite_method": "median",
+          "date_start": "2020-01-01",
+          "date_end_exclusive": "2021-01-01",
+          "n_images": "4",
+          "crs": "EPSG:32645",
+          "resolution_m": "1.5",
+          "image_years": "2020"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 1.5,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 647.17,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 100.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 82474,
+          "n_after_merge": 290644,
+          "n_after_min_area": 301663,
+          "n_merged_groups": 8419,
+          "n_output": 80045,
+          "n_pieces_merged": 19438,
+          "n_raw": 301831,
+          "n_tiles_processed": 1890,
+          "n_tiles_total": 1890,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 1,
+          "tile_size_native_px": 512,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "dn",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ]
+  },
+  "03": {
+    "example": "03",
+    "image": "assets/gallery_1.0/Australia_example.png",
+    "preview": "assets/gallery_1.0/preview/Australia_example.webp",
+    "title": "Murray-Darling: Prithvi on HLS vs Delineate-Anything v2 on SPOT",
+    "background": "composite",
+    "background_note": "Background: Left: HLS 30 m median composite, 2022-01-01 to 2023-01-01 (end exclusive), 298 images; the engine's input\nMiddle: HLS 30 m median composite, 2022-01-01 to 2023-01-01 (end exclusive), 298 images; the engine's input\nRight: SPOT 6/7 6 m median composite, 2023-01-01 to 2024-01-01 (end exclusive), 3 images; the engine's input\nModel: Prithvi embed mode: ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL @ 63adbd3 (terratorch 1.2.13)\nPrithvi pca mode: K-means on PCA of the bands (no ViT weights)\nDelineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Prithvi embed mode: ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL @ 63adbd3 (terratorch 1.2.13)",
+      "Prithvi pca mode: K-means on PCA of the bands (no ViT weights)",
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": 149.7751,
+      "lat": -30.225,
+      "country": "Australia",
+      "country_label": "Australia",
+      "country_a3": "AUS",
+      "admin1": "New South Wales"
+    },
+    "layers": [
+      {
+        "label": "Prithvi embed, HLS 30 m",
+        "file": "outputs/australia_murray_darling/fields_hls_prithvi-embed_2022.gpkg",
+        "n_polygons": 51,
+        "area_ha_total": 14224.8,
+        "area_ha_p10": 2.57,
+        "area_ha_median": 132.06,
+        "area_ha_p90": 659.02,
+        "source": "hls",
+        "engine": "prithvi",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "NASA/HLS/HLSL30/v002,NASA/HLS/HLSS30/v002",
+          "composite_method": "median",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "298",
+          "crs": "EPSG:32755",
+          "resolution_m": "30.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "backend": "terratorch",
+          "device": "mps",
+          "embed_layer": -1,
+          "input_units": "surface reflectance x 10000",
+          "mode": "embed",
+          "model": "prithvi_eo_v2_300_tl",
+          "n_clusters": 5,
+          "n_fit_samples": 50000,
+          "num_frames": 1,
+          "patch_size": 16,
+          "pretrained": true,
+          "seed": 42,
+          "silhouette": 0.09601663053035736,
+          "terratorch_version": "1.2.13",
+          "tile_padding": "reflect",
+          "tile_size": 224,
+          "torch_version": "2.10.0",
+          "weights_file": "Prithvi_EO_V2_300M_TL.pt",
+          "weights_repo": "ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL",
+          "weights_revision": "63adbd39c271da4c42f447e69b1a7c91a338cdc9",
+          "weights_sha256": "3629cedfbb350faafcb0dac902ae0d3c927e25ce8d9e0024aa1276ec66956ddb"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "PCA baseline, HLS 30 m",
+        "file": "outputs/australia_murray_darling/fields_hls_prithvi-pca_2022.gpkg",
+        "n_polygons": 1339,
+        "area_ha_total": 12579.9,
+        "area_ha_p10": 0.58,
+        "area_ha_median": 1.42,
+        "area_ha_p90": 16.27,
+        "source": "hls",
+        "engine": "prithvi",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "NASA/HLS/HLSL30/v002,NASA/HLS/HLSS30/v002",
+          "composite_method": "median",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "298",
+          "crs": "EPSG:32755",
+          "resolution_m": "30.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "backend": "scikit-learn",
+          "mode": "pca",
+          "n_clusters": 10,
+          "seed": 42,
+          "silhouette": 0.29867565631866455
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "DA v2, SPOT 6 m (2023)",
+        "file": "outputs/australia_murray_darling/fields_spot_delineate-anything_2023.gpkg",
+        "n_polygons": 427,
+        "area_ha_total": 10031.7,
+        "area_ha_p10": 1.15,
+        "area_ha_median": 6.87,
+        "area_ha_p90": 58.01,
+        "source": "spot",
+        "engine": "delineate-anything",
+        "year": 2023,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "AIRBUS/SPOT6_7",
+          "composite_method": "median",
+          "date_start": "2023-01-01",
+          "date_end_exclusive": "2024-01-01",
+          "n_images": "3",
+          "crs": "EPSG:32755",
+          "resolution_m": "6.0",
+          "image_years": "2023"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 6.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 26.64,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 5000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 562,
+          "n_after_merge": 1634,
+          "n_after_min_area": 2287,
+          "n_merged_groups": 167,
+          "n_output": 555,
+          "n_pieces_merged": 820,
+          "n_raw": 2397,
+          "n_tiles_processed": 504,
+          "n_tiles_total": 504,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "dn",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ]
+  },
+  "04": {
+    "example": "04",
+    "image": "assets/gallery_1.0/France_example.png",
+    "preview": "assets/gallery_1.0/preview/France_example.webp",
+    "title": "Beauce: FTW on Sentinel-2",
+    "background": "composite",
+    "background_note": "Background: Sentinel-2 L2A 10 m median composite, 2023-02-27 to 2023-04-29\n(end exclusive), 4 images; FTW window A, one of FTW's two season inputs\nModel: FTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "FTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)"
+    ],
+    "location": {
+      "lon": 1.4749,
+      "lat": 48.15,
+      "country": "France",
+      "country_label": "France",
+      "country_a3": "FRA",
+      "admin1": "Eure-et-Loir"
+    },
+    "layers": [
+      {
+        "label": "FTW",
+        "file": "outputs/france_beauce/fields_sentinel2_ftw_2023.gpkg",
+        "n_polygons": 665,
+        "area_ha_total": 9545.8,
+        "area_ha_p10": 2.11,
+        "area_ha_median": 10.03,
+        "area_ha_p90": 31.59,
+        "source": "sentinel2",
+        "engine": "ftw",
+        "year": 2023,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2023-01-01",
+          "date_end_exclusive": "2024-01-01",
+          "n_images": "25",
+          "crs": "EPSG:32631",
+          "resolution_m": "10.0",
+          "image_years": "2023"
+        },
+        "ftw_windows": {
+          "a": {
+            "start": "2023-02-27",
+            "end": "2023-04-28",
+            "n_images": 4,
+            "status": "composite"
+          },
+          "b": {
+            "start": "2023-08-07",
+            "end": "2023-10-06",
+            "n_images": 4,
+            "status": "composite"
+          }
+        },
+        "engine_meta": {
+          "backend": "ftw-tools",
+          "batch_size": 2,
+          "checkpoint_sha256": "fcb6134b36ed0e20c00edb2bcd40c10825e01e9cfe150316527f58e9ca590d50",
+          "checkpoint_url": "https://github.com/fieldsoftheworld/ftw-baselines/releases/download/v3/prue_efnet5_checkpoint.ckpt",
+          "device": "mps",
+          "ftw_input": "outputs/france_beauce/.agribound_cache/ftw_input_3a38ec7f6233.tif",
+          "ftw_tools_version": "2.0.0b5",
+          "in_channels": 8,
+          "input_units": "S2 L2A reflectance x10000 (composite values copied unchanged; NaN, inf and declared nodata -> 0); ftw-tools divides by 3000",
+          "model": "FTW_PRUE_EFNET_B5",
+          "model_license": "Mixed Open Licenses",
+          "model_version": "v3",
+          "n_output": 704,
+          "n_windows": 2,
+          "out_of_distribution_source": false,
+          "patch_size": 1024,
+          "prediction_crs": "EPSG:32631",
+          "resize_factor": 2,
+          "save_scores": false,
+          "value_scale": "reflectance_x10000"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ],
+    "zoom_window_m": 3000
+  },
+  "06": {
+    "example": "06",
+    "image": "assets/gallery_1.0/Kenya_example.png",
+    "preview": "assets/gallery_1.0/preview/Kenya_example.webp",
+    "title": "Kakamega: FTW on Sentinel-2",
+    "background": "composite",
+    "background_note": "Background: Sentinel-2 L2A 10 m median composite, 2023-08-15 to 2023-10-15\n(end exclusive), 21 images; FTW window A, one of FTW's two season inputs\nModel: FTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "FTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)"
+    ],
+    "location": {
+      "lon": 34.7249,
+      "lat": 0.4115,
+      "country": "Kenya",
+      "country_label": "Kenya",
+      "country_a3": "KEN",
+      "admin1": "Western"
+    },
+    "layers": [
+      {
+        "label": "min area 100 m\u00b2",
+        "file": "outputs/kenya_smallholder/fields_sentinel2_ftw_2023_minarea100.gpkg",
+        "n_polygons": 2404,
+        "area_ha_total": 338.5,
+        "area_ha_p10": 0.02,
+        "area_ha_median": 0.08,
+        "area_ha_p90": 0.31,
+        "source": "sentinel2",
+        "engine": "ftw",
+        "year": 2023,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 100,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2023-01-01",
+          "date_end_exclusive": "2024-01-01",
+          "n_images": "73",
+          "crs": "EPSG:32636",
+          "resolution_m": "10.0",
+          "image_years": "2023"
+        },
+        "ftw_windows": {
+          "a": {
+            "start": "2023-08-15",
+            "end": "2023-10-14",
+            "n_images": 21,
+            "status": "composite"
+          },
+          "b": {
+            "start": "2024-01-11",
+            "end": "2024-03-11",
+            "n_images": 8,
+            "status": "composite"
+          }
+        },
+        "engine_meta": {
+          "backend": "ftw-tools",
+          "batch_size": 2,
+          "checkpoint_sha256": "fcb6134b36ed0e20c00edb2bcd40c10825e01e9cfe150316527f58e9ca590d50",
+          "checkpoint_url": "https://github.com/fieldsoftheworld/ftw-baselines/releases/download/v3/prue_efnet5_checkpoint.ckpt",
+          "device": "mps",
+          "ftw_input": "outputs/kenya_smallholder/.agribound_cache/ftw_input_30e18281a6fa.tif",
+          "ftw_tools_version": "2.0.0b5",
+          "in_channels": 8,
+          "input_units": "S2 L2A reflectance x10000 (composite values copied unchanged; NaN, inf and declared nodata -> 0); ftw-tools divides by 3000",
+          "model": "FTW_PRUE_EFNET_B5",
+          "model_license": "Mixed Open Licenses",
+          "model_version": "v3",
+          "n_output": 30373,
+          "n_windows": 2,
+          "out_of_distribution_source": false,
+          "patch_size": 1024,
+          "prediction_crs": "EPSG:32636",
+          "resize_factor": 2,
+          "save_scores": false,
+          "value_scale": "reflectance_x10000"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "min area 500 m\u00b2",
+        "file": "outputs/kenya_smallholder/fields_sentinel2_ftw_2023_minarea500.gpkg",
+        "n_polygons": 1578,
+        "area_ha_total": 316.5,
+        "area_ha_p10": 0.06,
+        "area_ha_median": 0.14,
+        "area_ha_p90": 0.39,
+        "source": "sentinel2",
+        "engine": "ftw",
+        "year": 2023,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 500,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2023-01-01",
+          "date_end_exclusive": "2024-01-01",
+          "n_images": "73",
+          "crs": "EPSG:32636",
+          "resolution_m": "10.0",
+          "image_years": "2023"
+        },
+        "ftw_windows": {
+          "a": {
+            "start": "2023-08-15",
+            "end": "2023-10-14",
+            "n_images": 21,
+            "status": "composite"
+          },
+          "b": {
+            "start": "2024-01-11",
+            "end": "2024-03-11",
+            "n_images": 8,
+            "status": "composite"
+          }
+        },
+        "engine_meta": {
+          "backend": "ftw-tools",
+          "batch_size": 2,
+          "cached_prediction": true,
+          "checkpoint_sha256": "fcb6134b36ed0e20c00edb2bcd40c10825e01e9cfe150316527f58e9ca590d50",
+          "checkpoint_url": "https://github.com/fieldsoftheworld/ftw-baselines/releases/download/v3/prue_efnet5_checkpoint.ckpt",
+          "device": "mps",
+          "ftw_input": "outputs/kenya_smallholder/.agribound_cache/ftw_input_30e18281a6fa.tif",
+          "ftw_tools_version": "2.0.0b5",
+          "in_channels": 8,
+          "input_units": "S2 L2A reflectance x10000 (composite values copied unchanged; NaN, inf and declared nodata -> 0); ftw-tools divides by 3000",
+          "model": "FTW_PRUE_EFNET_B5",
+          "model_license": "Mixed Open Licenses",
+          "model_version": "v3",
+          "n_output": 15821,
+          "n_windows": 2,
+          "out_of_distribution_source": false,
+          "patch_size": 1024,
+          "prediction_crs": "EPSG:32636",
+          "resize_factor": 2,
+          "save_scores": false,
+          "value_scale": "reflectance_x10000"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "min area 1,000 m\u00b2",
+        "file": "outputs/kenya_smallholder/fields_sentinel2_ftw_2023_minarea1000.gpkg",
+        "n_polygons": 1029,
+        "area_ha_total": 276.7,
+        "area_ha_p10": 0.12,
+        "area_ha_median": 0.2,
+        "area_ha_p90": 0.47,
+        "source": "sentinel2",
+        "engine": "ftw",
+        "year": 2023,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 1000,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2023-01-01",
+          "date_end_exclusive": "2024-01-01",
+          "n_images": "73",
+          "crs": "EPSG:32636",
+          "resolution_m": "10.0",
+          "image_years": "2023"
+        },
+        "ftw_windows": {
+          "a": {
+            "start": "2023-08-15",
+            "end": "2023-10-14",
+            "n_images": 21,
+            "status": "composite"
+          },
+          "b": {
+            "start": "2024-01-11",
+            "end": "2024-03-11",
+            "n_images": 8,
+            "status": "composite"
+          }
+        },
+        "engine_meta": {
+          "backend": "ftw-tools",
+          "batch_size": 2,
+          "cached_prediction": true,
+          "checkpoint_sha256": "fcb6134b36ed0e20c00edb2bcd40c10825e01e9cfe150316527f58e9ca590d50",
+          "checkpoint_url": "https://github.com/fieldsoftheworld/ftw-baselines/releases/download/v3/prue_efnet5_checkpoint.ckpt",
+          "device": "mps",
+          "ftw_input": "outputs/kenya_smallholder/.agribound_cache/ftw_input_30e18281a6fa.tif",
+          "ftw_tools_version": "2.0.0b5",
+          "in_channels": 8,
+          "input_units": "S2 L2A reflectance x10000 (composite values copied unchanged; NaN, inf and declared nodata -> 0); ftw-tools divides by 3000",
+          "model": "FTW_PRUE_EFNET_B5",
+          "model_license": "Mixed Open Licenses",
+          "model_version": "v3",
+          "n_output": 8561,
+          "n_windows": 2,
+          "out_of_distribution_source": false,
+          "patch_size": 1024,
+          "prediction_crs": "EPSG:32636",
+          "resize_factor": 2,
+          "save_scores": false,
+          "value_scale": "reflectance_x10000"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "min area 2,500 m\u00b2",
+        "file": "outputs/kenya_smallholder/fields_sentinel2_ftw_2023_minarea2500.gpkg",
+        "n_polygons": 344,
+        "area_ha_total": 165.7,
+        "area_ha_p10": 0.27,
+        "area_ha_median": 0.37,
+        "area_ha_p90": 0.79,
+        "source": "sentinel2",
+        "engine": "ftw",
+        "year": 2023,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2023-01-01",
+          "date_end_exclusive": "2024-01-01",
+          "n_images": "73",
+          "crs": "EPSG:32636",
+          "resolution_m": "10.0",
+          "image_years": "2023"
+        },
+        "ftw_windows": {
+          "a": {
+            "start": "2023-08-15",
+            "end": "2023-10-14",
+            "n_images": 21,
+            "status": "composite"
+          },
+          "b": {
+            "start": "2024-01-11",
+            "end": "2024-03-11",
+            "n_images": 8,
+            "status": "composite"
+          }
+        },
+        "engine_meta": {
+          "backend": "ftw-tools",
+          "batch_size": 2,
+          "cached_prediction": true,
+          "checkpoint_sha256": "fcb6134b36ed0e20c00edb2bcd40c10825e01e9cfe150316527f58e9ca590d50",
+          "checkpoint_url": "https://github.com/fieldsoftheworld/ftw-baselines/releases/download/v3/prue_efnet5_checkpoint.ckpt",
+          "device": "mps",
+          "ftw_input": "outputs/kenya_smallholder/.agribound_cache/ftw_input_30e18281a6fa.tif",
+          "ftw_tools_version": "2.0.0b5",
+          "in_channels": 8,
+          "input_units": "S2 L2A reflectance x10000 (composite values copied unchanged; NaN, inf and declared nodata -> 0); ftw-tools divides by 3000",
+          "model": "FTW_PRUE_EFNET_B5",
+          "model_license": "Mixed Open Licenses",
+          "model_version": "v3",
+          "n_output": 2275,
+          "n_windows": 2,
+          "out_of_distribution_source": false,
+          "patch_size": 1024,
+          "prediction_crs": "EPSG:32636",
+          "resize_factor": 2,
+          "save_scores": false,
+          "value_scale": "reflectance_x10000"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ]
+  },
+  "07": {
+    "example": "07",
+    "image": "assets/gallery_1.0/Central_Valley_example.png",
+    "preview": "assets/gallery_1.0/preview/Central_Valley_example.webp",
+    "title": "Central Valley: Delineate-Anything on NAIP",
+    "background": "composite",
+    "background_note": "Background: NAIP 1 m mosaic composite, 2022-01-01 to 2023-01-01 (end exclusive), 9 images; the engine's input\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": -120.05,
+      "lat": 36.35,
+      "country": "United States of America",
+      "country_label": "USA",
+      "country_a3": "USA",
+      "admin1": "California"
+    },
+    "layers": [
+      {
+        "label": "Delineate-Anything",
+        "file": "outputs/usa_central_valley/fields_naip_delineate-anything_2022.gpkg",
+        "n_polygons": 328,
+        "area_ha_total": 10212.0,
+        "area_ha_p10": 14.14,
+        "area_ha_median": 22.62,
+        "area_ha_p90": 64.13,
+        "source": "naip",
+        "engine": "delineate-anything",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 10000,
+        "composite": {
+          "collections": "USDA/NAIP/DOQQ",
+          "composite_method": "mosaic",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "9",
+          "crs": "EPSG:32610",
+          "resolution_m": "1.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 1.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 76.62,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 10000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 357,
+          "n_after_merge": 614,
+          "n_after_min_area": 5493,
+          "n_merged_groups": 323,
+          "n_output": 350,
+          "n_pieces_merged": 5202,
+          "n_raw": 6484,
+          "n_tiles_processed": 1748,
+          "n_tiles_total": 1748,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 1,
+          "tile_size_native_px": 512,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "uint8",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ],
+    "zoom_window_m": 2000
+  },
+  "08": {
+    "example": "08",
+    "image": "assets/gallery_1.0/China_example.png",
+    "preview": "assets/gallery_1.0/preview/China_example.webp",
+    "title": "North China Plain: Delineate-Anything on SPOT",
+    "background": "composite",
+    "background_note": "Background: SPOT 6/7 6 m median composite, 2023-01-01 to 2024-01-01 (end exclusive), 5 images; the engine's input\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: India outline from the Survey of India State Map via DataMeet; other boundaries from Natural Earth",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": 115.4426,
+      "lat": 37.6332,
+      "country": "China",
+      "country_label": "China",
+      "country_a3": "CHN",
+      "admin1": "Hebei"
+    },
+    "layers": [
+      {
+        "label": "Delineate-Anything",
+        "file": "outputs/china_north_plain/fields_spot_delineate-anything_2023.gpkg",
+        "n_polygons": 4517,
+        "area_ha_total": 4943.7,
+        "area_ha_p10": 0.34,
+        "area_ha_median": 0.6,
+        "area_ha_p90": 2.13,
+        "source": "spot",
+        "engine": "delineate-anything",
+        "year": 2023,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 3000,
+        "composite": {
+          "collections": "AIRBUS/SPOT6_7",
+          "composite_method": "median",
+          "date_start": "2023-01-01",
+          "date_end_exclusive": "2024-01-01",
+          "n_images": "5",
+          "crs": "EPSG:32650",
+          "resolution_m": "6.0",
+          "image_years": "2023"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 6.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 43.72,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 3000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 5248,
+          "n_after_merge": 18853,
+          "n_after_min_area": 19198,
+          "n_merged_groups": 293,
+          "n_output": 4968,
+          "n_pieces_merged": 638,
+          "n_raw": 25167,
+          "n_tiles_processed": 208,
+          "n_tiles_total": 208,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "dn",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ],
+    "zoom_window_m": 1500
+  },
+  "09": {
+    "example": "09",
+    "image": "assets/gallery_1.0/Spain_example.png",
+    "preview": "assets/gallery_1.0/preview/Spain_example.webp",
+    "title": "Andalusia: ensemble vote merge",
+    "background": "composite",
+    "background_note": "Background: Sentinel-2 L2A 10 m median composite, 2024-01-01 to 2025-01-01 (end\nexclusive), 66 images; Delineate-Anything's input (FTW read two season windows)\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nFTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)",
+      "FTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)"
+    ],
+    "location": {
+      "lon": -5.4201,
+      "lat": 37.4786,
+      "country": "Spain",
+      "country_label": "Spain",
+      "country_a3": "ESP",
+      "admin1": "Sevilla"
+    },
+    "layers": [
+      {
+        "label": "Delineate-Anything",
+        "file": "outputs/ensemble_comparison/fields_sentinel2_delineate-anything_2024.gpkg",
+        "n_polygons": 1544,
+        "area_ha_total": 11155.9,
+        "area_ha_p10": 1.04,
+        "area_ha_median": 4.23,
+        "area_ha_p90": 16.43,
+        "source": "sentinel2",
+        "engine": "delineate-anything",
+        "year": 2024,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2024-01-01",
+          "date_end_exclusive": "2025-01-01",
+          "n_images": "66",
+          "crs": "EPSG:32630",
+          "resolution_m": "10.0",
+          "image_years": "2024"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 10.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 23.82,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 1778,
+          "n_after_merge": 6944,
+          "n_after_min_area": 7241,
+          "n_merged_groups": 202,
+          "n_output": 1753,
+          "n_pieces_merged": 499,
+          "n_raw": 7272,
+          "n_tiles_processed": 120,
+          "n_tiles_total": 120,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "reflectance_x10000",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "FTW",
+        "file": "outputs/ensemble_comparison/fields_sentinel2_ftw_2024.gpkg",
+        "n_polygons": 469,
+        "area_ha_total": 12362.4,
+        "area_ha_p10": 0.56,
+        "area_ha_median": 6.48,
+        "area_ha_p90": 62.62,
+        "source": "sentinel2",
+        "engine": "ftw",
+        "year": 2024,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2024-01-01",
+          "date_end_exclusive": "2025-01-01",
+          "n_images": "66",
+          "crs": "EPSG:32630",
+          "resolution_m": "10.0",
+          "image_years": "2024"
+        },
+        "ftw_windows": {
+          "a": {
+            "start": "2024-03-12",
+            "end": "2024-05-11",
+            "n_images": 4,
+            "status": "composite"
+          },
+          "b": {
+            "start": "2024-09-11",
+            "end": "2024-11-10",
+            "n_images": 4,
+            "status": "composite"
+          }
+        },
+        "engine_meta": {
+          "backend": "ftw-tools",
+          "batch_size": 2,
+          "checkpoint_sha256": "fcb6134b36ed0e20c00edb2bcd40c10825e01e9cfe150316527f58e9ca590d50",
+          "checkpoint_url": "https://github.com/fieldsoftheworld/ftw-baselines/releases/download/v3/prue_efnet5_checkpoint.ckpt",
+          "device": "mps",
+          "ftw_input": "outputs/ensemble_comparison/.agribound_cache/ftw_input_be06bfef0e97.tif",
+          "ftw_tools_version": "2.0.0b5",
+          "in_channels": 8,
+          "input_units": "S2 L2A reflectance x10000 (composite values copied unchanged; NaN, inf and declared nodata -> 0); ftw-tools divides by 3000",
+          "model": "FTW_PRUE_EFNET_B5",
+          "model_license": "Mixed Open Licenses",
+          "model_version": "v3",
+          "n_output": 585,
+          "n_windows": 2,
+          "out_of_distribution_source": false,
+          "patch_size": 1024,
+          "prediction_crs": "EPSG:32630",
+          "resize_factor": 2,
+          "save_scores": false,
+          "value_scale": "reflectance_x10000"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "Vote merge, 2 of 2",
+        "file": "outputs/ensemble_comparison/fields_sentinel2_merge-vote_2024.gpkg",
+        "n_polygons": 591,
+        "area_ha_total": 9976.0,
+        "area_ha_p10": 0.62,
+        "area_ha_median": 5.92,
+        "area_ha_p90": 42.41,
+        "source": null,
+        "engine": null,
+        "year": null,
+        "lulc_filter": null,
+        "lulc_dataset": null,
+        "sam_refine": null,
+        "min_field_area_m2": null,
+        "composite": {},
+        "ftw_windows": {},
+        "engine_meta": {},
+        "n_removed_by_crop_filter": null,
+        "agribound_version": null,
+        "run_status": null
+      }
+    ]
+  },
+  "11": {
+    "example": "11",
+    "image": "assets/gallery_1.0/MAP_example.png",
+    "preview": "assets/gallery_1.0/preview/MAP_example.webp",
+    "title": "Mississippi Alluvial Plain: Delineate-Anything on SPOT",
+    "background": "composite",
+    "background_note": "Background: Left: SPOT 6/7 6 m median composite, 2021-01-01 to 2022-01-01 (end exclusive), 16 images; the engine's input\nMiddle: SPOT 6/7 6 m median composite, 2022-01-01 to 2023-01-01 (end exclusive), 2 images; the engine's input\nRight: SPOT 6/7 6 m median composite, 2023-01-01 to 2024-01-01 (end exclusive), 12 images; the engine's input\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": -90.9327,
+      "lat": 33.4205,
+      "country": "United States of America",
+      "country_label": "USA",
+      "country_a3": "USA",
+      "admin1": "Mississippi"
+    },
+    "layers": [
+      {
+        "label": "2021",
+        "file": "outputs/mississippi_alluvial_plain/fields_spot_delineate-anything_2021.gpkg",
+        "n_polygons": 2006,
+        "area_ha_total": 13860.9,
+        "area_ha_p10": 1.34,
+        "area_ha_median": 4.17,
+        "area_ha_p90": 15.64,
+        "source": "spot",
+        "engine": "delineate-anything",
+        "year": 2021,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 10000,
+        "composite": {
+          "collections": "AIRBUS/SPOT6_7",
+          "composite_method": "median",
+          "date_start": "2021-01-01",
+          "date_end_exclusive": "2022-01-01",
+          "n_images": "16",
+          "crs": "EPSG:32615",
+          "resolution_m": "6.0",
+          "image_years": "2021"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 6.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 49.6,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 10000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 2394,
+          "n_after_merge": 9197,
+          "n_after_min_area": 9660,
+          "n_merged_groups": 237,
+          "n_output": 2333,
+          "n_pieces_merged": 700,
+          "n_raw": 12593,
+          "n_tiles_processed": 624,
+          "n_tiles_total": 624,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "dn",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "2022",
+        "file": "outputs/mississippi_alluvial_plain/fields_spot_delineate-anything_2022.gpkg",
+        "n_polygons": 1284,
+        "area_ha_total": 15089.5,
+        "area_ha_p10": 1.65,
+        "area_ha_median": 7.83,
+        "area_ha_p90": 25.27,
+        "source": "spot",
+        "engine": "delineate-anything",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 10000,
+        "composite": {
+          "collections": "AIRBUS/SPOT6_7",
+          "composite_method": "median",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "2",
+          "crs": "EPSG:32615",
+          "resolution_m": "6.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 6.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 34.19,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 10000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 1485,
+          "n_after_merge": 6472,
+          "n_after_min_area": 6948,
+          "n_merged_groups": 161,
+          "n_output": 1459,
+          "n_pieces_merged": 637,
+          "n_raw": 7902,
+          "n_tiles_processed": 624,
+          "n_tiles_total": 624,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "dn",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "2023",
+        "file": "outputs/mississippi_alluvial_plain/fields_spot_delineate-anything_2023.gpkg",
+        "n_polygons": 1764,
+        "area_ha_total": 14065.9,
+        "area_ha_p10": 1.38,
+        "area_ha_median": 5.01,
+        "area_ha_p90": 17.98,
+        "source": "spot",
+        "engine": "delineate-anything",
+        "year": 2023,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 10000,
+        "composite": {
+          "collections": "AIRBUS/SPOT6_7",
+          "composite_method": "median",
+          "date_start": "2023-01-01",
+          "date_end_exclusive": "2024-01-01",
+          "n_images": "12",
+          "crs": "EPSG:32615",
+          "resolution_m": "6.0",
+          "image_years": "2023"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 6.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 37.97,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 10000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 2116,
+          "n_after_merge": 8681,
+          "n_after_min_area": 9039,
+          "n_merged_groups": 183,
+          "n_output": 2076,
+          "n_pieces_merged": 541,
+          "n_raw": 11566,
+          "n_tiles_processed": 624,
+          "n_tiles_total": 624,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "dn",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ]
+  },
+  "12n": {
+    "example": "12n",
+    "image": "assets/gallery_1.0/NM_NAIP_models_example.png",
+    "preview": "assets/gallery_1.0/preview/NM_NAIP_models_example.webp",
+    "title": "Lea County, NM: Delineate-Anything v2, GeoAI and DINOv3 on NAIP 1 m",
+    "background": "composite",
+    "background_note": "Background: NAIP 1 m mosaic composite, 2022-01-01 to 2023-01-01 (end exclusive), 25 images; the engine's input\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nDelineate-Anything large_v2 checkpoint (sha256 9209877; ultralytics\n8.4.163), fine-tuned on the reference polygons (up to 10 epochs, block split)\nGeoAI Mask R-CNN ResNet50-FPN (geoai-py 0.43.1; 1024 px windows, overlap\n512 px), fine-tuned on the reference polygons (up to 10 epochs, block split)\nDINOv3 dinov3_vitl16 with giswqs/geoai/dinov3_vitl16_sat493m.pth @ aa2b25d\n(geoai-py 0.43.1), fine-tuned on the reference polygons (full, up to 10 epochs, block split)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)",
+      "Delineate-Anything large_v2 checkpoint (sha256 9209877; ultralytics 8.4.163), fine-tuned on the reference polygons (up to 10 epochs, block split)",
+      "GeoAI Mask R-CNN ResNet50-FPN (geoai-py 0.43.1; 1024 px windows, overlap 512 px), fine-tuned on the reference polygons (up to 10 epochs, block split)",
+      "DINOv3 dinov3_vitl16 with giswqs/geoai/dinov3_vitl16_sat493m.pth @ aa2b25d (geoai-py 0.43.1), fine-tuned on the reference polygons (full, up to 10 epochs, block split)"
+    ],
+    "location": {
+      "lon": -103.1598,
+      "lat": 32.8529,
+      "country": "United States of America",
+      "country_label": "USA",
+      "country_a3": "USA",
+      "admin1": "New Mexico"
+    },
+    "layers": [
+      {
+        "label": "DA v2 as released",
+        "file": "outputs/lea_county_ensemble/fields_naip_delineate-anything_large_v2_pretrained_2022.gpkg",
+        "n_polygons": 635,
+        "area_ha_total": 11082.9,
+        "area_ha_p10": 0.85,
+        "area_ha_median": 4.75,
+        "area_ha_p90": 50.81,
+        "source": "naip",
+        "engine": "delineate-anything",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "USDA/NAIP/DOQQ",
+          "composite_method": "mosaic",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "25",
+          "crs": "EPSG:32613",
+          "resolution_m": "1.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 8,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 1.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 302.8,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 5000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 2839,
+          "n_after_merge": 6542,
+          "n_after_min_area": 18940,
+          "n_merged_groups": 1264,
+          "n_output": 2702,
+          "n_pieces_merged": 13662,
+          "n_raw": 26987,
+          "n_tiles_processed": 6764,
+          "n_tiles_total": 6764,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 1,
+          "tile_size_native_px": 512,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "uint8",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "DA v2 fine-tuned",
+        "file": "outputs/lea_county_ensemble/fields_naip_delineate-anything_large_v2_2022.gpkg",
+        "n_polygons": 374,
+        "area_ha_total": 9595.8,
+        "area_ha_p10": 0.86,
+        "area_ha_median": 8.29,
+        "area_ha_p90": 52.59,
+        "source": "naip",
+        "engine": "delineate-anything",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "USDA/NAIP/DOQQ",
+          "composite_method": "mosaic",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "25",
+          "crs": "EPSG:32613",
+          "resolution_m": "1.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "base_model_key": "large_v2",
+          "batch_size": 8,
+          "checkpoint_sha256": "9209877279874be8e73f0d90ad766b2a2d199fc25ac541a33fe601b5f915f92d",
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 1.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 254.74,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 5000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 1143,
+          "n_after_merge": 3529,
+          "n_after_min_area": 6460,
+          "n_merged_groups": 357,
+          "n_output": 1024,
+          "n_pieces_merged": 3288,
+          "n_raw": 7543,
+          "n_tiles_processed": 6764,
+          "n_tiles_total": 6764,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 1,
+          "tile_size_native_px": 512,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "uint8",
+          "weights": "checkpoint"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "GeoAI fine-tuned",
+        "file": "outputs/lea_county_ensemble/fields_naip_geoai_2022.gpkg",
+        "n_polygons": 447,
+        "area_ha_total": 9584.4,
+        "area_ha_p10": 1.25,
+        "area_ha_median": 16.63,
+        "area_ha_p90": 49.09,
+        "source": "naip",
+        "engine": "geoai",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "USDA/NAIP/DOQQ",
+          "composite_method": "mosaic",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "25",
+          "crs": "EPSG:32613",
+          "resolution_m": "1.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "backend": "geoai.instance_segmentation",
+          "batch_size": 8,
+          "cache_reused": true,
+          "checkpoint_sha256": "8ffe80c91f503d61bdffd8c5776187d648f8a1cb9c5bc0952572bd35a4cafc64",
+          "clean_instance_mask": false,
+          "confidence_threshold": 0.5,
+          "device": "cpu",
+          "geoai-py_version": "0.43.1",
+          "model": "maskrcnn_resnet50_fpn",
+          "n_instances_merged_at_seams": 448,
+          "n_seam_gap_pixels_filled": 84809,
+          "nms_threshold": 0.3,
+          "num_classes": 2,
+          "overlap": 512,
+          "requested_batch_size": 8,
+          "resize_factor": 0.78125,
+          "seam_max_gap_px": 2,
+          "seam_merge": true,
+          "seam_min_fraction": 0.5,
+          "seam_min_px": 16,
+          "torch_version": "2.10.0",
+          "torchvision_version": "0.25.0",
+          "training_chip_size": 1024,
+          "window_size": 1024,
+          "window_source": "training_chip_size"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "DINOv3 fine-tuned",
+        "file": "outputs/lea_county_ensemble/fields_naip_dinov3_2022.gpkg",
+        "n_polygons": 195,
+        "area_ha_total": 9703.9,
+        "area_ha_p10": 2.83,
+        "area_ha_median": 45.66,
+        "area_ha_p90": 102.71,
+        "source": "naip",
+        "engine": "dinov3",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "USDA/NAIP/DOQQ",
+          "composite_method": "mosaic",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "25",
+          "crs": "EPSG:32613",
+          "resolution_m": "1.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "backend": "geoai",
+          "batch_size": 8,
+          "checkpoint_sha256": "1642f37712810021d80de4c610b4f4e13405b3a44221a8d0ad5e861a73ae14ba",
+          "device": "mps",
+          "dilate_interior_px": 2,
+          "dinov3_location": "facebookresearch/dinov3",
+          "field_class": 1,
+          "freeze_backbone": false,
+          "geoai-py_version": "0.43.1",
+          "input_padding": "reflect",
+          "model_name": "dinov3_vitl16",
+          "overlap": 128,
+          "torch_version": "2.10.0",
+          "training_chip_size": 256,
+          "use_lora": false,
+          "weights": "giswqs/geoai/dinov3_vitl16_sat493m.pth",
+          "weights_revision": "aa2b25d27b2c78f0e92c7b6a4813a571f9bc2288",
+          "weights_sha256": "eadcf0ffc02418b6c22a885ea1a7aaeeef84fbf0f5bb4d0b7d1d36e68a964f48",
+          "window_capped": false,
+          "window_size": 256,
+          "window_source": "training_chip_size"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ],
+    "reference": {
+      "label": "NMOSE reference (the fine-tuning labels)",
+      "n_polygons": 41,
+      "area_ha_total": 1207.3,
+      "area_ha_p10": 1.34,
+      "area_ha_median": 23.78,
+      "area_ha_p90": 49.68
+    }
+  },
+  "13": {
+    "example": "13",
+    "image": "assets/gallery_1.0/SAM2_refinement_example.png",
+    "preview": "assets/gallery_1.0/preview/SAM2_refinement_example.webp",
+    "title": "SAM 2 refinement of example 20's output",
+    "background": "composite",
+    "background_note": "Background: Sentinel-2 L2A 10 m median composite, 2019-01-01\nto 2020-01-01 (end exclusive), 171 images; the engine's input\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nSAM 2: facebook/sam2-hiera-large (sam2 1.1.0 via segment-geospatial 1.4.2), one box prompt per field; fields whose\npadded box is under 64 px on a side are not changed by SAM; the example then smooths and simplifies all polygons again\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)",
+      "SAM 2: facebook/sam2-hiera-large (sam2 1.1.0 via segment-geospatial 1.4.2), one box prompt per field; fields whose padded box is under 64 px on a side are not changed by SAM; the example then smooths and simplifies all polygons again"
+    ],
+    "location": {
+      "lon": -108.1081,
+      "lat": 36.6196,
+      "country": "United States of America",
+      "country_label": "USA",
+      "country_a3": "USA",
+      "admin1": "New Mexico"
+    },
+    "layers": [
+      {
+        "label": "Delineate-Anything",
+        "file": "outputs/stratified_evaluation/fields_sentinel2_delineate-anything_2019.gpkg",
+        "n_polygons": 380,
+        "area_ha_total": 3627.5,
+        "area_ha_p10": 0.78,
+        "area_ha_median": 2.2,
+        "area_ha_p90": 32.09,
+        "source": "sentinel2",
+        "engine": "delineate-anything",
+        "year": 2019,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2019-01-01",
+          "date_end_exclusive": "2020-01-01",
+          "n_images": "171",
+          "crs": "EPSG:32612",
+          "resolution_m": "10.0",
+          "image_years": "2019"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 10.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 18.05,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 616,
+          "n_after_merge": 1735,
+          "n_after_min_area": 1819,
+          "n_merged_groups": 60,
+          "n_output": 613,
+          "n_pieces_merged": 144,
+          "n_raw": 1821,
+          "n_tiles_processed": 361,
+          "n_tiles_total": 361,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "reflectance_x10000",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "After SAM 2",
+        "file": "outputs/sam2_refinement/fields_sentinel2_delineate-anything_2019_sam2.gpkg",
+        "n_polygons": 380,
+        "area_ha_total": 3705.2,
+        "area_ha_p10": 0.75,
+        "area_ha_median": 2.15,
+        "area_ha_p90": 32.62,
+        "source": null,
+        "engine": null,
+        "year": null,
+        "lulc_filter": null,
+        "lulc_dataset": null,
+        "sam_refine": null,
+        "min_field_area_m2": null,
+        "composite": {},
+        "ftw_windows": {},
+        "engine_meta": {},
+        "n_removed_by_crop_filter": null,
+        "agribound_version": null,
+        "run_status": null
+      }
+    ],
+    "reference": {
+      "label": "NMOSE reference (not used for training in these runs)",
+      "n_polygons": 24,
+      "area_ha_total": 974.7,
+      "area_ha_p10": 21.33,
+      "area_ha_median": 39.05,
+      "area_ha_p90": 59.79
+    }
+  },
+  "14": {
+    "example": "14",
+    "image": "assets/gallery_1.0/NM_example.png",
+    "preview": "assets/gallery_1.0/preview/NM_example.webp",
+    "title": "Lea County, NM: DINOv3 (fine-tuned) + SAM 2 from 30 m to 1 m",
+    "background": "composite",
+    "background_note": "Background: Top left: Landsat 7/8/9 C2 L2 30 m median composite,\n2022-10-01 to 2022-11-01 (end exclusive), 3 images; the engine's input\nTop right: Sentinel-2 L2A 10 m median composite, 2022-10-01 to 2022-11-01 (end exclusive), 3 images; the engine's input\nBottom left: SPOT 6/7 6 m median composite, 2022-01-01 to 2023-01-01 (end exclusive), 7 images; the engine's input\nBottom right: NAIP 1 m mosaic composite, 2022-01-01 to 2023-01-01 (end exclusive), 25 images; the engine's input\nModel: DINOv3 dinov3_vitl16 with giswqs/geoai/dinov3_vitl16_sat493m.pth @ aa2b25d\n(geoai-py 0.43.1), fine-tuned on the reference polygons (full, up to 30 epochs, block split)\nSAM 2: facebook/sam2-hiera-large (sam2 1.1.0 via segment-geospatial 1.4.2), one box\nprompt per field; fields whose padded box is under 64 px on a side are left unchanged\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "DINOv3 dinov3_vitl16 with giswqs/geoai/dinov3_vitl16_sat493m.pth @ aa2b25d (geoai-py 0.43.1), fine-tuned on the reference polygons (full, up to 30 epochs, block split)",
+      "SAM 2: facebook/sam2-hiera-large (sam2 1.1.0 via segment-geospatial 1.4.2), one box prompt per field; fields whose padded box is under 64 px on a side are left unchanged"
+    ],
+    "location": {
+      "lon": -103.16,
+      "lat": 32.8526,
+      "country": "United States of America",
+      "country_label": "USA",
+      "country_a3": "USA",
+      "admin1": "New Mexico"
+    },
+    "layers": [
+      {
+        "label": "Landsat 30 m",
+        "file": "outputs/lea_county_dinov3_sam2/fields_landsat_dinov3-sam2_2022.gpkg",
+        "n_polygons": 31,
+        "area_ha_total": 12513.2,
+        "area_ha_p10": 15.46,
+        "area_ha_median": 77.37,
+        "area_ha_p90": 1910.15,
+        "source": "landsat",
+        "engine": "dinov3",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": true,
+        "min_field_area_m2": 2500,
+        "composite": {
+          "collections": "LANDSAT/LE07/C02/T1_L2,LANDSAT/LC08/C02/T1_L2,LANDSAT/LC09/C02/T1_L2",
+          "composite_method": "median",
+          "date_start": "2022-10-01",
+          "date_end_exclusive": "2022-11-01",
+          "n_images": "3",
+          "crs": "EPSG:32613",
+          "resolution_m": "30.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "backend": "geoai",
+          "batch_size": 8,
+          "cache_reused": true,
+          "checkpoint_sha256": "aacf35811ec3ceec92da495884add8bcff30a0c4c729762563138f440d97bac5",
+          "device": "mps",
+          "dilate_interior_px": 2,
+          "dinov3_location": "facebookresearch/dinov3",
+          "field_class": 1,
+          "freeze_backbone": false,
+          "geoai-py_version": "0.43.1",
+          "input_padding": "reflect",
+          "model_name": "dinov3_vitl16",
+          "overlap": 128,
+          "torch_version": "2.10.0",
+          "training_chip_size": 256,
+          "use_lora": false,
+          "weights": "giswqs/geoai/dinov3_vitl16_sat493m.pth",
+          "weights_revision": "aa2b25d27b2c78f0e92c7b6a4813a571f9bc2288",
+          "weights_sha256": "eadcf0ffc02418b6c22a885ea1a7aaeeef84fbf0f5bb4d0b7d1d36e68a964f48",
+          "window_capped": false,
+          "window_size": 256,
+          "window_source": "training_chip_size"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "Sentinel-2 10 m",
+        "file": "outputs/lea_county_dinov3_sam2/fields_sentinel2_dinov3-sam2_2022.gpkg",
+        "n_polygons": 114,
+        "area_ha_total": 8688.8,
+        "area_ha_p10": 15.59,
+        "area_ha_median": 50.69,
+        "area_ha_p90": 144.33,
+        "source": "sentinel2",
+        "engine": "dinov3",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": true,
+        "min_field_area_m2": 2500,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2022-10-01",
+          "date_end_exclusive": "2022-11-01",
+          "n_images": "3",
+          "crs": "EPSG:32613",
+          "resolution_m": "10.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "backend": "geoai",
+          "batch_size": 8,
+          "cache_reused": true,
+          "checkpoint_sha256": "b9eb130578079cb62a35c7af6b6703e8c0773d8dab79f3b316ab2c4ea5d12351",
+          "device": "mps",
+          "dilate_interior_px": 2,
+          "dinov3_location": "facebookresearch/dinov3",
+          "field_class": 1,
+          "freeze_backbone": false,
+          "geoai-py_version": "0.43.1",
+          "input_padding": "reflect",
+          "model_name": "dinov3_vitl16",
+          "overlap": 128,
+          "torch_version": "2.10.0",
+          "training_chip_size": 256,
+          "use_lora": false,
+          "weights": "giswqs/geoai/dinov3_vitl16_sat493m.pth",
+          "weights_revision": "aa2b25d27b2c78f0e92c7b6a4813a571f9bc2288",
+          "weights_sha256": "eadcf0ffc02418b6c22a885ea1a7aaeeef84fbf0f5bb4d0b7d1d36e68a964f48",
+          "window_capped": false,
+          "window_size": 256,
+          "window_source": "training_chip_size"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "SPOT 6/7 6 m",
+        "file": "outputs/lea_county_dinov3_sam2/fields_spot_dinov3-sam2_2022.gpkg",
+        "n_polygons": 135,
+        "area_ha_total": 6122.7,
+        "area_ha_p10": 7.81,
+        "area_ha_median": 48.75,
+        "area_ha_p90": 75.18,
+        "source": "spot",
+        "engine": "dinov3",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": true,
+        "min_field_area_m2": 2500,
+        "composite": {
+          "collections": "AIRBUS/SPOT6_7",
+          "composite_method": "median",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "7",
+          "crs": "EPSG:32613",
+          "resolution_m": "6.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "backend": "geoai",
+          "batch_size": 8,
+          "cache_reused": true,
+          "checkpoint_sha256": "d7b8eb73c8739b00f1e4332b913d6d30566bb85252c074a2e4213f9e97cd7c84",
+          "device": "mps",
+          "dilate_interior_px": 2,
+          "dinov3_location": "facebookresearch/dinov3",
+          "field_class": 1,
+          "freeze_backbone": false,
+          "geoai-py_version": "0.43.1",
+          "input_padding": "reflect",
+          "model_name": "dinov3_vitl16",
+          "overlap": 128,
+          "torch_version": "2.10.0",
+          "training_chip_size": 256,
+          "use_lora": false,
+          "weights": "giswqs/geoai/dinov3_vitl16_sat493m.pth",
+          "weights_revision": "aa2b25d27b2c78f0e92c7b6a4813a571f9bc2288",
+          "weights_sha256": "eadcf0ffc02418b6c22a885ea1a7aaeeef84fbf0f5bb4d0b7d1d36e68a964f48",
+          "window_capped": false,
+          "window_size": 256,
+          "window_source": "training_chip_size"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "NAIP 1 m",
+        "file": "outputs/lea_county_dinov3_sam2/fields_naip_dinov3-sam2_2022.gpkg",
+        "n_polygons": 181,
+        "area_ha_total": 7598.5,
+        "area_ha_p10": 2.14,
+        "area_ha_median": 45.59,
+        "area_ha_p90": 76.52,
+        "source": "naip",
+        "engine": "dinov3",
+        "year": 2022,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": true,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "USDA/NAIP/DOQQ",
+          "composite_method": "mosaic",
+          "date_start": "2022-01-01",
+          "date_end_exclusive": "2023-01-01",
+          "n_images": "25",
+          "crs": "EPSG:32613",
+          "resolution_m": "1.0",
+          "image_years": "2022"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "backend": "geoai",
+          "batch_size": 8,
+          "cache_reused": true,
+          "checkpoint_sha256": "8fad62801fd548353cd7e2d6425a50a53c8cabb5f9fda306bcde83970ae8e4a2",
+          "device": "mps",
+          "dilate_interior_px": 2,
+          "dinov3_location": "facebookresearch/dinov3",
+          "field_class": 1,
+          "freeze_backbone": false,
+          "geoai-py_version": "0.43.1",
+          "input_padding": "reflect",
+          "model_name": "dinov3_vitl16",
+          "overlap": 128,
+          "torch_version": "2.10.0",
+          "training_chip_size": 256,
+          "use_lora": false,
+          "weights": "giswqs/geoai/dinov3_vitl16_sat493m.pth",
+          "weights_revision": "aa2b25d27b2c78f0e92c7b6a4813a571f9bc2288",
+          "weights_sha256": "eadcf0ffc02418b6c22a885ea1a7aaeeef84fbf0f5bb4d0b7d1d36e68a964f48",
+          "window_capped": false,
+          "window_size": 256,
+          "window_source": "training_chip_size"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ],
+    "reference": {
+      "label": "NMOSE reference (the training labels)",
+      "n_polygons": 40,
+      "area_ha_total": 1104.5,
+      "area_ha_p10": 1.33,
+      "area_ha_median": 20.95,
+      "area_ha_p90": 49.52
+    }
+  },
+  "15": {
+    "example": "15",
+    "image": "assets/gallery_1.0/Pampas_example.png",
+    "preview": "assets/gallery_1.0/preview/Pampas_example.webp",
+    "title": "Pampas: embeddings + SAM 2 vs Delineate-Anything v2 on Sentinel-2 and SPOT",
+    "background": "composite",
+    "background_note": "Background: Top left: Sentinel-2 L2A 10 m median composite, 2024-10-01 to 2024-11-01\n(end exclusive), 8 images; the composite SAM 2 read (fields from embedding clusters)\nTop right: Sentinel-2 L2A 10 m median composite, 2024-10-01 to 2024-11-01 (end\nexclusive), 8 images; the composite SAM 2 read (fields from embedding clusters)\nBottom left: Sentinel-2 L2A 10 m median composite, 2024-10-01 to 2024-11-01 (end exclusive), 8 images; the engine's input\nBottom right: SPOT 6/7 6 m median composite, 2023-01-01 to 2024-01-01 (end exclusive), 6 images; the engine's input\nModel: Google Satellite Embedding (GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL, 64-D), MiniBatchKMeans with 5 clusters\nTESSERA v1 embeddings (geotessera 0.10.2), MiniBatchKMeans with 5 clusters\nDelineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nSAM 2: facebook/sam2-hiera-large (sam2 1.1.0 via segment-geospatial 1.4.2), one box prompt per field; fields whose\npadded box is under 64 px on a side are not changed by SAM; the example then smooths and simplifies all polygons again\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Google Satellite Embedding (GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL, 64-D), MiniBatchKMeans with 5 clusters",
+      "TESSERA v1 embeddings (geotessera 0.10.2), MiniBatchKMeans with 5 clusters",
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)",
+      "SAM 2: facebook/sam2-hiera-large (sam2 1.1.0 via segment-geospatial 1.4.2), one box prompt per field; fields whose padded box is under 64 px on a side are not changed by SAM; the example then smooths and simplifies all polygons again"
+    ],
+    "location": {
+      "lon": -60.4039,
+      "lat": -33.8926,
+      "country": "Argentina",
+      "country_label": "Argentina",
+      "country_a3": "ARG",
+      "admin1": "Buenos Aires"
+    },
+    "layers": [
+      {
+        "label": "Google embedding + SAM 2",
+        "file": "outputs/pampas_semi_supervised/fields_google_crop_sam2-s2_2024.gpkg",
+        "n_polygons": 2366,
+        "area_ha_total": 42508.3,
+        "area_ha_p10": 0.61,
+        "area_ha_median": 1.97,
+        "area_ha_p90": 33.14,
+        "source": null,
+        "engine": null,
+        "year": null,
+        "lulc_filter": null,
+        "lulc_dataset": null,
+        "sam_refine": null,
+        "min_field_area_m2": null,
+        "composite": {},
+        "ftw_windows": {},
+        "engine_meta": {},
+        "n_removed_by_crop_filter": null,
+        "agribound_version": null,
+        "run_status": null
+      },
+      {
+        "label": "TESSERA + SAM 2",
+        "file": "outputs/pampas_semi_supervised/fields_tessera_crop_sam2-s2_2024.gpkg",
+        "n_polygons": 1918,
+        "area_ha_total": 42849.3,
+        "area_ha_p10": 0.62,
+        "area_ha_median": 2.67,
+        "area_ha_p90": 62.26,
+        "source": null,
+        "engine": null,
+        "year": null,
+        "lulc_filter": null,
+        "lulc_dataset": null,
+        "sam_refine": null,
+        "min_field_area_m2": null,
+        "composite": {},
+        "ftw_windows": {},
+        "engine_meta": {},
+        "n_removed_by_crop_filter": null,
+        "agribound_version": null,
+        "run_status": null
+      },
+      {
+        "label": "Delineate-Anything v2, Sentinel-2 10 m",
+        "file": "outputs/pampas_semi_supervised/fields_sentinel2_delineate-anything_2024.gpkg",
+        "n_polygons": 2818,
+        "area_ha_total": 48021.8,
+        "area_ha_p10": 1.64,
+        "area_ha_median": 10.38,
+        "area_ha_p90": 40.54,
+        "source": "sentinel2",
+        "engine": "delineate-anything",
+        "year": 2024,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2024-10-01",
+          "date_end_exclusive": "2024-11-01",
+          "n_images": "8",
+          "crs": "EPSG:32720",
+          "resolution_m": "10.0",
+          "image_years": "2024"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 10.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 79.39,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 5000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 4824,
+          "n_after_merge": 21109,
+          "n_after_min_area": 21835,
+          "n_merged_groups": 478,
+          "n_output": 4726,
+          "n_pieces_merged": 1204,
+          "n_raw": 22164,
+          "n_tiles_processed": 600,
+          "n_tiles_total": 600,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "reflectance_x10000",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "Delineate-Anything v2, SPOT 6 m (2023)",
+        "file": "outputs/pampas_semi_supervised/fields_spot_delineate-anything_2023.gpkg",
+        "n_polygons": 3306,
+        "area_ha_total": 46822.8,
+        "area_ha_p10": 1.28,
+        "area_ha_median": 7.66,
+        "area_ha_p90": 35.56,
+        "source": "spot",
+        "engine": "delineate-anything",
+        "year": 2023,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 5000,
+        "composite": {
+          "collections": "AIRBUS/SPOT6_7",
+          "composite_method": "median",
+          "date_start": "2023-01-01",
+          "date_end_exclusive": "2024-01-01",
+          "n_images": "6",
+          "crs": "EPSG:32720",
+          "resolution_m": "6.0",
+          "image_years": "2023"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 6.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 114.11,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 5000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 5456,
+          "n_after_merge": 22418,
+          "n_after_min_area": 24994,
+          "n_merged_groups": 870,
+          "n_output": 5310,
+          "n_pieces_merged": 3446,
+          "n_raw": 25913,
+          "n_tiles_processed": 1558,
+          "n_tiles_total": 1558,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "dn",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ]
+  },
+  "15b": {
+    "example": "15b",
+    "image": "assets/gallery_1.0/Pampas_SAM2_example.png",
+    "preview": "assets/gallery_1.0/preview/Pampas_SAM2_example.webp",
+    "title": "Pampas: Google Satellite Embedding and TESSERA, + crop filter + SAM 2",
+    "background": "composite",
+    "background_note": "Background: Sentinel-2 L2A 10 m median composite, 2024-10-01 to 2024-11-01 (end\nexclusive), 8 images; the composite SAM 2 read (the fields come from embedding clusters)\nModel: Google Satellite Embedding (GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL, 64-D), MiniBatchKMeans with 5 clusters\nTESSERA v1 embeddings (geotessera 0.10.2), MiniBatchKMeans with 5 clusters\nSAM 2: facebook/sam2-hiera-large (sam2 1.1.0 via segment-geospatial 1.4.2), one box prompt per field; fields whose\npadded box is under 64 px on a side are not changed by SAM; the example then smooths and simplifies all polygons again\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Google Satellite Embedding (GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL, 64-D), MiniBatchKMeans with 5 clusters",
+      "TESSERA v1 embeddings (geotessera 0.10.2), MiniBatchKMeans with 5 clusters",
+      "SAM 2: facebook/sam2-hiera-large (sam2 1.1.0 via segment-geospatial 1.4.2), one box prompt per field; fields whose padded box is under 64 px on a side are not changed by SAM; the example then smooths and simplifies all polygons again"
+    ],
+    "location": {
+      "lon": -60.4039,
+      "lat": -33.8926,
+      "country": "Argentina",
+      "country_label": "Argentina",
+      "country_a3": "ARG",
+      "admin1": "Buenos Aires"
+    },
+    "layers": [
+      {
+        "label": "Google embedding clusters, crop filter",
+        "file": "outputs/pampas_semi_supervised/fields_google_crop_2024.gpkg",
+        "n_polygons": 2372,
+        "area_ha_total": 56024.6,
+        "area_ha_p10": 0.62,
+        "area_ha_median": 2.04,
+        "area_ha_p90": 40.95,
+        "source": null,
+        "engine": null,
+        "year": null,
+        "lulc_filter": null,
+        "lulc_dataset": null,
+        "sam_refine": null,
+        "min_field_area_m2": null,
+        "composite": {},
+        "ftw_windows": {},
+        "engine_meta": {},
+        "n_removed_by_crop_filter": null,
+        "agribound_version": null,
+        "run_status": null
+      },
+      {
+        "label": "Google + SAM 2 on Sentinel-2",
+        "file": "outputs/pampas_semi_supervised/fields_google_crop_sam2-s2_2024.gpkg",
+        "n_polygons": 2366,
+        "area_ha_total": 42508.3,
+        "area_ha_p10": 0.61,
+        "area_ha_median": 1.97,
+        "area_ha_p90": 33.14,
+        "source": null,
+        "engine": null,
+        "year": null,
+        "lulc_filter": null,
+        "lulc_dataset": null,
+        "sam_refine": null,
+        "min_field_area_m2": null,
+        "composite": {},
+        "ftw_windows": {},
+        "engine_meta": {},
+        "n_removed_by_crop_filter": null,
+        "agribound_version": null,
+        "run_status": null
+      },
+      {
+        "label": "TESSERA clusters, crop filter",
+        "file": "outputs/pampas_semi_supervised/fields_tessera_crop_2024.gpkg",
+        "n_polygons": 1923,
+        "area_ha_total": 50814.4,
+        "area_ha_p10": 0.63,
+        "area_ha_median": 2.79,
+        "area_ha_p90": 66.3,
+        "source": null,
+        "engine": null,
+        "year": null,
+        "lulc_filter": null,
+        "lulc_dataset": null,
+        "sam_refine": null,
+        "min_field_area_m2": null,
+        "composite": {},
+        "ftw_windows": {},
+        "engine_meta": {},
+        "n_removed_by_crop_filter": null,
+        "agribound_version": null,
+        "run_status": null
+      },
+      {
+        "label": "TESSERA + SAM 2 on Sentinel-2",
+        "file": "outputs/pampas_semi_supervised/fields_tessera_crop_sam2-s2_2024.gpkg",
+        "n_polygons": 1918,
+        "area_ha_total": 42849.3,
+        "area_ha_p10": 0.62,
+        "area_ha_median": 2.67,
+        "area_ha_p90": 62.26,
+        "source": null,
+        "engine": null,
+        "year": null,
+        "lulc_filter": null,
+        "lulc_dataset": null,
+        "sam_refine": null,
+        "min_field_area_m2": null,
+        "composite": {},
+        "ftw_windows": {},
+        "engine_meta": {},
+        "n_removed_by_crop_filter": null,
+        "agribound_version": null,
+        "run_status": null
+      }
+    ]
+  },
+  "16": {
+    "example": "16",
+    "image": "assets/gallery_1.0/USGS_NAIP_Plus_example.png",
+    "preview": "assets/gallery_1.0/preview/USGS_NAIP_Plus_example.webp",
+    "title": "Central Valley: Delineate-Anything on USGS NAIP Plus",
+    "background": "composite",
+    "background_note": "Background: USGS NAIP Plus 0.6 m, 2022 imagery, 8 source rasters; the engine's input\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": -120.05,
+      "lat": 36.35,
+      "country": "United States of America",
+      "country_label": "USA",
+      "country_a3": "USA",
+      "admin1": "California"
+    },
+    "layers": [
+      {
+        "label": "Delineate-Anything",
+        "file": "outputs/usa_central_valley_usgs_naip_plus/fields_usgs-naip-plus_delineate-anything_2022.gpkg",
+        "n_polygons": 299,
+        "area_ha_total": 10241.7,
+        "area_ha_p10": 7.46,
+        "area_ha_median": 22.06,
+        "area_ha_p90": 64.5,
+        "source": "usgs-naip-plus",
+        "engine": "delineate-anything",
+        "year": 2022,
+        "lulc_filter": false,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 10000,
+        "composite": {
+          "crs": "EPSG:32610",
+          "resolution_m": "0.6",
+          "image_years": "2022",
+          "lock_raster_ids": "20313,20314,20283,20284,20315,20316,20030,20000"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 0.6,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 202.23,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 10000.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 329,
+          "n_after_merge": 375,
+          "n_after_min_area": 8616,
+          "n_merged_groups": 307,
+          "n_output": 326,
+          "n_pieces_merged": 8548,
+          "n_raw": 11009,
+          "n_tiles_processed": 4712,
+          "n_tiles_total": 4712,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 1,
+          "tile_size_native_px": 512,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "uint8",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ],
+    "zoom_window_m": 1500
+  },
+  "19": {
+    "example": "19",
+    "image": "assets/gallery_1.0/HPC_tiling_example.png",
+    "preview": "assets/gallery_1.0/preview/HPC_tiling_example.webp",
+    "title": "HPC tiling: four tiles merged",
+    "background": "composite",
+    "background_note": "Background: Sentinel-2 L2A 10 m median composite, 2024-01-01 to 2025-01-01 (end exclusive), 12 images; the engine's input\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": 1.471,
+      "lat": 48.1403,
+      "country": "France",
+      "country_label": "France",
+      "country_a3": "FRA",
+      "admin1": "Eure-et-Loir"
+    },
+    "layers": [
+      {
+        "label": "Merged",
+        "file": "outputs/hpc_tiling_demo/sentinel2_delineate-anything_2024_lulc/fields_merged.gpkg",
+        "n_polygons": 302,
+        "area_ha_total": 1458.0,
+        "area_ha_p10": 0.83,
+        "area_ha_median": 3.27,
+        "area_ha_p90": 11.41,
+        "source": "sentinel2",
+        "engine": "delineate-anything",
+        "year": 2024,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2024-01-01",
+          "date_end_exclusive": "2025-01-01",
+          "n_images": "12",
+          "crs": "EPSG:32631",
+          "resolution_m": "10.0",
+          "image_years": "2024"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 10.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_tiles_processed": 25,
+          "n_tiles_total": 25,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "reflectance_x10000",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ]
+  },
+  "20": {
+    "example": "20",
+    "image": "assets/gallery_1.0/San_Juan_evaluation_example.png",
+    "preview": "assets/gallery_1.0/preview/San_Juan_evaluation_example.webp",
+    "title": "San Juan County, NM: Delineate-Anything vs NMOSE",
+    "background": "composite",
+    "background_note": "Background: Sentinel-2 L2A 10 m median composite, 2019-01-01\nto 2020-01-01 (end exclusive), 171 images; the engine's input\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": -108.1248,
+      "lat": 36.7001,
+      "country": "United States of America",
+      "country_label": "USA",
+      "country_a3": "USA",
+      "admin1": "New Mexico"
+    },
+    "layers": [
+      {
+        "label": "Delineate-Anything",
+        "file": "outputs/stratified_evaluation/fields_sentinel2_delineate-anything_2019.gpkg",
+        "n_polygons": 380,
+        "area_ha_total": 3627.5,
+        "area_ha_p10": 0.78,
+        "area_ha_median": 2.2,
+        "area_ha_p90": 32.09,
+        "source": "sentinel2",
+        "engine": "delineate-anything",
+        "year": 2019,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2019-01-01",
+          "date_end_exclusive": "2020-01-01",
+          "n_images": "171",
+          "crs": "EPSG:32612",
+          "resolution_m": "10.0",
+          "image_years": "2019"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 10.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 18.05,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 616,
+          "n_after_merge": 1735,
+          "n_after_min_area": 1819,
+          "n_merged_groups": 60,
+          "n_output": 613,
+          "n_pieces_merged": 144,
+          "n_raw": 1821,
+          "n_tiles_processed": 361,
+          "n_tiles_total": 361,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "reflectance_x10000",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ],
+    "reference": {
+      "label": "NMOSE reference (not used for training in these runs)",
+      "n_polygons": 1053,
+      "area_ha_total": 7008.5,
+      "area_ha_p10": 0.27,
+      "area_ha_median": 1.2,
+      "area_ha_p90": 24.75
+    },
+    "metrics": {
+      "iou_mean": 0.7969484456373679,
+      "precision": 0.5778364116094987,
+      "recall": 0.2319915254237288,
+      "f1": 0.3310657596371882,
+      "over_segmentation": 0.0,
+      "under_segmentation": 0.0,
+      "area_error_mean_m2": 15592.039241165561,
+      "count_predicted": 379,
+      "count_reference": 944,
+      "count_tp": 219,
+      "count_fp": 160,
+      "count_fn": 725,
+      "best_iou_mean": 0.22032155395948208,
+      "area_weighted_precision": 0.8379811110051288,
+      "area_weighted_recall": 0.6130033224954102,
+      "area_weighted_f1": 0.7080506080899294,
+      "reference_area_ha": 5276.305385242681,
+      "predicted_area_ha": 3591.684291310737,
+      "area_error_signed_mean_m2": -10257.038303285262,
+      "oversegmentation_mean": 0.7442986133205788,
+      "undersegmentation_mean": 0.20895315154763913,
+      "hausdorff_mean_m": 53.71346612437541,
+      "boundary_distance_mean_m": 13.445703648637755,
+      "boundary_precision": 0.5924050749432759,
+      "boundary_recall": 0.3464909204300759,
+      "boundary_f1": 0.43724327443301314,
+      "coverage_within_tolerance": 0.13665254237288135,
+      "coverage_within_tolerance_area": 0.3531177828799295,
+      "median_area_ha": 1.1348110942628562,
+      "hausdorff_median_m": 32.542271517035,
+      "boundary_distance_median_m": 9.0610094570742,
+      "iou_threshold": 0.5,
+      "matching": "one_to_one",
+      "equal_area_crs": "EPSG:6933",
+      "distance_crs": "WGS 84 / UTM zone of each polygon's centroid",
+      "boundary_sample_spacing_m": 1.0,
+      "boundary_sample_spacing_max_m": 1.0,
+      "utm_epsg_codes": [
+        32612
+      ],
+      "count_fp_unassigned": 12,
+      "count_reference_dropped": 0,
+      "count_predicted_dropped": 0,
+      "count_reference_repaired": 0,
+      "count_predicted_repaired": 0,
+      "boundary_tolerance_m": 10.0,
+      "strata_column": "WUCR_SBasi",
+      "count_reference_no_stratum": 0,
+      "per_stratum": {
+        "ANIMAS RIVER": {
+          "n": 324,
+          "iou_mean": 0.750397205874406,
+          "precision": 0.603448275862069,
+          "recall": 0.10802469135802469,
+          "f1": 0.1832460732984293,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 2611.889697750113,
+          "count_predicted": 58,
+          "count_reference": 324,
+          "count_tp": 35,
+          "count_fp": 23,
+          "count_fn": 289,
+          "best_iou_mean": 0.09921350323942019,
+          "area_weighted_precision": 0.5875626480887877,
+          "area_weighted_recall": 0.1499289521746021,
+          "area_weighted_f1": 0.2388980488277419,
+          "reference_area_ha": 426.1232788988824,
+          "predicted_area_ha": 95.89433746226484,
+          "area_error_signed_mean_m2": -2155.510241847714,
+          "oversegmentation_mean": 0.8853896993435538,
+          "undersegmentation_mean": 0.26892436297845523,
+          "hausdorff_mean_m": 34.79957194289726,
+          "boundary_distance_mean_m": 8.963998233818181,
+          "boundary_precision": 0.6387029917370517,
+          "boundary_recall": 0.1350208965306091,
+          "boundary_f1": 0.22291737884480523,
+          "coverage_within_tolerance": 0.07407407407407407,
+          "coverage_within_tolerance_area": 0.09457086236171706,
+          "median_area_ha": 0.8279436267961561,
+          "hausdorff_median_m": 29.652633374960654,
+          "boundary_distance_median_m": 8.626898882268446,
+          "ci": {
+            "precision": [
+              0.479986301369863,
+              0.75
+            ],
+            "recall": [
+              0.07716049382716049,
+              0.1388888888888889
+            ],
+            "f1": [
+              0.13368092691622102,
+              0.230859375
+            ],
+            "iou_mean": [
+              0.7236172602221422,
+              0.7823298096988892
+            ],
+            "best_iou_mean": [
+              0.07414766281528466,
+              0.12353973794272856
+            ],
+            "area_weighted_precision": [
+              0.44583691632708194,
+              0.7451861378093534
+            ],
+            "area_weighted_recall": [
+              0.10136090189234008,
+              0.20170898332213458
+            ],
+            "area_weighted_f1": [
+              0.16905451865626595,
+              0.3130288063980739
+            ],
+            "oversegmentation_mean": [
+              0.8585134112696855,
+              0.9120477555417932
+            ],
+            "undersegmentation_mean": [
+              0.189987578444895,
+              0.37425082071949356
+            ],
+            "hausdorff_mean_m": [
+              30.091207947406136,
+              40.210167695618026
+            ],
+            "boundary_distance_mean_m": [
+              7.789130300479083,
+              10.12229134045722
+            ],
+            "boundary_precision": [
+              0.5671162706202919,
+              0.7095340028175849
+            ],
+            "boundary_recall": [
+              0.10104729834756948,
+              0.1681347303421713
+            ],
+            "boundary_f1": [
+              0.17067906978199485,
+              0.26825533234616505
+            ],
+            "coverage_within_tolerance": [
+              0.04621913580246915,
+              0.09876543209876543
+            ],
+            "coverage_within_tolerance_area": [
+              0.05142361974820768,
+              0.1366868229539345
+            ]
+          }
+        },
+        "HAMMOND ID": {
+          "n": 222,
+          "iou_mean": 0.7429679223553357,
+          "precision": 0.5652173913043478,
+          "recall": 0.2927927927927928,
+          "f1": 0.3857566765578635,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 12791.232941633565,
+          "count_predicted": 115,
+          "count_reference": 222,
+          "count_tp": 65,
+          "count_fp": 50,
+          "count_fn": 157,
+          "best_iou_mean": 0.2722691056451937,
+          "area_weighted_precision": 0.7664003111235491,
+          "area_weighted_recall": 0.5280089005231988,
+          "area_weighted_f1": 0.6252523266922152,
+          "reference_area_ha": 699.2680805930884,
+          "predicted_area_ha": 485.6226157444148,
+          "area_error_signed_mean_m2": 455.6235984964801,
+          "oversegmentation_mean": 0.6646446620051549,
+          "undersegmentation_mean": 0.24457306708434884,
+          "hausdorff_mean_m": 65.41825420545747,
+          "boundary_distance_mean_m": 15.686125612736742,
+          "boundary_precision": 0.6451039958935136,
+          "boundary_recall": 0.4137621712287638,
+          "boundary_f1": 0.5041612213083921,
+          "coverage_within_tolerance": 0.15315315315315314,
+          "coverage_within_tolerance_area": 0.1844192742816538,
+          "median_area_ha": 1.1067360872752043,
+          "hausdorff_median_m": 38.06729678331638,
+          "boundary_distance_median_m": 9.555644631045084,
+          "ci": {
+            "precision": [
+              0.4774636174636175,
+              0.6815373937185494
+            ],
+            "recall": [
+              0.23423423423423423,
+              0.3469594594594595
+            ],
+            "f1": [
+              0.3209209209209209,
+              0.4540496593020855
+            ],
+            "iou_mean": [
+              0.7129055475255611,
+              0.7689281385110915
+            ],
+            "best_iou_mean": [
+              0.22701766424913433,
+              0.31408909281343267
+            ],
+            "area_weighted_precision": [
+              0.6349468332594245,
+              0.8784194549106298
+            ],
+            "area_weighted_recall": [
+              0.41205081870627985,
+              0.6384622312701865
+            ],
+            "area_weighted_f1": [
+              0.5165709621841283,
+              0.7286261334869866
+            ],
+            "oversegmentation_mean": [
+              0.6130902081634133,
+              0.7183284205076308
+            ],
+            "undersegmentation_mean": [
+              0.17578564806861388,
+              0.2959298718771733
+            ],
+            "hausdorff_mean_m": [
+              50.91589553791224,
+              81.9507304539584
+            ],
+            "boundary_distance_mean_m": [
+              12.75208995049924,
+              19.07416607189582
+            ],
+            "boundary_precision": [
+              0.6043057709302285,
+              0.6933189101441164
+            ],
+            "boundary_recall": [
+              0.357297464625543,
+              0.45624577894143026
+            ],
+            "boundary_f1": [
+              0.46239994269247164,
+              0.5450669101118341
+            ],
+            "coverage_within_tolerance": [
+              0.10810810810810811,
+              0.20270270270270271
+            ],
+            "coverage_within_tolerance_area": [
+              0.10522595493227112,
+              0.28818843453236126
+            ]
+          }
+        },
+        "LA PLATA RIVER": {
+          "n": 22,
+          "iou_mean": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 0.0,
+          "count_predicted": 0,
+          "count_reference": 22,
+          "count_tp": 0,
+          "count_fp": 0,
+          "count_fn": 22,
+          "best_iou_mean": 0.0,
+          "area_weighted_precision": 0.0,
+          "area_weighted_recall": 0.0,
+          "area_weighted_f1": 0.0,
+          "reference_area_ha": 86.72787918300406,
+          "predicted_area_ha": 0.0,
+          "area_error_signed_mean_m2": NaN,
+          "oversegmentation_mean": 1.0,
+          "undersegmentation_mean": NaN,
+          "hausdorff_mean_m": NaN,
+          "boundary_distance_mean_m": NaN,
+          "boundary_precision": 0.0,
+          "boundary_recall": 0.0,
+          "boundary_f1": 0.0,
+          "coverage_within_tolerance": 0.0,
+          "coverage_within_tolerance_area": 0.0,
+          "median_area_ha": 2.794348813637958,
+          "hausdorff_median_m": NaN,
+          "boundary_distance_median_m": NaN,
+          "ci": {
+            "precision": [
+              NaN,
+              NaN
+            ],
+            "recall": [
+              0.0,
+              0.0
+            ],
+            "f1": [
+              NaN,
+              NaN
+            ],
+            "iou_mean": [
+              NaN,
+              NaN
+            ],
+            "best_iou_mean": [
+              0.0,
+              0.0
+            ],
+            "area_weighted_precision": [
+              NaN,
+              NaN
+            ],
+            "area_weighted_recall": [
+              0.0,
+              0.0
+            ],
+            "area_weighted_f1": [
+              NaN,
+              NaN
+            ],
+            "oversegmentation_mean": [
+              1.0,
+              1.0
+            ],
+            "undersegmentation_mean": [
+              NaN,
+              NaN
+            ],
+            "hausdorff_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_distance_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_precision": [
+              NaN,
+              NaN
+            ],
+            "boundary_recall": [
+              0.0,
+              0.0
+            ],
+            "boundary_f1": [
+              NaN,
+              NaN
+            ],
+            "coverage_within_tolerance": [
+              0.0,
+              0.0
+            ],
+            "coverage_within_tolerance_area": [
+              0.0,
+              0.0
+            ]
+          },
+          "ci_n_undefined": {
+            "precision": 200,
+            "f1": 200,
+            "iou_mean": 200,
+            "area_weighted_precision": 200,
+            "area_weighted_f1": 200,
+            "undersegmentation_mean": 200,
+            "hausdorff_mean_m": 200,
+            "boundary_distance_mean_m": 200,
+            "boundary_precision": 200,
+            "boundary_f1": 200
+          }
+        },
+        "NIIP": {
+          "n": 97,
+          "iou_mean": 0.9173677594078163,
+          "precision": 0.7142857142857143,
+          "recall": 0.7216494845360825,
+          "f1": 0.7179487179487181,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 31656.825667102283,
+          "count_predicted": 98,
+          "count_reference": 97,
+          "count_tp": 70,
+          "count_fp": 28,
+          "count_fn": 27,
+          "best_iou_mean": 0.7063818181907658,
+          "area_weighted_precision": 0.8879650924593384,
+          "area_weighted_recall": 0.732942852115539,
+          "area_weighted_f1": 0.8030408754852284,
+          "reference_area_ha": 3623.5172510709194,
+          "predicted_area_ha": 2745.6527710588744,
+          "area_error_signed_mean_m2": -31112.4645678923,
+          "oversegmentation_mean": 0.2821351614544681,
+          "undersegmentation_mean": 0.028359440436495152,
+          "hausdorff_mean_m": 57.516554442219565,
+          "boundary_distance_mean_m": 14.80843433810202,
+          "boundary_precision": 0.5832603736668661,
+          "boundary_recall": 0.5355094884622431,
+          "boundary_f1": 0.5583658890278457,
+          "coverage_within_tolerance": 0.4845360824742268,
+          "coverage_within_tolerance_area": 0.45260070435909955,
+          "median_area_ha": 33.1444861153105,
+          "hausdorff_median_m": 23.576229184520887,
+          "boundary_distance_median_m": 8.592307096571075,
+          "ci": {
+            "precision": [
+              0.5945355549724483,
+              0.8228205128205129
+            ],
+            "recall": [
+              0.6288659793814433,
+              0.8144329896907216
+            ],
+            "f1": [
+              0.6146122080268421,
+              0.8104081632653063
+            ],
+            "iou_mean": [
+              0.8932426355613005,
+              0.9332524316987675
+            ],
+            "best_iou_mean": [
+              0.6362495725392683,
+              0.7839701294142826
+            ],
+            "area_weighted_precision": [
+              0.8002960634247615,
+              0.9552615598451651
+            ],
+            "area_weighted_recall": [
+              0.6302947035948503,
+              0.8263601335600852
+            ],
+            "area_weighted_f1": [
+              0.7052777382056993,
+              0.8830816704067622
+            ],
+            "oversegmentation_mean": [
+              0.2029700262411292,
+              0.35548323055533404
+            ],
+            "undersegmentation_mean": [
+              0.008968840681047432,
+              0.05782328557519023
+            ],
+            "hausdorff_mean_m": [
+              41.13173426245903,
+              80.21861208290412
+            ],
+            "boundary_distance_mean_m": [
+              11.190697783869936,
+              19.746327845481034
+            ],
+            "boundary_precision": [
+              0.5276646611673176,
+              0.6355199493265261
+            ],
+            "boundary_recall": [
+              0.4795751731876466,
+              0.5957503882394447
+            ],
+            "boundary_f1": [
+              0.5043513483595675,
+              0.6100092199298501
+            ],
+            "coverage_within_tolerance": [
+              0.3811855670103093,
+              0.6082474226804123
+            ],
+            "coverage_within_tolerance_area": [
+              0.3434563093977199,
+              0.5825175990385538
+            ]
+          }
+        },
+        "SAN JUAN RIVER - BELOW FARMINGTON": {
+          "n": 5,
+          "iou_mean": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 0.0,
+          "count_predicted": 0,
+          "count_reference": 5,
+          "count_tp": 0,
+          "count_fp": 0,
+          "count_fn": 5,
+          "best_iou_mean": 0.0,
+          "area_weighted_precision": 0.0,
+          "area_weighted_recall": 0.0,
+          "area_weighted_f1": 0.0,
+          "reference_area_ha": 4.121024058078702,
+          "predicted_area_ha": 0.0,
+          "area_error_signed_mean_m2": NaN,
+          "oversegmentation_mean": 1.0,
+          "undersegmentation_mean": NaN,
+          "hausdorff_mean_m": NaN,
+          "boundary_distance_mean_m": NaN,
+          "boundary_precision": 0.0,
+          "boundary_recall": 0.0,
+          "boundary_f1": 0.0,
+          "coverage_within_tolerance": 0.0,
+          "coverage_within_tolerance_area": 0.0,
+          "median_area_ha": 0.8235690169192345,
+          "hausdorff_median_m": NaN,
+          "boundary_distance_median_m": NaN,
+          "ci": {
+            "precision": [
+              NaN,
+              NaN
+            ],
+            "recall": [
+              0.0,
+              0.0
+            ],
+            "f1": [
+              NaN,
+              NaN
+            ],
+            "iou_mean": [
+              NaN,
+              NaN
+            ],
+            "best_iou_mean": [
+              0.0,
+              0.0
+            ],
+            "area_weighted_precision": [
+              NaN,
+              NaN
+            ],
+            "area_weighted_recall": [
+              0.0,
+              0.0
+            ],
+            "area_weighted_f1": [
+              NaN,
+              NaN
+            ],
+            "oversegmentation_mean": [
+              1.0,
+              1.0
+            ],
+            "undersegmentation_mean": [
+              NaN,
+              NaN
+            ],
+            "hausdorff_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_distance_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_precision": [
+              NaN,
+              NaN
+            ],
+            "boundary_recall": [
+              0.0,
+              0.0
+            ],
+            "boundary_f1": [
+              NaN,
+              NaN
+            ],
+            "coverage_within_tolerance": [
+              0.0,
+              0.0
+            ],
+            "coverage_within_tolerance_area": [
+              0.0,
+              0.0
+            ]
+          },
+          "ci_n_undefined": {
+            "precision": 200,
+            "f1": 200,
+            "iou_mean": 200,
+            "area_weighted_precision": 200,
+            "area_weighted_f1": 200,
+            "undersegmentation_mean": 200,
+            "hausdorff_mean_m": 200,
+            "boundary_distance_mean_m": 200,
+            "boundary_precision": 200,
+            "boundary_f1": 200
+          }
+        },
+        "SAN JUAN RIVER - BELOW NAVAJO RESERVOIR": {
+          "n": 274,
+          "iou_mean": 0.7297785566803179,
+          "precision": 0.5104166666666666,
+          "recall": 0.17883211678832117,
+          "f1": 0.2648648648648649,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 5629.235030421688,
+          "count_predicted": 96,
+          "count_reference": 274,
+          "count_tp": 49,
+          "count_fp": 47,
+          "count_fn": 225,
+          "best_iou_mean": 0.1710788104760643,
+          "area_weighted_precision": 0.6339641980935253,
+          "area_weighted_recall": 0.3331906656138469,
+          "area_weighted_f1": 0.43680895596889974,
+          "reference_area_ha": 436.5478714387067,
+          "predicted_area_ha": 225.8716215791489,
+          "area_error_signed_mean_m2": -461.05192050232176,
+          "oversegmentation_mean": 0.7804138786900973,
+          "undersegmentation_mean": 0.2929388253541258,
+          "hausdorff_mean_m": 46.26364752911658,
+          "boundary_distance_mean_m": 11.728175354551045,
+          "boundary_precision": 0.5928196391859588,
+          "boundary_recall": 0.270979278321903,
+          "boundary_f1": 0.37194267032685874,
+          "coverage_within_tolerance": 0.08759124087591241,
+          "coverage_within_tolerance_area": 0.1234536804760847,
+          "median_area_ha": 0.8918148379305901,
+          "hausdorff_median_m": 39.777445430144894,
+          "boundary_distance_median_m": 10.105475203113972,
+          "ci": {
+            "precision": [
+              0.39170876288659795,
+              0.6316985645933014
+            ],
+            "recall": [
+              0.13503649635036497,
+              0.21897810218978103
+            ],
+            "f1": [
+              0.20440854240683645,
+              0.31811170212765966
+            ],
+            "iou_mean": [
+              0.6987808310293073,
+              0.7555535955906363
+            ],
+            "best_iou_mean": [
+              0.1379141131076856,
+              0.20010395300292477
+            ],
+            "area_weighted_precision": [
+              0.4589194087467563,
+              0.7737383324735018
+            ],
+            "area_weighted_recall": [
+              0.21943035637996175,
+              0.42660637723734934
+            ],
+            "area_weighted_f1": [
+              0.296563229564365,
+              0.5398964405591069
+            ],
+            "oversegmentation_mean": [
+              0.744154204279733,
+              0.8182763742087714
+            ],
+            "undersegmentation_mean": [
+              0.22534540281347945,
+              0.3613540584893621
+            ],
+            "hausdorff_mean_m": [
+              39.20666734112443,
+              54.1579403880647
+            ],
+            "boundary_distance_mean_m": [
+              10.312170882774739,
+              13.349722902995708
+            ],
+            "boundary_precision": [
+              0.5435474411727749,
+              0.6397143454706048
+            ],
+            "boundary_recall": [
+              0.2316036726532346,
+              0.30822981852028897
+            ],
+            "boundary_f1": [
+              0.3285483161782096,
+              0.4033255697499877
+            ],
+            "coverage_within_tolerance": [
+              0.05830291970802921,
+              0.11678832116788321
+            ],
+            "coverage_within_tolerance_area": [
+              0.0715314133796675,
+              0.17055679820504993
+            ]
+          }
+        }
+      },
+      "size_class_edges_ha": [
+        0.02,
+        0.05,
+        0.1,
+        0.2,
+        0.5,
+        1.0,
+        2.0,
+        5.0,
+        10.0,
+        20.0,
+        50.0,
+        100.0
+      ],
+      "count_reference_outside_size_classes": 0,
+      "per_size_class": {
+        "0.02-0.05": {
+          "lower_ha": 0.02,
+          "upper_ha": 0.05,
+          "n": 1,
+          "iou_mean": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 0.0,
+          "count_predicted": 0,
+          "count_reference": 1,
+          "count_tp": 0,
+          "count_fp": 0,
+          "count_fn": 1,
+          "best_iou_mean": 5.289239060100997e-05,
+          "area_weighted_precision": 0.0,
+          "area_weighted_recall": 0.0,
+          "area_weighted_f1": 0.0,
+          "reference_area_ha": 0.04440435042968709,
+          "predicted_area_ha": 0.0,
+          "area_error_signed_mean_m2": NaN,
+          "oversegmentation_mean": 0.9961549838593694,
+          "undersegmentation_mean": 0.9999463727444843,
+          "hausdorff_mean_m": NaN,
+          "boundary_distance_mean_m": NaN,
+          "boundary_precision": 0.0,
+          "boundary_recall": 0.3352086144430664,
+          "boundary_f1": 0.0,
+          "coverage_within_tolerance": 0.0,
+          "coverage_within_tolerance_area": 0.0,
+          "median_area_ha": 0.04440435042968709,
+          "hausdorff_median_m": NaN,
+          "boundary_distance_median_m": NaN,
+          "ci": {
+            "precision": [
+              NaN,
+              NaN
+            ],
+            "recall": [
+              0.0,
+              0.0
+            ],
+            "f1": [
+              NaN,
+              NaN
+            ],
+            "iou_mean": [
+              NaN,
+              NaN
+            ],
+            "best_iou_mean": [
+              5.289239060100997e-05,
+              5.289239060100997e-05
+            ],
+            "area_weighted_precision": [
+              NaN,
+              NaN
+            ],
+            "area_weighted_recall": [
+              0.0,
+              0.0
+            ],
+            "area_weighted_f1": [
+              NaN,
+              NaN
+            ],
+            "oversegmentation_mean": [
+              0.9961549838593694,
+              0.9961549838593694
+            ],
+            "undersegmentation_mean": [
+              0.9999463727444843,
+              0.9999463727444843
+            ],
+            "hausdorff_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_distance_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_precision": [
+              NaN,
+              NaN
+            ],
+            "boundary_recall": [
+              0.3352086144430664,
+              0.33520861444306643
+            ],
+            "boundary_f1": [
+              NaN,
+              NaN
+            ],
+            "coverage_within_tolerance": [
+              0.0,
+              0.0
+            ],
+            "coverage_within_tolerance_area": [
+              0.0,
+              0.0
+            ]
+          },
+          "ci_n_undefined": {
+            "precision": 200,
+            "recall": 77,
+            "f1": 200,
+            "iou_mean": 200,
+            "best_iou_mean": 77,
+            "area_weighted_precision": 200,
+            "area_weighted_recall": 77,
+            "area_weighted_f1": 200,
+            "oversegmentation_mean": 77,
+            "undersegmentation_mean": 77,
+            "hausdorff_mean_m": 200,
+            "boundary_distance_mean_m": 200,
+            "boundary_precision": 200,
+            "boundary_recall": 77,
+            "boundary_f1": 200,
+            "coverage_within_tolerance": 77,
+            "coverage_within_tolerance_area": 77
+          }
+        },
+        "0.05-0.1": {
+          "lower_ha": 0.05,
+          "upper_ha": 0.1,
+          "n": 8,
+          "iou_mean": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 0.0,
+          "count_predicted": 0,
+          "count_reference": 8,
+          "count_tp": 0,
+          "count_fp": 0,
+          "count_fn": 8,
+          "best_iou_mean": 0.008289842985742046,
+          "area_weighted_precision": 0.0,
+          "area_weighted_recall": 0.0,
+          "area_weighted_f1": 0.0,
+          "reference_area_ha": 0.6632495676305582,
+          "predicted_area_ha": 0.0,
+          "area_error_signed_mean_m2": NaN,
+          "oversegmentation_mean": 0.8320116186014735,
+          "undersegmentation_mean": 0.9648076192496218,
+          "hausdorff_mean_m": NaN,
+          "boundary_distance_mean_m": NaN,
+          "boundary_precision": 0.0,
+          "boundary_recall": 0.07122049996358061,
+          "boundary_f1": 0.0,
+          "coverage_within_tolerance": 0.0,
+          "coverage_within_tolerance_area": 0.0,
+          "median_area_ha": 0.0841014861515702,
+          "hausdorff_median_m": NaN,
+          "boundary_distance_median_m": NaN,
+          "ci": {
+            "precision": [
+              NaN,
+              NaN
+            ],
+            "recall": [
+              0.0,
+              0.0
+            ],
+            "f1": [
+              NaN,
+              NaN
+            ],
+            "iou_mean": [
+              NaN,
+              NaN
+            ],
+            "best_iou_mean": [
+              0.0,
+              0.022089065228798697
+            ],
+            "area_weighted_precision": [
+              NaN,
+              NaN
+            ],
+            "area_weighted_recall": [
+              0.0,
+              0.0
+            ],
+            "area_weighted_f1": [
+              NaN,
+              NaN
+            ],
+            "oversegmentation_mean": [
+              0.5221751093946906,
+              1.0
+            ],
+            "undersegmentation_mean": [
+              0.9517562241167488,
+              0.9778590143824947
+            ],
+            "hausdorff_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_distance_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_precision": [
+              NaN,
+              NaN
+            ],
+            "boundary_recall": [
+              0.0,
+              0.1643656056036409
+            ],
+            "boundary_f1": [
+              NaN,
+              NaN
+            ],
+            "coverage_within_tolerance": [
+              0.0,
+              0.0
+            ],
+            "coverage_within_tolerance_area": [
+              0.0,
+              0.0
+            ]
+          },
+          "ci_n_undefined": {
+            "precision": 200,
+            "f1": 200,
+            "iou_mean": 200,
+            "area_weighted_precision": 200,
+            "area_weighted_f1": 200,
+            "undersegmentation_mean": 22,
+            "hausdorff_mean_m": 200,
+            "boundary_distance_mean_m": 200,
+            "boundary_precision": 200,
+            "boundary_f1": 200
+          }
+        },
+        "0.1-0.2": {
+          "lower_ha": 0.1,
+          "upper_ha": 0.2,
+          "n": 45,
+          "iou_mean": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 0.0,
+          "count_predicted": 0,
+          "count_reference": 45,
+          "count_tp": 0,
+          "count_fp": 0,
+          "count_fn": 45,
+          "best_iou_mean": 0.0013688437896308752,
+          "area_weighted_precision": 0.0,
+          "area_weighted_recall": 0.0,
+          "area_weighted_f1": 0.0,
+          "reference_area_ha": 6.881910137425598,
+          "predicted_area_ha": 0.0,
+          "area_error_signed_mean_m2": NaN,
+          "oversegmentation_mean": 0.9845188279804944,
+          "undersegmentation_mean": 0.967756772656707,
+          "hausdorff_mean_m": NaN,
+          "boundary_distance_mean_m": NaN,
+          "boundary_precision": 0.0,
+          "boundary_recall": 0.028327913743340552,
+          "boundary_f1": 0.0,
+          "coverage_within_tolerance": 0.0,
+          "coverage_within_tolerance_area": 0.0,
+          "median_area_ha": 0.15202557992521484,
+          "hausdorff_median_m": NaN,
+          "boundary_distance_median_m": NaN,
+          "ci": {
+            "precision": [
+              NaN,
+              NaN
+            ],
+            "recall": [
+              0.0,
+              0.0
+            ],
+            "f1": [
+              NaN,
+              NaN
+            ],
+            "iou_mean": [
+              NaN,
+              NaN
+            ],
+            "best_iou_mean": [
+              0.0,
+              0.0037106364725006434
+            ],
+            "area_weighted_precision": [
+              NaN,
+              NaN
+            ],
+            "area_weighted_recall": [
+              0.0,
+              0.0
+            ],
+            "area_weighted_f1": [
+              NaN,
+              NaN
+            ],
+            "oversegmentation_mean": [
+              0.9583747724709608,
+              1.0
+            ],
+            "undersegmentation_mean": [
+              0.9468994579658089,
+              0.9886140873476051
+            ],
+            "hausdorff_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_distance_mean_m": [
+              NaN,
+              NaN
+            ],
+            "boundary_precision": [
+              NaN,
+              NaN
+            ],
+            "boundary_recall": [
+              0.005984019130284906,
+              0.05702849173394493
+            ],
+            "boundary_f1": [
+              NaN,
+              NaN
+            ],
+            "coverage_within_tolerance": [
+              0.0,
+              0.0
+            ],
+            "coverage_within_tolerance_area": [
+              0.0,
+              0.0
+            ]
+          },
+          "ci_n_undefined": {
+            "precision": 200,
+            "f1": 200,
+            "iou_mean": 200,
+            "area_weighted_precision": 200,
+            "area_weighted_f1": 200,
+            "undersegmentation_mean": 25,
+            "hausdorff_mean_m": 200,
+            "boundary_distance_mean_m": 200,
+            "boundary_precision": 200,
+            "boundary_f1": 200
+          }
+        },
+        "0.2-0.5": {
+          "lower_ha": 0.2,
+          "upper_ha": 0.5,
+          "n": 193,
+          "iou_mean": 0.707283144679083,
+          "precision": 0.5,
+          "recall": 0.010362694300518135,
+          "f1": 0.02030456852791878,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 757.9517871588528,
+          "count_predicted": 4,
+          "count_reference": 193,
+          "count_tp": 2,
+          "count_fp": 2,
+          "count_fn": 191,
+          "best_iou_mean": 0.015913623658916094,
+          "area_weighted_precision": 0.3249079974012659,
+          "area_weighted_recall": 0.013846933809244767,
+          "area_weighted_f1": 0.0265618541287821,
+          "reference_area_ha": 65.77967181970708,
+          "predicted_area_ha": 2.336835074305248,
+          "area_error_signed_mean_m2": -757.9517871588528,
+          "oversegmentation_mean": 0.963309416499381,
+          "undersegmentation_mean": 0.7249674517108702,
+          "hausdorff_mean_m": 20.647645617707333,
+          "boundary_distance_mean_m": 5.726623269895676,
+          "boundary_precision": 0.762075957982259,
+          "boundary_recall": 0.0565953502416427,
+          "boundary_f1": 0.10536574402811623,
+          "coverage_within_tolerance": 0.010362694300518135,
+          "coverage_within_tolerance_area": 0.013846933809244767,
+          "median_area_ha": 0.3407306033393402,
+          "hausdorff_median_m": 20.647645617707333,
+          "boundary_distance_median_m": 5.726623269895676,
+          "ci": {
+            "precision": [
+              0.0,
+              1.0
+            ],
+            "recall": [
+              0.0,
+              0.02591010902417962
+            ],
+            "f1": [
+              0.0,
+              0.049999999999999996
+            ],
+            "iou_mean": [
+              0.6580853130538024,
+              0.7564809763043637
+            ],
+            "best_iou_mean": [
+              0.005130031772250762,
+              0.03144836072611353
+            ],
+            "area_weighted_precision": [
+              0.0,
+              1.0
+            ],
+            "area_weighted_recall": [
+              0.0,
+              0.03434797365497063
+            ],
+            "area_weighted_f1": [
+              0.0,
+              0.06319973475813194
+            ],
+            "oversegmentation_mean": [
+              0.9371219609432723,
+              0.9854139547252503
+            ],
+            "undersegmentation_mean": [
+              0.5364611893786796,
+              0.8686113926312622
+            ],
+            "hausdorff_mean_m": [
+              17.119317292235785,
+              24.175973943178885
+            ],
+            "boundary_distance_mean_m": [
+              4.669175171587475,
+              6.784071368203878
+            ],
+            "boundary_precision": [
+              0.44826756510554233,
+              0.9662387380323901
+            ],
+            "boundary_recall": [
+              0.036303248813362,
+              0.08198171326263498
+            ],
+            "boundary_f1": [
+              0.06967985091179571,
+              0.14892635104280016
+            ],
+            "coverage_within_tolerance": [
+              0.0,
+              0.02591010902417962
+            ],
+            "coverage_within_tolerance_area": [
+              0.0,
+              0.03434797365497063
+            ]
+          },
+          "ci_n_undefined": {
+            "precision": 2,
+            "f1": 2,
+            "iou_mean": 27,
+            "area_weighted_precision": 2,
+            "area_weighted_f1": 2,
+            "hausdorff_mean_m": 27,
+            "boundary_distance_mean_m": 27,
+            "boundary_precision": 2,
+            "boundary_f1": 2
+          }
+        },
+        "0.5-1": {
+          "lower_ha": 0.5,
+          "upper_ha": 1.0,
+          "n": 192,
+          "iou_mean": 0.6906434373409845,
+          "precision": 0.76,
+          "recall": 0.09895833333333333,
+          "f1": 0.17511520737327188,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 1355.188972179361,
+          "count_predicted": 25,
+          "count_reference": 192,
+          "count_tp": 19,
+          "count_fp": 6,
+          "count_fn": 173,
+          "best_iou_mean": 0.08519900535490173,
+          "area_weighted_precision": 0.6931234531976331,
+          "area_weighted_recall": 0.10974056673153915,
+          "area_weighted_f1": 0.18948105452661826,
+          "reference_area_ha": 139.13578174049226,
+          "predicted_area_ha": 20.054955703849124,
+          "area_error_signed_mean_m2": -720.1470471894135,
+          "oversegmentation_mean": 0.8814065382355425,
+          "undersegmentation_mean": 0.4519203783192501,
+          "hausdorff_mean_m": 31.258704842678746,
+          "boundary_distance_mean_m": 8.259673642556054,
+          "boundary_precision": 0.7690406014239719,
+          "boundary_recall": 0.12080366960191785,
+          "boundary_f1": 0.20880715817336246,
+          "coverage_within_tolerance": 0.08333333333333333,
+          "coverage_within_tolerance_area": 0.09392167616091715,
+          "median_area_ha": 0.7326770558507978,
+          "hausdorff_median_m": 27.036369669422175,
+          "boundary_distance_median_m": 8.318175090237165,
+          "ci": {
+            "precision": [
+              0.6247596153846154,
+              0.9132173913043479
+            ],
+            "recall": [
+              0.06556759205865392,
+              0.14356040053272826
+            ],
+            "f1": [
+              0.12034618573797681,
+              0.24779126746142033
+            ],
+            "iou_mean": [
+              0.6544041457075361,
+              0.7305635250038855
+            ],
+            "best_iou_mean": [
+              0.06009941704902662,
+              0.10924378634221475
+            ],
+            "area_weighted_precision": [
+              0.529842528384456,
+              0.8990536352957783
+            ],
+            "area_weighted_recall": [
+              0.07561629422659422,
+              0.16080215005126197
+            ],
+            "area_weighted_f1": [
+              0.1340567693596372,
+              0.26756630694958233
+            ],
+            "oversegmentation_mean": [
+              0.8506462885968911,
+              0.9143352525637414
+            ],
+            "undersegmentation_mean": [
+              0.3276809692144487,
+              0.5627973664972301
+            ],
+            "hausdorff_mean_m": [
+              25.223638406672645,
+              37.2698311657665
+            ],
+            "boundary_distance_mean_m": [
+              7.078686058032869,
+              9.41493192800135
+            ],
+            "boundary_precision": [
+              0.7044543525927534,
+              0.8233874259174035
+            ],
+            "boundary_recall": [
+              0.08902336432860813,
+              0.15286263062824526
+            ],
+            "boundary_f1": [
+              0.16014007919871925,
+              0.2552799763539281
+            ],
+            "coverage_within_tolerance": [
+              0.0494901528196298,
+              0.12089947089947091
+            ],
+            "coverage_within_tolerance_area": [
+              0.055551423558174474,
+              0.13713166124138623
+            ]
+          }
+        },
+        "1-2": {
+          "lower_ha": 1.0,
+          "upper_ha": 2.0,
+          "n": 204,
+          "iou_mean": 0.7189085159473376,
+          "precision": 0.7647058823529411,
+          "recall": 0.2549019607843137,
+          "f1": 0.38235294117647056,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 3338.2809385236023,
+          "count_predicted": 68,
+          "count_reference": 204,
+          "count_tp": 52,
+          "count_fp": 16,
+          "count_fn": 152,
+          "best_iou_mean": 0.21272894657272048,
+          "area_weighted_precision": 0.774077941908745,
+          "area_weighted_recall": 0.2673172915565482,
+          "area_weighted_f1": 0.39739843670334796,
+          "reference_area_ha": 294.0705403568093,
+          "predicted_area_ha": 90.58176385404455,
+          "area_error_signed_mean_m2": -1633.2298146442458,
+          "oversegmentation_mean": 0.7439198128308678,
+          "undersegmentation_mean": 0.2660198854537199,
+          "hausdorff_mean_m": 38.2262241409312,
+          "boundary_distance_mean_m": 10.230568361810535,
+          "boundary_precision": 0.7089927303664921,
+          "boundary_recall": 0.22360760581100203,
+          "boundary_f1": 0.33998736827494286,
+          "coverage_within_tolerance": 0.15196078431372548,
+          "coverage_within_tolerance_area": 0.15098039509540442,
+          "median_area_ha": 1.3931678621379804,
+          "hausdorff_median_m": 36.42924572822355,
+          "boundary_distance_median_m": 9.198827542785768,
+          "ci": {
+            "precision": [
+              0.6763445378151262,
+              0.8696570728720147
+            ],
+            "recall": [
+              0.2078198596558685,
+              0.3165829145728643
+            ],
+            "f1": [
+              0.3217608286252355,
+              0.4530506741402818
+            ],
+            "iou_mean": [
+              0.6914223701382676,
+              0.744735501005119
+            ],
+            "best_iou_mean": [
+              0.17547102547675314,
+              0.25682349993870135
+            ],
+            "area_weighted_precision": [
+              0.6445670807264475,
+              0.9086663143165621
+            ],
+            "area_weighted_recall": [
+              0.21267524036257718,
+              0.3319997402998859
+            ],
+            "area_weighted_f1": [
+              0.3255463041093643,
+              0.47383706152997984
+            ],
+            "oversegmentation_mean": [
+              0.6930866498504333,
+              0.7939407856842132
+            ],
+            "undersegmentation_mean": [
+              0.17981536955401245,
+              0.3332842954609868
+            ],
+            "hausdorff_mean_m": [
+              34.59696469121315,
+              42.61389571561475
+            ],
+            "boundary_distance_mean_m": [
+              9.193288358499057,
+              11.409590081220939
+            ],
+            "boundary_precision": [
+              0.6622197221733375,
+              0.755900651642233
+            ],
+            "boundary_recall": [
+              0.18720006513880333,
+              0.2630795522168873
+            ],
+            "boundary_f1": [
+              0.29495184035873506,
+              0.3833227726223835
+            ],
+            "coverage_within_tolerance": [
+              0.10738039320129777,
+              0.19809323037566917
+            ],
+            "coverage_within_tolerance_area": [
+              0.10845279897605395,
+              0.20244260534599604
+            ]
+          }
+        },
+        "2-5": {
+          "lower_ha": 2.0,
+          "upper_ha": 5.0,
+          "n": 138,
+          "iou_mean": 0.7685245597616859,
+          "precision": 0.5348837209302325,
+          "recall": 0.3333333333333333,
+          "f1": 0.4107142857142857,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 4499.8643608036855,
+          "count_predicted": 86,
+          "count_reference": 138,
+          "count_tp": 46,
+          "count_fp": 40,
+          "count_fn": 92,
+          "best_iou_mean": 0.3405935647607569,
+          "area_weighted_precision": 0.6508633931598323,
+          "area_weighted_recall": 0.3194827407566585,
+          "area_weighted_f1": 0.42858854884205133,
+          "reference_area_ha": 418.12374055068875,
+          "predicted_area_ha": 184.40428813471138,
+          "area_error_signed_mean_m2": -2948.1125908648637,
+          "oversegmentation_mean": 0.6169398303678982,
+          "undersegmentation_mean": 0.15089969128578587,
+          "hausdorff_mean_m": 43.81561443338434,
+          "boundary_distance_mean_m": 10.67949321498606,
+          "boundary_precision": 0.6531869435083466,
+          "boundary_recall": 0.3269907097143695,
+          "boundary_f1": 0.43581091964646734,
+          "coverage_within_tolerance": 0.18115942028985507,
+          "coverage_within_tolerance_area": 0.18059266718738998,
+          "median_area_ha": 2.841811767115045,
+          "hausdorff_median_m": 34.66598002836954,
+          "boundary_distance_median_m": 9.699371089103035,
+          "ci": {
+            "precision": [
+              0.42167089410272673,
+              0.6575852521130865
+            ],
+            "recall": [
+              0.2634652938043672,
+              0.4045837286527515
+            ],
+            "f1": [
+              0.3331447963800906,
+              0.4951255583725704
+            ],
+            "iou_mean": [
+              0.7418832292834139,
+              0.7930888968285674
+            ],
+            "best_iou_mean": [
+              0.2835907234075502,
+              0.38624115756663224
+            ],
+            "area_weighted_precision": [
+              0.5295861630788314,
+              0.7661532557322338
+            ],
+            "area_weighted_recall": [
+              0.2491237018353498,
+              0.394188524170784
+            ],
+            "area_weighted_f1": [
+              0.3476304297808117,
+              0.519102958016433
+            ],
+            "oversegmentation_mean": [
+              0.5633066173615033,
+              0.6814279017814374
+            ],
+            "undersegmentation_mean": [
+              0.09994904614386992,
+              0.21097195781453723
+            ],
+            "hausdorff_mean_m": [
+              37.280551443490744,
+              51.552500058219934
+            ],
+            "boundary_distance_mean_m": [
+              9.440291667214415,
+              12.092798040729843
+            ],
+            "boundary_precision": [
+              0.6083377481983834,
+              0.6932580350654
+            ],
+            "boundary_recall": [
+              0.26973368710878987,
+              0.3698382789661804
+            ],
+            "boundary_f1": [
+              0.3791790900604603,
+              0.47671132308039216
+            ],
+            "coverage_within_tolerance": [
+              0.12497417355371901,
+              0.23908582089552244
+            ],
+            "coverage_within_tolerance_area": [
+              0.121311028367346,
+              0.2425570254038742
+            ]
+          }
+        },
+        "5-10": {
+          "lower_ha": 5.0,
+          "upper_ha": 10.0,
+          "n": 36,
+          "iou_mean": 0.7445073655494431,
+          "precision": 0.3,
+          "recall": 0.3333333333333333,
+          "f1": 0.3157894736842105,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 18154.106849591743,
+          "count_predicted": 40,
+          "count_reference": 36,
+          "count_tp": 12,
+          "count_fp": 28,
+          "count_fn": 24,
+          "best_iou_mean": 0.3551526627511339,
+          "area_weighted_precision": 0.610876231330988,
+          "area_weighted_recall": 0.3476019027918955,
+          "area_weighted_f1": 0.44308103194301957,
+          "reference_area_ha": 261.8231243506713,
+          "predicted_area_ha": 133.6911852896362,
+          "area_error_signed_mean_m2": -7784.540656088855,
+          "oversegmentation_mean": 0.5783482135907545,
+          "undersegmentation_mean": 0.12702968510514337,
+          "hausdorff_mean_m": 88.84010081355667,
+          "boundary_distance_mean_m": 22.046494152391826,
+          "boundary_precision": 0.5221709145715386,
+          "boundary_recall": 0.37244658400637953,
+          "boundary_f1": 0.4347797214089882,
+          "coverage_within_tolerance": 0.1111111111111111,
+          "coverage_within_tolerance_area": 0.11164947270070914,
+          "median_area_ha": 7.265535197880202,
+          "hausdorff_median_m": 55.465764854501344,
+          "boundary_distance_median_m": 12.847159819861375,
+          "ci": {
+            "precision": [
+              0.16656976744186047,
+              0.4642857142857143
+            ],
+            "recall": [
+              0.16653225806451613,
+              0.512269031781227
+            ],
+            "f1": [
+              0.17227011494252875,
+              0.46760886172650884
+            ],
+            "iou_mean": [
+              0.6488134275227941,
+              0.8320082910146582
+            ],
+            "best_iou_mean": [
+              0.2478946133176678,
+              0.4698254203473695
+            ],
+            "area_weighted_precision": [
+              0.41631660167847456,
+              0.7807133365872155
+            ],
+            "area_weighted_recall": [
+              0.1799980674208289,
+              0.5379486883021273
+            ],
+            "area_weighted_f1": [
+              0.2542724105477956,
+              0.6174789672259309
+            ],
+            "oversegmentation_mean": [
+              0.4621082770271849,
+              0.6984393937275198
+            ],
+            "undersegmentation_mean": [
+              0.05271501873507832,
+              0.2199899578447821
+            ],
+            "hausdorff_mean_m": [
+              55.588879223076965,
+              131.75010323695642
+            ],
+            "boundary_distance_mean_m": [
+              13.475167502285132,
+              32.119274109668396
+            ],
+            "boundary_precision": [
+              0.4452709901641066,
+              0.6040351311613535
+            ],
+            "boundary_recall": [
+              0.28223578012233147,
+              0.47026784938033767
+            ],
+            "boundary_f1": [
+              0.3532242302777228,
+              0.5042029779947912
+            ],
+            "coverage_within_tolerance": [
+              0.02378048780487815,
+              0.2225490196078432
+            ],
+            "coverage_within_tolerance_area": [
+              0.0194506518354699,
+              0.22066070163626267
+            ]
+          }
+        },
+        "10-20": {
+          "lower_ha": 10.0,
+          "upper_ha": 20.0,
+          "n": 38,
+          "iou_mean": 0.837179711777273,
+          "precision": 0.5510204081632653,
+          "recall": 0.7105263157894737,
+          "f1": 0.6206896551724138,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 24162.215029317496,
+          "count_predicted": 49,
+          "count_reference": 38,
+          "count_tp": 27,
+          "count_fp": 22,
+          "count_fn": 11,
+          "best_iou_mean": 0.6637285305307278,
+          "area_weighted_precision": 0.8844916801472457,
+          "area_weighted_recall": 0.7575024031362794,
+          "area_weighted_f1": 0.8160864647280139,
+          "reference_area_ha": 568.8702675929095,
+          "predicted_area_ha": 507.6975103824907,
+          "area_error_signed_mean_m2": 6716.158959398421,
+          "oversegmentation_mean": 0.260211352625372,
+          "undersegmentation_mean": 0.09692325410703866,
+          "hausdorff_mean_m": 82.04176280933042,
+          "boundary_distance_mean_m": 19.002148362524032,
+          "boundary_precision": 0.6465073528167542,
+          "boundary_recall": 0.5892392269106483,
+          "boundary_f1": 0.6165463032878934,
+          "coverage_within_tolerance": 0.34210526315789475,
+          "coverage_within_tolerance_area": 0.40742680993913755,
+          "median_area_ha": 14.472121046953305,
+          "hausdorff_median_m": 43.6551720555167,
+          "boundary_distance_median_m": 10.105475203113972,
+          "ci": {
+            "precision": [
+              0.3969362745098039,
+              0.7718237082066871
+            ],
+            "recall": [
+              0.5788486842105264,
+              0.8337121212121213
+            ],
+            "f1": [
+              0.4729408080175384,
+              0.7831733483907398
+            ],
+            "iou_mean": [
+              0.7902730651917564,
+              0.8801187617269147
+            ],
+            "best_iou_mean": [
+              0.5732914335001443,
+              0.758337119320341
+            ],
+            "area_weighted_precision": [
+              0.7967034400235111,
+              0.9550795485864012
+            ],
+            "area_weighted_recall": [
+              0.6317807321916294,
+              0.8797352073222954
+            ],
+            "area_weighted_f1": [
+              0.7035043965499632,
+              0.9025193921221002
+            ],
+            "oversegmentation_mean": [
+              0.17606596015389658,
+              0.35118769572824426
+            ],
+            "undersegmentation_mean": [
+              0.05251384730994912,
+              0.14790692493716828
+            ],
+            "hausdorff_mean_m": [
+              55.45623921435068,
+              109.84481726337653
+            ],
+            "boundary_distance_mean_m": [
+              13.340954070817874,
+              25.271686162611637
+            ],
+            "boundary_precision": [
+              0.5901396320659439,
+              0.7302762360092073
+            ],
+            "boundary_recall": [
+              0.5195275400031205,
+              0.6748321160804246
+            ],
+            "boundary_f1": [
+              0.5623713337274242,
+              0.6800655555490767
+            ],
+            "coverage_within_tolerance": [
+              0.1841507177033493,
+              0.4848894348894349
+            ],
+            "coverage_within_tolerance_area": [
+              0.24440915568461774,
+              0.5499104254316116
+            ]
+          }
+        },
+        "20-50": {
+          "lower_ha": 20.0,
+          "upper_ha": 50.0,
+          "n": 66,
+          "iou_mean": 0.9243334369173503,
+          "precision": 0.703125,
+          "recall": 0.6818181818181818,
+          "f1": 0.6923076923076923,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 24288.90870722203,
+          "count_predicted": 64,
+          "count_reference": 66,
+          "count_tp": 45,
+          "count_fp": 19,
+          "count_fn": 21,
+          "best_iou_mean": 0.6718356556775362,
+          "area_weighted_precision": 0.9155570575384433,
+          "area_weighted_recall": 0.7087741024958178,
+          "area_weighted_f1": 0.7990034885827525,
+          "reference_area_ha": 2186.787481464401,
+          "predicted_area_ha": 1577.6362181630516,
+          "area_error_signed_mean_m2": -23449.413501462008,
+          "oversegmentation_mean": 0.3162612399281631,
+          "undersegmentation_mean": 0.033038518685841275,
+          "hausdorff_mean_m": 41.76074405254859,
+          "boundary_distance_mean_m": 12.673393525875976,
+          "boundary_precision": 0.6019389209648411,
+          "boundary_recall": 0.5207145421772498,
+          "boundary_f1": 0.5583884251719518,
+          "coverage_within_tolerance": 0.45454545454545453,
+          "coverage_within_tolerance_area": 0.44911971309980636,
+          "median_area_ha": 32.1826253968175,
+          "hausdorff_median_m": 21.284446788235076,
+          "boundary_distance_median_m": 8.372900280085151,
+          "ci": {
+            "precision": [
+              0.5332911392405063,
+              0.8892156862745099
+            ],
+            "recall": [
+              0.5709109730848861,
+              0.7931911163062537
+            ],
+            "f1": [
+              0.5525562474889515,
+              0.8177324658838465
+            ],
+            "iou_mean": [
+              0.897649078558876,
+              0.9431442607777384
+            ],
+            "best_iou_mean": [
+              0.5675771737628623,
+              0.769942711430791
+            ],
+            "area_weighted_precision": [
+              0.835896061392185,
+              0.9750373882439709
+            ],
+            "area_weighted_recall": [
+              0.5961228328841933,
+              0.8037667608059349
+            ],
+            "area_weighted_f1": [
+              0.6941051943924182,
+              0.8680923114810575
+            ],
+            "oversegmentation_mean": [
+              0.21701170005864145,
+              0.41632787106505453
+            ],
+            "undersegmentation_mean": [
+              0.004017156073228252,
+              0.07529284354352098
+            ],
+            "hausdorff_mean_m": [
+              27.64751954865329,
+              62.425019299456714
+            ],
+            "boundary_distance_mean_m": [
+              9.045240247806651,
+              18.316733582500397
+            ],
+            "boundary_precision": [
+              0.5499440348937411,
+              0.6561945677947353
+            ],
+            "boundary_recall": [
+              0.44822064032782793,
+              0.5898669009348605
+            ],
+            "boundary_f1": [
+              0.4954882641523546,
+              0.6128510005600094
+            ],
+            "coverage_within_tolerance": [
+              0.3284453781512605,
+              0.5932449029722426
+            ],
+            "coverage_within_tolerance_area": [
+              0.31584469850392927,
+              0.5777898230348604
+            ]
+          }
+        },
+        "50-100": {
+          "lower_ha": 50.0,
+          "upper_ha": 100.0,
+          "n": 23,
+          "iou_mean": 0.882912509474206,
+          "precision": 0.5161290322580645,
+          "recall": 0.6956521739130435,
+          "f1": 0.5925925925925926,
+          "over_segmentation": 0.0,
+          "under_segmentation": 0.0,
+          "area_error_mean_m2": 65223.60940985446,
+          "count_predicted": 31,
+          "count_reference": 23,
+          "count_tp": 16,
+          "count_fp": 15,
+          "count_fn": 7,
+          "best_iou_mean": 0.6816995045601687,
+          "area_weighted_precision": 0.8004964060539017,
+          "area_weighted_recall": 0.7001969766645847,
+          "area_weighted_f1": 0.7469949155562478,
+          "reference_area_ha": 1334.1252133115138,
+          "predicted_area_ha": 1036.6385892426133,
+          "area_error_signed_mean_m2": -65203.109867010855,
+          "oversegmentation_mean": 0.30584242281176877,
+          "undersegmentation_mean": 0.027046959513065873,
+          "hausdorff_mean_m": 122.76963692178245,
+          "boundary_distance_mean_m": 25.316072894908405,
+          "boundary_precision": 0.49330365038328167,
+          "boundary_recall": 0.4993592588728608,
+          "boundary_f1": 0.49631298390964446,
+          "coverage_within_tolerance": 0.34782608695652173,
+          "coverage_within_tolerance_area": 0.3643846886656165,
+          "median_area_ha": 59.24432328278956,
+          "hausdorff_median_m": 37.396486640152304,
+          "boundary_distance_median_m": 10.48225159763375,
+          "ci": {
+            "precision": [
+              0.35992857142857143,
+              0.7201818181818181
+            ],
+            "recall": [
+              0.5,
+              0.8949874686716792
+            ],
+            "f1": [
+              0.41625000000000006,
+              0.7757302921168467
+            ],
+            "iou_mean": [
+              0.8162873366024324,
+              0.9408894970347926
+            ],
+            "best_iou_mean": [
+              0.5346636641796836,
+              0.811131448099066
+            ],
+            "area_weighted_precision": [
+              0.6153288561009427,
+              0.9599453512885886
+            ],
+            "area_weighted_recall": [
+              0.4983334113428345,
+              0.8955249565433006
+            ],
+            "area_weighted_f1": [
+              0.5545586684994126,
+              0.9216684977402891
+            ],
+            "oversegmentation_mean": [
+              0.1717340119683446,
+              0.4569910492130107
+            ],
+            "undersegmentation_mean": [
+              0.0034798024492946576,
+              0.07884614458169535
+            ],
+            "hausdorff_mean_m": [
+              58.99819550203599,
+              198.0106941014502
+            ],
+            "boundary_distance_mean_m": [
+              12.682098611860841,
+              38.95033484217939
+            ],
+            "boundary_precision": [
+              0.40684428935690087,
+              0.5879168498020748
+            ],
+            "boundary_recall": [
+              0.41281280225217876,
+              0.6146091624843071
+            ],
+            "boundary_f1": [
+              0.4131803029105749,
+              0.5961844024103266
+            ],
+            "coverage_within_tolerance": [
+              0.16120543293718168,
+              0.5559523809523811
+            ],
+            "coverage_within_tolerance_area": [
+              0.1793482379912314,
+              0.5896511782956125
+            ]
+          }
+        }
+      },
+      "bootstrap": {
+        "n_resamples": 200,
+        "seed": 42,
+        "confidence_level": 0.95,
+        "method": "percentile",
+        "resampling": "reference fields with replacement within strata",
+        "ci": {
+          "precision": [
+            0.5264018173758865,
+            0.6380754092749985
+          ],
+          "recall": [
+            0.21289724576271185,
+            0.2510593220338983
+          ],
+          "f1": [
+            0.30520850909755615,
+            0.35788889817698
+          ],
+          "iou_mean": [
+            0.7805161438890861,
+            0.808988214509898
+          ],
+          "best_iou_mean": [
+            0.20471144386290002,
+            0.23499595771201995
+          ],
+          "area_weighted_precision": [
+            0.7672512902640315,
+            0.8976204205958442
+          ],
+          "area_weighted_recall": [
+            0.538958906909449,
+            0.6825527237613248
+          ],
+          "area_weighted_f1": [
+            0.6321778441596471,
+            0.7664214952864172
+          ],
+          "oversegmentation_mean": [
+            0.7257552849422202,
+            0.7634306548988039
+          ],
+          "undersegmentation_mean": [
+            0.17927141775363745,
+            0.23847030088057558
+          ],
+          "hausdorff_mean_m": [
+            46.96945557275254,
+            63.523777011040664
+          ],
+          "boundary_distance_mean_m": [
+            11.912967361080549,
+            15.561554041340594
+          ],
+          "boundary_precision": [
+            0.5594662649775577,
+            0.625209639842732
+          ],
+          "boundary_recall": [
+            0.3217569972054476,
+            0.36899820272122846
+          ],
+          "boundary_f1": [
+            0.4109952213635453,
+            0.4607596517065795
+          ],
+          "coverage_within_tolerance": [
+            0.11438029661016949,
+            0.1546875
+          ],
+          "coverage_within_tolerance_area": [
+            0.27479585525457556,
+            0.4474604251807683
+          ]
+        },
+        "n_undefined": {}
+      }
+    },
+    "zoom_window_m": 2500
+  },
+  "20b": {
+    "example": "20b",
+    "image": "assets/gallery_1.0/San_Juan_resolution_example.png",
+    "preview": "assets/gallery_1.0/preview/San_Juan_resolution_example.webp",
+    "title": "San Juan County, NM: Delineate-Anything v2 from 30 m to 1 m (2018)",
+    "background": "composite",
+    "background_note": "Background: Top left: Landsat 7/8 C2 L2 30 m median composite,\n2018-01-01 to 2019-01-01 (end exclusive), 75 images; the engine's input\nTop right: Sentinel-2 L2A 10 m median composite, 2018-01-01 to 2019-01-01 (end exclusive), 188 images; the engine's input\nBottom left: SPOT 6/7 6 m median composite, 2018-01-01 to 2019-01-01 (end exclusive), 7 images; the engine's input\nBottom right: NAIP 1 m mosaic composite, 2018-01-01 to 2019-01-01 (end exclusive), 24 images; the engine's input\nModel: Delineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": -108.0469,
+      "lat": 36.6924,
+      "country": "United States of America",
+      "country_label": "USA",
+      "country_a3": "USA",
+      "admin1": "New Mexico"
+    },
+    "layers": [
+      {
+        "label": "Landsat 30 m",
+        "file": "outputs/stratified_evaluation/fields_landsat_delineate-anything_2018.gpkg",
+        "n_polygons": 117,
+        "area_ha_total": 2966.2,
+        "area_ha_p10": 7.99,
+        "area_ha_median": 22.99,
+        "area_ha_p90": 45.92,
+        "source": "landsat",
+        "engine": "delineate-anything",
+        "year": 2018,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "LANDSAT/LE07/C02/T1_L2,LANDSAT/LC08/C02/T1_L2",
+          "composite_method": "median",
+          "date_start": "2018-01-01",
+          "date_end_exclusive": "2019-01-01",
+          "n_images": "75",
+          "crs": "EPSG:32612",
+          "resolution_m": "30.0",
+          "image_years": "2018"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 30.0,
+          "gsd_outside_training_range": true,
+          "implementation": "agribound-native-3",
+          "inference_s": 4.21,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 237,
+          "n_after_merge": 661,
+          "n_after_min_area": 675,
+          "n_merged_groups": 13,
+          "n_output": 237,
+          "n_pieces_merged": 27,
+          "n_raw": 675,
+          "n_tiles_processed": 49,
+          "n_tiles_total": 49,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "reflectance_x10000",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "Sentinel-2 10 m",
+        "file": "outputs/stratified_evaluation/fields_sentinel2_delineate-anything_2018.gpkg",
+        "n_polygons": 421,
+        "area_ha_total": 3667.0,
+        "area_ha_p10": 0.85,
+        "area_ha_median": 2.57,
+        "area_ha_p90": 29.38,
+        "source": "sentinel2",
+        "engine": "delineate-anything",
+        "year": 2018,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2018-01-01",
+          "date_end_exclusive": "2019-01-01",
+          "n_images": "188",
+          "crs": "EPSG:32612",
+          "resolution_m": "10.0",
+          "image_years": "2018"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 10.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 17.94,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 760,
+          "n_after_merge": 2141,
+          "n_after_min_area": 2242,
+          "n_merged_groups": 83,
+          "n_output": 759,
+          "n_pieces_merged": 184,
+          "n_raw": 2246,
+          "n_tiles_processed": 361,
+          "n_tiles_total": 361,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "reflectance_x10000",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "SPOT 6/7 6 m",
+        "file": "outputs/stratified_evaluation/fields_spot_delineate-anything_2018.gpkg",
+        "n_polygons": 495,
+        "area_ha_total": 3470.6,
+        "area_ha_p10": 0.54,
+        "area_ha_median": 1.74,
+        "area_ha_p90": 22.1,
+        "source": "spot",
+        "engine": "delineate-anything",
+        "year": 2018,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "AIRBUS/SPOT6_7",
+          "composite_method": "median",
+          "date_start": "2018-01-01",
+          "date_end_exclusive": "2019-01-01",
+          "n_images": "7",
+          "crs": "EPSG:32612",
+          "resolution_m": "6.0",
+          "image_years": "2018"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 6.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 37.86,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 1070,
+          "n_after_merge": 3241,
+          "n_after_min_area": 3384,
+          "n_merged_groups": 101,
+          "n_output": 1063,
+          "n_pieces_merged": 244,
+          "n_raw": 3431,
+          "n_tiles_processed": 961,
+          "n_tiles_total": 961,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "dn",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "NAIP 1 m",
+        "file": "outputs/stratified_evaluation/fields_naip_delineate-anything_2018.gpkg",
+        "n_polygons": 987,
+        "area_ha_total": 5624.4,
+        "area_ha_p10": 0.32,
+        "area_ha_median": 0.86,
+        "area_ha_p90": 12.76,
+        "source": "naip",
+        "engine": "delineate-anything",
+        "year": 2018,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "USDA/NAIP/DOQQ",
+          "composite_method": "mosaic",
+          "date_start": "2018-01-01",
+          "date_end_exclusive": "2019-01-01",
+          "n_images": "24",
+          "crs": "EPSG:32612",
+          "resolution_m": "1.0",
+          "image_years": "2018"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 1.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 332.7,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 3029,
+          "n_after_merge": 7703,
+          "n_after_min_area": 12506,
+          "n_merged_groups": 926,
+          "n_output": 2955,
+          "n_pieces_merged": 5729,
+          "n_raw": 25943,
+          "n_tiles_processed": 8281,
+          "n_tiles_total": 8281,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 1,
+          "tile_size_native_px": 512,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "uint8",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ],
+    "reference": {
+      "label": "NMOSE reference (not used for training in these runs)",
+      "n_polygons": 112,
+      "area_ha_total": 184.6,
+      "area_ha_p10": 0.26,
+      "area_ha_median": 0.95,
+      "area_ha_p90": 3.7
+    },
+    "metrics": {
+      "iou_mean": 0.7988345168924745,
+      "precision": 0.4249492900608519,
+      "recall": 0.4438559322033898,
+      "f1": 0.43419689119170984,
+      "over_segmentation": 0.0,
+      "under_segmentation": 0.0,
+      "area_error_mean_m2": 13943.956439222913,
+      "count_predicted": 986,
+      "count_reference": 944,
+      "count_tp": 419,
+      "count_fp": 567,
+      "count_fn": 525,
+      "best_iou_mean": 0.42380281958269816,
+      "area_weighted_precision": 0.6024246890792139,
+      "area_weighted_recall": 0.6257138666499542,
+      "area_weighted_f1": 0.6138484616588754,
+      "reference_area_ha": 5276.305385242681,
+      "predicted_area_ha": 5617.827431539055,
+      "area_error_signed_mean_m2": 1977.577554162761,
+      "oversegmentation_mean": 0.5022670936001605,
+      "undersegmentation_mean": 0.2014901935103832,
+      "hausdorff_mean_m": 54.22418575319592,
+      "boundary_distance_mean_m": 11.517751360221986,
+      "boundary_precision": 0.5846780385786703,
+      "boundary_recall": 0.5872518905250506,
+      "boundary_f1": 0.5859621381397698,
+      "coverage_within_tolerance": 0.3167372881355932,
+      "coverage_within_tolerance_area": 0.28430476843144076,
+      "median_area_ha": 1.1348110942628562,
+      "hausdorff_median_m": 22.233940904957027,
+      "boundary_distance_median_m": 5.191458464889842,
+      "iou_threshold": 0.5,
+      "matching": "one_to_one",
+      "equal_area_crs": "EPSG:6933",
+      "distance_crs": "WGS 84 / UTM zone of each polygon's centroid",
+      "boundary_sample_spacing_m": 1.0,
+      "boundary_sample_spacing_max_m": 1.0,
+      "utm_epsg_codes": [
+        32612
+      ],
+      "count_fp_unassigned": 128,
+      "count_reference_dropped": 0,
+      "count_predicted_dropped": 0,
+      "count_reference_repaired": 0,
+      "count_predicted_repaired": 0,
+      "boundary_tolerance_m": 10.0
+    }
+  },
+  "20c": {
+    "example": "20c",
+    "image": "assets/gallery_1.0/San_Juan_crop_filter_example.png",
+    "preview": "assets/gallery_1.0/preview/San_Juan_crop_filter_example.webp",
+    "title": "San Juan County, NM: FTW and Delineate-Anything v2 with and without the crop filter",
+    "background": "composite",
+    "background_note": "Background: Top left: Sentinel-2 L2A 10 m median composite, 2019-03-11 to\n2019-05-11 (end exclusive), 22 images; FTW window A, one of FTW's two season inputs\nTop right: Sentinel-2 L2A 10 m median composite, 2019-03-11 to 2019-05-11\n(end exclusive), 22 images; FTW window A, one of FTW's two season inputs\nBottom left: Sentinel-2 L2A 10 m median composite, 2019-01-01\nto 2020-01-01 (end exclusive), 171 images; the engine's input\nBottom right: Sentinel-2 L2A 10 m median composite, 2019-01-01\nto 2020-01-01 (end exclusive), 171 images; the engine's input\nModel: FTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)\nDelineate-Anything v2, large_v2 (YOLO11x-seg,\nMykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)\nInset: Natural Earth country, state/province and lake boundaries",
+    "model_notes": [
+      "FTW model FTW_PRUE_EFNET_B5 (ftw-baselines v3 checkpoint; ftw-tools 2.0.0b5)",
+      "Delineate-Anything v2, large_v2 (YOLO11x-seg, MykolaL/DelineateAnything/DelineateAnythingv2.pt @ 369d0b4; ultralytics 8.4.163)"
+    ],
+    "location": {
+      "lon": -108.0578,
+      "lat": 36.6859,
+      "country": "United States of America",
+      "country_label": "USA",
+      "country_a3": "USA",
+      "admin1": "New Mexico"
+    },
+    "layers": [
+      {
+        "label": "FTW, crop filter on",
+        "file": "outputs/stratified_evaluation/fields_sentinel2_ftw_2019.gpkg",
+        "n_polygons": 414,
+        "area_ha_total": 3950.9,
+        "area_ha_p10": 0.36,
+        "area_ha_median": 1.69,
+        "area_ha_p90": 31.45,
+        "source": "sentinel2",
+        "engine": "ftw",
+        "year": 2019,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2019-01-01",
+          "date_end_exclusive": "2020-01-01",
+          "n_images": "171",
+          "crs": "EPSG:32612",
+          "resolution_m": "10.0",
+          "image_years": "2019"
+        },
+        "ftw_windows": {
+          "a": {
+            "start": "2019-03-11",
+            "end": "2019-05-10",
+            "n_images": 22,
+            "status": "composite"
+          },
+          "b": {
+            "start": "2019-09-20",
+            "end": "2019-11-19",
+            "n_images": 37,
+            "status": "composite"
+          }
+        },
+        "engine_meta": {
+          "backend": "ftw-tools",
+          "batch_size": 2,
+          "checkpoint_sha256": "fcb6134b36ed0e20c00edb2bcd40c10825e01e9cfe150316527f58e9ca590d50",
+          "checkpoint_url": "https://github.com/fieldsoftheworld/ftw-baselines/releases/download/v3/prue_efnet5_checkpoint.ckpt",
+          "device": "mps",
+          "ftw_input": "outputs/stratified_evaluation/.agribound_cache/ftw_input_5d2a73462a43.tif",
+          "ftw_tools_version": "2.0.0b5",
+          "in_channels": 8,
+          "input_units": "S2 L2A reflectance x10000 (composite values copied unchanged; NaN, inf and declared nodata -> 0); ftw-tools divides by 3000",
+          "model": "FTW_PRUE_EFNET_B5",
+          "model_license": "Mixed Open Licenses",
+          "model_version": "v3",
+          "n_output": 1553,
+          "n_windows": 2,
+          "out_of_distribution_source": false,
+          "patch_size": 1024,
+          "prediction_crs": "EPSG:32612",
+          "resize_factor": 2,
+          "save_scores": false,
+          "value_scale": "reflectance_x10000"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "FTW, crop filter off",
+        "file": "outputs/stratified_evaluation/fields_sentinel2_ftw_2019_nolulc.gpkg",
+        "n_polygons": 1377,
+        "area_ha_total": 30203.2,
+        "area_ha_p10": 0.33,
+        "area_ha_median": 1.08,
+        "area_ha_p90": 25.97,
+        "source": "sentinel2",
+        "engine": "ftw",
+        "year": 2019,
+        "lulc_filter": false,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2019-01-01",
+          "date_end_exclusive": "2020-01-01",
+          "n_images": "171",
+          "crs": "EPSG:32612",
+          "resolution_m": "10.0",
+          "image_years": "2019"
+        },
+        "ftw_windows": {
+          "a": {
+            "start": "2019-03-11",
+            "end": "2019-05-10",
+            "n_images": 22,
+            "status": "composite"
+          },
+          "b": {
+            "start": "2019-09-20",
+            "end": "2019-11-19",
+            "n_images": 37,
+            "status": "composite"
+          }
+        },
+        "engine_meta": {
+          "backend": "ftw-tools",
+          "batch_size": 2,
+          "cached_prediction": true,
+          "checkpoint_sha256": "fcb6134b36ed0e20c00edb2bcd40c10825e01e9cfe150316527f58e9ca590d50",
+          "checkpoint_url": "https://github.com/fieldsoftheworld/ftw-baselines/releases/download/v3/prue_efnet5_checkpoint.ckpt",
+          "device": "mps",
+          "ftw_input": "outputs/stratified_evaluation/.agribound_cache/ftw_input_5d2a73462a43.tif",
+          "ftw_tools_version": "2.0.0b5",
+          "in_channels": 8,
+          "input_units": "S2 L2A reflectance x10000 (composite values copied unchanged; NaN, inf and declared nodata -> 0); ftw-tools divides by 3000",
+          "model": "FTW_PRUE_EFNET_B5",
+          "model_license": "Mixed Open Licenses",
+          "model_version": "v3",
+          "n_output": 1553,
+          "n_windows": 2,
+          "out_of_distribution_source": false,
+          "patch_size": 1024,
+          "prediction_crs": "EPSG:32612",
+          "resize_factor": 2,
+          "save_scores": false,
+          "value_scale": "reflectance_x10000"
+        },
+        "n_removed_by_crop_filter": 963,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "DA v2, crop filter on",
+        "file": "outputs/stratified_evaluation/fields_sentinel2_delineate-anything_2019.gpkg",
+        "n_polygons": 380,
+        "area_ha_total": 3627.5,
+        "area_ha_p10": 0.78,
+        "area_ha_median": 2.2,
+        "area_ha_p90": 32.09,
+        "source": "sentinel2",
+        "engine": "delineate-anything",
+        "year": 2019,
+        "lulc_filter": true,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2019-01-01",
+          "date_end_exclusive": "2020-01-01",
+          "n_images": "171",
+          "crs": "EPSG:32612",
+          "resolution_m": "10.0",
+          "image_years": "2019"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 10.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "inference_s": 18.05,
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_after_dedup": 616,
+          "n_after_merge": 1735,
+          "n_after_min_area": 1819,
+          "n_merged_groups": 60,
+          "n_output": 613,
+          "n_pieces_merged": 144,
+          "n_raw": 1821,
+          "n_tiles_processed": 361,
+          "n_tiles_total": 361,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "reflectance_x10000",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": null,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      },
+      {
+        "label": "DA v2, crop filter off",
+        "file": "outputs/stratified_evaluation/fields_sentinel2_delineate-anything_2019_nolulc.gpkg",
+        "n_polygons": 562,
+        "area_ha_total": 4653.0,
+        "area_ha_p10": 0.83,
+        "area_ha_median": 2.4,
+        "area_ha_p90": 26.41,
+        "source": "sentinel2",
+        "engine": "delineate-anything",
+        "year": 2019,
+        "lulc_filter": false,
+        "lulc_dataset": "auto",
+        "sam_refine": false,
+        "min_field_area_m2": 2500.0,
+        "composite": {
+          "collections": "COPERNICUS/S2_SR_HARMONIZED",
+          "composite_method": "median",
+          "date_start": "2019-01-01",
+          "date_end_exclusive": "2020-01-01",
+          "n_images": "171",
+          "crs": "EPSG:32612",
+          "resolution_m": "10.0",
+          "image_years": "2019"
+        },
+        "ftw_windows": {},
+        "engine_meta": {
+          "area_crs": "EPSG:6933",
+          "backend": "native",
+          "batch_size": 4,
+          "cached_result": "outputs/stratified_evaluation/.agribound_cache/da_native_e6b9f05f06cd.parquet",
+          "conf_threshold": 0.15,
+          "conf_threshold_source": "upstream default for large_v2",
+          "dedup_containment": 0.8,
+          "dedup_iou": 0.3,
+          "device": "mps",
+          "gsd_m": 10.0,
+          "gsd_outside_training_range": false,
+          "implementation": "agribound-native-3",
+          "iou_threshold": 0.3,
+          "max_detections": 300,
+          "merge_tile_pieces": true,
+          "min_field_area_m2": 2500.0,
+          "model_architecture": "YOLO11x-seg",
+          "model_input_px": 512,
+          "model_key": "large_v2",
+          "model_training_data": "FBIS-73M",
+          "n_output": 613,
+          "precision": "fp16",
+          "resolve_overlaps": true,
+          "super_resolution": 2,
+          "tile_size_native_px": 256,
+          "tile_step": 0.5,
+          "ultralytics_version": "8.4.163",
+          "value_scale": "reflectance_x10000",
+          "weights": "pinned",
+          "weights_filename": "DelineateAnythingv2.pt",
+          "weights_repo": "MykolaL/DelineateAnything",
+          "weights_revision": "369d0b4c44cf9bec2bd3a27bc81810cadd2c963e",
+          "weights_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a"
+        },
+        "n_removed_by_crop_filter": 182,
+        "agribound_version": "1.0.0",
+        "run_status": "success"
+      }
+    ],
+    "reference": {
+      "label": "NMOSE reference (not used for training in these runs)",
+      "n_polygons": 156,
+      "area_ha_total": 325.3,
+      "area_ha_p10": 0.26,
+      "area_ha_median": 1.04,
+      "area_ha_p90": 4.99
+    }
+  }
+}

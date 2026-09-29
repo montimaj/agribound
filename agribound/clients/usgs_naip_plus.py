@@ -1,8 +1,13 @@
 """USGS NAIP Plus ArcGIS ImageServer client.
 
-This module provides a small, dependency-light client for querying catalog items
-from the USGS NAIP Plus ImageServer and exporting AOI-bounded TIFFs for use by
-agribound composite builders.
+A small, dependency-light client for the USGS NAIP Plus ImageServer
+(``https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer``):
+query catalogue items and per-year counts, and export AOI-bounded TIFFs for
+:class:`agribound.composites.usgs.USGSNAIPPlusCompositeBuilder`.
+
+The service holds only the latest NAIP/HRO vintage of each state (years
+2012-2023 as of 2026-09; dense only from 2019), not the historical NAIP
+archive; its native pixel size is 0.3 m and the state vintages are 0.3-0.6 m.
 """
 
 from __future__ import annotations
@@ -12,12 +17,12 @@ import logging
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import urlopen, urlretrieve
+from urllib.request import urlopen
 
 from shapely.geometry import LineString, MultiLineString, MultiPoint, Point, Polygon, box
 from shapely.geometry.base import BaseGeometry
@@ -83,6 +88,51 @@ class USGSNAIPPlusClient:
         object_ids = payload.get("objectIds") or []
         return sorted(int(v) for v in object_ids)
 
+    def query_year_counts(
+        self,
+        bounds_3857: tuple[float, float, float, float],
+        where: str,
+    ) -> dict[int, int]:
+        """Count catalogue items per ``Year`` intersecting a 3857 envelope.
+
+        Uses an ``outStatistics`` query (count of ``OBJECTID`` grouped by
+        ``Year``), so no footprints are transferred.
+
+        Returns
+        -------
+        dict[int, int]
+            ``{year: n_items}``, sorted by year.
+        """
+        params = {
+            "f": "json",
+            "where": where,
+            "geometry": self._format_envelope(bounds_3857),
+            "geometryType": "esriGeometryEnvelope",
+            "inSR": 3857,
+            "spatialRel": "esriSpatialRelIntersects",
+            "outStatistics": json.dumps(
+                [
+                    {
+                        "statisticType": "count",
+                        "onStatisticField": "OBJECTID",
+                        "outStatisticFieldName": "n_items",
+                    }
+                ],
+                separators=(",", ":"),
+            ),
+            "groupByFieldsForStatistics": "Year",
+            "returnGeometry": "false",
+        }
+        payload = self._request_json("/query", params)
+        counts: dict[int, int] = {}
+        for feature in payload.get("features") or []:
+            attrs = feature.get("attributes") or {}
+            year = self._to_int(self._first_not_none(attrs, "Year", "YEAR", "year"))
+            n = self._to_int(self._first_not_none(attrs, "n_items", "N_ITEMS"))
+            if year is not None and n is not None:
+                counts[year] = counts.get(year, 0) + n
+        return dict(sorted(counts.items()))
+
     def query_candidates(
         self,
         bounds_3857: tuple[float, float, float, float],
@@ -139,7 +189,12 @@ class USGSNAIPPlusClient:
         output_path: Path,
         compression: str = "LZ77",
     ) -> dict[str, Any]:
-        """Export a TIFF using a deterministic LockRaster mosaic rule."""
+        """Export a TIFF of *bbox_3857* using a deterministic LockRaster mosaic rule.
+
+        The request is in EPSG:3857 (``bboxSR``/``imageSR``) with
+        ``size=width,height``; the service resamples the selected rasters with
+        bilinear interpolation.
+        """
         if not lock_raster_ids:
             raise ValueError("lock_raster_ids must be non-empty")
         if width <= 0 or height <= 0:
@@ -210,7 +265,15 @@ class USGSNAIPPlusClient:
         raise USGSImageServerError(f"Failed request: {url}") from last_exc
 
     def _download_file(self, url: str, output_path: Path) -> None:
-        """Download a file atomically with retries."""
+        """Download a file atomically with retries.
+
+        The response is streamed to ``<output_path>.part`` with
+        ``urlopen(url, timeout=self.timeout_s)`` (the timeout applies to the
+        connection and to each read, so a stalled transfer fails and is
+        retried) and renamed when complete.
+        """
+        import shutil
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = output_path.with_suffix(output_path.suffix + ".part")
 
@@ -219,7 +282,8 @@ class USGSNAIPPlusClient:
             try:
                 if tmp_path.exists():
                     tmp_path.unlink()
-                urlretrieve(url, str(tmp_path))
+                with urlopen(url, timeout=self.timeout_s) as response, open(tmp_path, "wb") as fh:
+                    shutil.copyfileobj(response, fh, length=1 << 20)
                 tmp_path.replace(output_path)
                 return
             except (HTTPError, URLError, OSError) as exc:
@@ -237,6 +301,7 @@ class USGSNAIPPlusClient:
                 )
                 time.sleep(wait_s)
 
+        tmp_path.unlink(missing_ok=True)
         raise USGSImageServerError(f"Failed download: {url}") from last_exc
 
     def _feature_to_candidate(self, feature: dict[str, Any]) -> USGSRasterCandidate:
@@ -330,8 +395,50 @@ class USGSNAIPPlusClient:
             millis = int(value)
         except (TypeError, ValueError):
             return str(value)
-        dt = datetime.fromtimestamp(millis / 1000.0, tz=timezone.utc)
+        dt = datetime.fromtimestamp(millis / 1000.0, tz=UTC)
         return dt.isoformat()
+
+    @staticmethod
+    def _esri_rings_to_polygon(rings: list[list[list[float]]]) -> BaseGeometry:
+        """Build a (multi)polygon from Esri JSON rings.
+
+        Esri polygons list outer rings clockwise and holes counter-clockwise.
+        Holes are subtracted from the outer ring that contains them. If no ring
+        is clockwise (orientation not followed), every ring is treated as an
+        outer ring and they are unioned.
+        """
+        from shapely.geometry import LinearRing
+
+        shells: list[Polygon] = []
+        holes: list[Polygon] = []
+        for ring in rings:
+            if len(ring) < 4:
+                continue
+            coords = [(float(x), float(y)) for x, y in ring]
+            poly = Polygon(coords)
+            if poly.is_empty or poly.area == 0:
+                continue
+            (holes if LinearRing(coords).is_ccw else shells).append(poly)
+        if not shells:
+            shells, holes = holes, []
+        if not shells:
+            raise USGSImageServerError("Esri polygon geometry contained no valid rings")
+
+        parts: list[BaseGeometry] = []
+        for shell in shells:
+            if not shell.is_valid:
+                shell = shell.buffer(0)
+            inner = [h for h in holes if shell.contains(h.representative_point())]
+            for hole in inner:
+                shell = shell.difference(hole if hole.is_valid else hole.buffer(0))
+            if not shell.is_empty:
+                parts.append(shell)
+        if not parts:
+            raise USGSImageServerError("Esri polygon geometry contained no valid rings")
+        merged = parts[0] if len(parts) == 1 else unary_union(parts)
+        if not merged.is_valid:
+            merged = merged.buffer(0)
+        return merged
 
     @classmethod
     def _esri_geometry_to_shapely(cls, geometry: dict[str, Any]) -> BaseGeometry:
@@ -359,27 +466,7 @@ class USGSNAIPPlusClient:
             )
 
         if "rings" in geometry:
-            rings = geometry["rings"] or []
-            polygons: list[Polygon] = []
-            for ring in rings:
-                if len(ring) < 4:
-                    continue
-                poly = Polygon([(float(x), float(y)) for x, y in ring])
-                if poly.is_empty:
-                    continue
-                if not poly.is_valid:
-                    poly = poly.buffer(0)
-                if not poly.is_empty:
-                    polygons.append(poly)
-
-            if not polygons:
-                raise USGSImageServerError("Esri polygon geometry contained no valid rings")
-            if len(polygons) == 1:
-                return polygons[0]
-            merged = unary_union(polygons)
-            if not merged.is_valid:
-                merged = merged.buffer(0)
-            return merged
+            return cls._esri_rings_to_polygon(geometry["rings"] or [])
 
         raise USGSImageServerError(f"Unsupported Esri geometry keys: {sorted(geometry.keys())}")
 

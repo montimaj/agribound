@@ -1,5 +1,6 @@
 # I/O Utilities
 
-The io module provides functions for reading and writing GeoTIFF raster files, vector formats (GeoJSON, GeoPackage, GeoParquet), and CRS handling.
+Raster and vector I/O, study-area parsing (files, GEE assets, `bbox:` strings,
+WKT), CRS/UTM helpers and value-scale conversions.
 
 ::: agribound.io

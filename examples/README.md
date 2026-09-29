@@ -1,194 +1,153 @@
 # Agribound Examples
 
-This directory contains example scripts and Jupyter notebooks demonstrating agribound's capabilities across different continents, satellite sources, and delineation engines.
+Example scripts (`NN_*.py`) and notebook copies (`notebooks/NN_*.ipynb`, same
+code) for agribound 1.0.0, plus the HPC scripts in [`hpc/`](hpc/) and the
+region definitions in [`regions/`](regions/). Each script's docstring states
+its data, assumptions, caveats and prerequisites; read it before running.
 
 ## Prerequisites
 
-1. Install agribound with the required extras for the example you want to run:
+1. An environment with the extras the example needs (listed in each script's
+   docstring). From a clone of the repository:
 
-```bash
-conda create -n agribound python=3.12 rasterio geopandas fiona shapely pyproj -c conda-forge
-conda activate agribound
-pip install -e ".[all]"
-```
+    ```bash
+    conda env create -f environment.yml        # core: agribound[all,dev] (FTW, no Prithvi)
+    conda activate agribound
+    # Prithvi (examples 03, 12): a separate environment
+    conda env create -f environment-gfm.yml    # agribound[all-gfm,dev] (no FTW)
+    ```
 
-2. For GEE-based examples (all except `10_local_tif_quickstart.py` and `16_usa_usgs_naip_plus.py`), authenticate with Google Earth Engine:
+2. For Earth Engine examples, authenticate once:
 
-```bash
-gcloud config set project YOUR_GEE_PROJECT
-earthengine authenticate
-agribound auth --project YOUR_GEE_PROJECT
-```
+    ```bash
+    earthengine authenticate
+    agribound auth --project YOUR_GEE_PROJECT
+    ```
 
-See the [GEE Setup guide](https://montimaj.github.io/agribound/user-guide/gee-setup/) for details.
+    Scripts take `--gee-project`; the default is `$GEE_PROJECT`, then the
+    `gcloud` project, then the `project_id` of the credentials file
+    (`$AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY`, else
+    `$GOOGLE_APPLICATION_CREDENTIALS`; see
+    [GEE setup](../docs/user-guide/gee-setup.md)). No script or region file
+    names a project: use your own. The LULC crop filter (on
+    by default) also needs Earth Engine. Examples 10, 16 and 17 need no
+    Earth Engine; examples 05 (with `--google-backend source_coop`), 20 (with
+    `--predicted`) and 21 do not need it either.
 
-## Running an Example
+3. Run from the repository root, for example
+   `python examples/04_france_beauce_sentinel2.py`. Outputs go to
+   `outputs/<example>/`. An existing output made with the same settings is
+   loaded instead of recomputed; one made with other settings gives a
+   `FileExistsError`. Examples 01, 05, 10 and 13 take `--overwrite` to recompute;
+   for the other examples, delete the output (or its `outputs/<example>/`
+   directory) first.
 
-### Python Scripts
+Notebooks: open them from `examples/notebooks/`; the setup cell changes to
+the repository root. They are generated from the scripts by
+`tools/sync_notebooks.py`, so changes belong in the script. Command-line options keep their defaults; edit the
+configuration cell and set `GEE_PROJECT` (or `gcloud config set project`).
 
-All GEE-based examples require a `--gee-project` argument:
-
-```bash
-python examples/01_new_mexico_landsat_timeseries.py --gee-project YOUR_GEE_PROJECT
-```
-
-The local TIF and USGS NAIP Plus examples do not require GEE:
-
-```bash
-python examples/10_local_tif_quickstart.py
-python examples/16_usa_usgs_naip_plus.py
-```
-
-### Jupyter Notebooks
-
-Interactive notebook versions are available in the [`notebooks/`](notebooks/) directory. Set the `GEE_PROJECT` variable in the first code cell of each notebook before running:
-
-```bash
-cd examples/notebooks
-jupyter lab
-```
-
-Outputs (GeoPackage files and HTML maps) are saved to `outputs/<example_name>/`.
+On macOS, scripts that run FTW must keep their `if __name__ == "__main__":`
+guard (ftw-tools' data-loader workers use the `spawn` start method).
 
 ## Scripts
 
-| # | Script | Region | Satellite | Engine | Est. Runtime | Description |
-|---|--------|--------|-----------|--------|-------------|-------------|
-| 01 | `01_new_mexico_landsat_timeseries.py` | New Mexico, USA | Landsat 5--9 | delineate-anything | ~8--12 h | 40-year annual field boundaries (1985--2025). Fine-tunes on NMOSE reference boundaries and evaluates per-year accuracy. Best run on HPC/cloud with GPU. |
-| 02 | `02_india_ganges_sentinel2.py` | Nadia District (West Bengal), India | Sentinel-2 + Google + TESSERA + SPOT Pan | ftw + embedding + DA | ~15--30 min | Compares FTW (supervised, S2), Google AlphaEarth (64-D) and TESSERA (128-D) embeddings (unsupervised), and SPOT panchromatic (1.5 m, restricted) for smallholder rice field delineation (2024). |
-| 03 | `03_australia_murray_darling_hls.py` | Murray-Darling Basin, Australia | HLS | prithvi | ~45--90 min | Compares Prithvi ViT embeddings (full encoder) vs PCA baseline on large-scale irrigated agriculture. Runs 2022--2024. |
-| 04 | `04_france_beauce_sentinel2.py` | Beauce, France | Sentinel-2 | ftw | ~15--30 min | European large-field agriculture using FTW's pre-trained models (covers France). Single year (2023). |
-| 05 | `05_pampas_embeddings.py` | Argentine Pampas (Pergamino) | Google + TESSERA | embedding | ~5--10 min | CPU-only unsupervised clustering from pre-computed satellite embeddings (64-D Google, 128-D TESSERA). ~50 km bbox over the Pampas agricultural heartland (2020). |
-| 06 | `06_kenya_smallholder_ftw.py` | Central Kenya | Sentinel-2 | ftw | ~10--20 min | Demonstrates `min_field_area` tuning for smallholder agriculture. Compares results at 100, 500, 1000, and 2500 m2 thresholds. |
-| 07 | `07_usa_naip_high_res.py` | Central Valley, California, USA | NAIP | delineate-anything | ~20--40 min | 1 m resolution field extraction from NAIP imagery. Large commercial fields. |
-| 08 | `08_china_north_plain_spot.py` | North China Plain | SPOT 6/7 | delineate-anything | ~15--30 min | 6 m resolution SPOT imagery. **Restricted access** -- see note below. |
-| 09 | `09_ensemble_comparison.py` | Andalusia, Spain | Sentinel-2 | ensemble | ~30--60 min | Runs delineate-anything and FTW on the same AOI, then vote-merges for ensemble consensus. Visualizes per-engine and consensus results. |
-| 10 | `10_local_tif_quickstart.py` | User-provided | Local GeoTIFF | delineate-anything | ~2--5 min | Minimal 5-line quickstart using a local file. No GEE required. Edit `LOCAL_TIF` and `STUDY_AREA` paths before running. |
-| 11 | `11_mississippi_alluvial_plain_spot.py` | Mississippi Alluvial Plain, USA | SPOT 6/7 | delineate-anything | ~15--30 min | SPOT-based delineation of row-crop agriculture (2021--2023). Includes cross-year stability analysis using IoU/F1. **Restricted access** -- see note below. |
-| 12 | `12_new_mexico_ensemble_timeseries.py` | Eastern Lea County, NM, USA | All (Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings) | All (per-source ensemble) | ~3--6 h | Multi-model **per-source** ensemble (2024) over ~20 km center pivot area. Runs all engines per sensor and vote-merges within each source (not across sensors). SAM2 refines each per-source ensemble. Best run on HPC/cloud with GPU. |
-| 13 | `13_sam2_refine_dinov3.py` | Lea County, NM, USA | Sentinel-2 | SAM2 refinement | ~5--15 min | Standalone SAM2 boundary refinement on pre-computed DINOv3 field boundaries (555 fields). Crops each field from the raster and refines with SAM2 box prompts. Compares before/after metrics against NMOSE reference. |
-| 14 | `14_dinov3_sam2_ensemble.py` | Eastern Lea County, NM, USA | Sentinel-2, Landsat, HLS, NAIP, SPOT | DINOv3 + SAM2 | ~1--2 h | Runs DINOv3 (SAT-493M) across 5 satellite sources with per-source SAM2 refinement. Compares per-source results against NMOSE reference boundaries. Uses a ~20 km bbox over the center pivot area to keep NAIP/SPOT runtimes practical. |
-| 15 | `15_pampas_semi_supervised.py` | Pampas (Pergamino), Argentina | Google + TESSERA embeddings + Dynamic World + Sentinel-2 | Embedding + SAM2 (no training) | ~15--30 min | Fully automated pipeline requiring **no reference boundaries or training**. Clusters Google (64-D) and TESSERA (128-D) embeddings, LULC-filters to crops, then refines with SAM2 using both S2 and TESSERA native bands. Includes improved SAM2 with geometry fixes, polygon exploding, and large-field separation. TESSERA produces more accurate boundaries than Google (see [Embedding Comparison](#embedding-comparison-google-vs-tessera-example-15)). GPU recommended. |
-| **16** | **`16_usa_usgs_naip_plus.py`** | **Central Valley, California, USA** | **USGS NAIP Plus ImageServer** | **delineate-anything** | **~30--60 min** | **First community contribution!** High-resolution field extraction using the non-GEE `usgs-naip-plus` source -- the same NAIP imagery available on GEE but acquired directly from the [USGS USGSNAIPPlus ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer). No GEE authentication required. Contributed by **Jeremy Rapp** (Michigan State University). |
+| # | Script | Region | Source(s) | Engine(s) | What it shows |
+|---|---|---|---|---|---|
+| 01 | [01_new_mexico_landsat_timeseries.py](01_new_mexico_landsat_timeseries.py) | New Mexico, USA | Landsat 5/7/8/9 | Delineate-Anything (fine-tuned) | Fine-tuning on NMOSE polygons, reusing the checkpoint from the provenance record, per-year evaluation (default 2025 only; `--years 1985-2025` for the full series) |
+| 02 | [02_india_ganges_sentinel2.py](02_india_ganges_sentinel2.py) | Nadia, West Bengal, India | Sentinel-2, Google and TESSERA embeddings, SPOT pan | FTW, embedding, Delineate-Anything | Four label-free approaches on one area (SPOT restricted; uses 2020) |
+| 03 | [03_australia_murray_darling_hls.py](03_australia_murray_darling_hls.py) | Narrabri, Murray-Darling Basin, Australia | HLS, SPOT 6/7 (restricted) | Prithvi (`embed`, `pca`), Delineate-Anything | The label-free Prithvi modes (land-cover segments, not field instances), compared with Delineate-Anything v2 on SPOT; GFM environment for `embed` |
+| 04 | [04_france_beauce_sentinel2.py](04_france_beauce_sentinel2.py) | Beauce, France | Sentinel-2 | FTW | FTW default model with two crop-calendar season windows |
+| 05 | [05_pampas_embeddings.py](05_pampas_embeddings.py) | Pergamino, Argentina | Google and TESSERA embeddings | embedding | CPU-only clustering; `source_coop` backend without Earth Engine |
+| 06 | [06_kenya_smallholder_ftw.py](06_kenya_smallholder_ftw.py) | Kakamega, Kenya | Sentinel-2 | FTW | Four minimum-area thresholds on smallholder fields |
+| 07 | [07_usa_naip_high_res.py](07_usa_naip_high_res.py) | Fresno County, California, USA | NAIP (1 m) | Delineate-Anything | High-resolution, label-free delineation |
+| 08 | [08_china_north_plain_spot.py](08_china_north_plain_spot.py) | Hengshui, North China Plain | SPOT 6/7 (restricted) | Delineate-Anything | SPOT composites (uncalibrated DN) |
+| 09 | [09_ensemble_comparison.py](09_ensemble_comparison.py) | Carmona, Andalusia, Spain | Sentinel-2 | Delineate-Anything, FTW, ensemble | Intersection, union and vote merges of two engines |
+| 10 | [10_local_tif_quickstart.py](10_local_tif_quickstart.py) | any | local GeoTIFF | Delineate-Anything | Minimal run without Earth Engine (`--tif`) |
+| 11 | [11_mississippi_alluvial_plain_spot.py](11_mississippi_alluvial_plain_spot.py) | Greenville, Mississippi, USA | SPOT 6/7 (restricted) | Delineate-Anything | 2021-2023 series and year-to-year agreement |
+| 12 | [12_new_mexico_ensemble_timeseries.py](12_new_mexico_ensemble_timeseries.py) | Eastern Lea County, New Mexico, USA | S2, Landsat, HLS, NAIP, SPOT (restricted), embeddings | all engines | Per-source multi-model vote ensembles with SAM 2, evaluated against NMOSE (2022; both environments) |
+| 13 | [13_sam2_refine_dinov3.py](13_sam2_refine_dinov3.py) | Eastern Lea County | (example 12 output) | SAM refinement | Stand-alone `refine_boundaries` on a finished layer; SAM backends (`--sam-backend`; the SAM 3 backends are untested) |
+| 14 | [14_dinov3_sam2_ensemble.py](14_dinov3_sam2_ensemble.py) | Eastern Lea County | S2, Landsat, HLS, NAIP, SPOT (restricted) | DINOv3 (fine-tuned) ± SAM 2 | The pipeline's SAM stage and its size gate on five sources |
+| 15 | [15_pampas_semi_supervised.py](15_pampas_semi_supervised.py) | Pergamino, Argentina | embeddings, Sentinel-2, SPOT 6/7 (restricted) | embedding, LULC filter, SAM 2, Delineate-Anything | A label-free chain by hand: cluster → crop filter → SAM on S2 or embedding pseudo-RGB, compared with Delineate-Anything v2 on S2 and SPOT |
+| 16 | [16_usa_usgs_naip_plus.py](16_usa_usgs_naip_plus.py) | Fresno County, California, USA | USGS NAIP Plus | Delineate-Anything | The source that needs no Earth Engine (LULC filter off) |
+| 17 | [17_query_published_ftw_polygons.py](17_query_published_ftw_polygons.py) | synthetic | local tile store | - | `query_ftw` with the manifest backend, offline |
+| 18 | [18_agent_orchestration.py](18_agent_orchestration.py) | Beauce, France | - | agent tools | Read-only tools and `propose_run` without an LLM; `--llm` for a dry-run agent session; MCP configuration |
+| 19 | [19_hpc_tiling.py](19_hpc_tiling.py) | Beauce, France | Sentinel-2 | Delineate-Anything | `agribound.hpc` make → stage → delineate → merge locally |
+| 20 | [20_stratified_evaluation.py](20_stratified_evaluation.py) | San Juan Basin, New Mexico, USA | Sentinel-2 (or `--predicted`); Landsat, SPOT 6/7 (restricted), NAIP | Delineate-Anything, FTW | Stratified (sub-basin), size-class and boundary evaluation with bootstrap intervals for Delineate-Anything on Sentinel-2 2019; overall object and boundary metrics (no strata, size classes or intervals) for the same engine on Landsat, Sentinel-2, SPOT and NAIP of 2018, and for FTW and Delineate-Anything on Sentinel-2 2019 with and without the crop filter (`--resolution-year`, `--no-resolution`, `--no-lulc-comparison`; `--predicted` skips both comparisons) |
+| 21 | [21_published_ftw_audit.py](21_published_ftw_audit.py) | Belen, New Mexico, USA | published FTW polygons | - | `query_ftw` (confidence coverage) and evaluation against NMOSE |
+
+Estimated runtimes are given in each docstring; most were not measured
+for 1.0 (the docstrings say which were).
 
 ## Notebooks
 
-Interactive Jupyter notebook versions of each example are in the [`notebooks/`](notebooks/) directory. These are designed for step-by-step exploration with inline map visualization. Set `GEE_PROJECT` in the first code cell before running.
+| # | Notebook |
+|---|---|
+| 01 | [01_new_mexico_landsat_timeseries.ipynb](notebooks/01_new_mexico_landsat_timeseries.ipynb) |
+| 02 | [02_india_ganges_sentinel2.ipynb](notebooks/02_india_ganges_sentinel2.ipynb) |
+| 03 | [03_australia_murray_darling_hls.ipynb](notebooks/03_australia_murray_darling_hls.ipynb) |
+| 04 | [04_france_beauce_sentinel2.ipynb](notebooks/04_france_beauce_sentinel2.ipynb) |
+| 05 | [05_pampas_embeddings.ipynb](notebooks/05_pampas_embeddings.ipynb) |
+| 06 | [06_kenya_smallholder_ftw.ipynb](notebooks/06_kenya_smallholder_ftw.ipynb) |
+| 07 | [07_usa_naip_high_res.ipynb](notebooks/07_usa_naip_high_res.ipynb) |
+| 08 | [08_china_north_plain_spot.ipynb](notebooks/08_china_north_plain_spot.ipynb) |
+| 09 | [09_ensemble_comparison.ipynb](notebooks/09_ensemble_comparison.ipynb) |
+| 10 | [10_local_tif_quickstart.ipynb](notebooks/10_local_tif_quickstart.ipynb) |
+| 11 | [11_mississippi_alluvial_plain_spot.ipynb](notebooks/11_mississippi_alluvial_plain_spot.ipynb) |
+| 12 | [12_new_mexico_ensemble_timeseries.ipynb](notebooks/12_new_mexico_ensemble_timeseries.ipynb) |
+| 13 | [13_sam2_refine_dinov3.ipynb](notebooks/13_sam2_refine_dinov3.ipynb) |
+| 14 | [14_dinov3_sam2_ensemble.ipynb](notebooks/14_dinov3_sam2_ensemble.ipynb) |
+| 15 | [15_pampas_semi_supervised.ipynb](notebooks/15_pampas_semi_supervised.ipynb) |
+| 16 | [16_usa_usgs_naip_plus.ipynb](notebooks/16_usa_usgs_naip_plus.ipynb) |
+| 17 | [17_query_published_ftw_polygons.ipynb](notebooks/17_query_published_ftw_polygons.ipynb) |
+| 18 | [18_agent_orchestration.ipynb](notebooks/18_agent_orchestration.ipynb) |
+| 19 | [19_hpc_tiling.ipynb](notebooks/19_hpc_tiling.ipynb) |
+| 20 | [20_stratified_evaluation.ipynb](notebooks/20_stratified_evaluation.ipynb) |
+| 21 | [21_published_ftw_audit.ipynb](notebooks/21_published_ftw_audit.ipynb) |
 
-| # | Notebook | Description | Key Difference from Script |
-|---|----------|-------------|---------------------------|
-| 01 | [`01_new_mexico_landsat_timeseries.ipynb`](notebooks/01_new_mexico_landsat_timeseries.ipynb) | New Mexico Landsat time series with fine-tuning | Runs 2023--2025 (3 years) instead of the full 40-year range, suitable for interactive use |
-| 02 | [`02_india_ganges_sentinel2.ipynb`](notebooks/02_india_ganges_sentinel2.ipynb) | India Nadia District (West Bengal): FTW vs Google vs TESSERA vs SPOT Pan | Same scope as script |
-| 03 | [`03_australia_murray_darling_hls.ipynb`](notebooks/03_australia_murray_darling_hls.ipynb) | Australia Murray-Darling Basin: Prithvi ViT vs PCA (HLS) | Same scope as script |
-| 04 | [`04_france_beauce_sentinel2.ipynb`](notebooks/04_france_beauce_sentinel2.ipynb) | France Beauce region (FTW) | Same scope as script |
-| 05 | [`05_pampas_embeddings.ipynb`](notebooks/05_pampas_embeddings.ipynb) | Pampas embeddings (CPU-only, Google + TESSERA) | Same scope as script |
-| 06 | [`06_kenya_smallholder_ftw.ipynb`](notebooks/06_kenya_smallholder_ftw.ipynb) | Kenya smallholder `min_area` tuning (FTW) | Same scope as script |
-| 07 | [`07_usa_naip_high_res.ipynb`](notebooks/07_usa_naip_high_res.ipynb) | USA Central Valley NAIP 1 m (Delineate-Anything) | Same scope as script |
-| 08 | [`08_china_north_plain_spot.ipynb`](notebooks/08_china_north_plain_spot.ipynb) | China North Plain SPOT 6/7 (**restricted**) | Same scope as script |
-| 09 | [`09_ensemble_comparison.ipynb`](notebooks/09_ensemble_comparison.ipynb) | Ensemble multi-engine comparison (Andalusia) | Same scope as script |
-| 10 | [`10_local_tif_quickstart.ipynb`](notebooks/10_local_tif_quickstart.ipynb) | Local GeoTIFF quickstart (no GEE) | Same scope as script |
-| 11 | [`11_mississippi_alluvial_plain_spot.ipynb`](notebooks/11_mississippi_alluvial_plain_spot.ipynb) | Mississippi Alluvial Plain SPOT 6/7 (**restricted**) | Same scope as script |
-| 12 | [`12_new_mexico_ensemble_timeseries.ipynb`](notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Lea County multi-source grand ensemble (2020--2022) | Same scope as script |
-| 13 | [`13_sam2_refine_dinov3.ipynb`](notebooks/13_sam2_refine_dinov3.ipynb) | SAM2 boundary refinement on DINOv3 output | Same scope as script |
-| 14 | [`14_dinov3_sam2_ensemble.ipynb`](notebooks/14_dinov3_sam2_ensemble.ipynb) | DINOv3 + SAM2 multi-source comparison (Eastern Lea County) | Runs single year (2022) instead of 2020--2022 |
-| 15 | [`15_pampas_semi_supervised.ipynb`](notebooks/15_pampas_semi_supervised.ipynb) | Embedding + SAM2 (Pampas, no training required) | Same scope as script |
-| 16 | [`16_usa_usgs_naip_plus.ipynb`](notebooks/16_usa_usgs_naip_plus.ipynb) | USA Central Valley USGS NAIP Plus -- same NAIP data as GEE, from [USGS ImageServer](https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer) (no GEE, contributed by Jeremy Rapp) | Same scope as script |
+## HPC and regions
 
-## Runtime Notes
+- [`hpc/README.md`](hpc/README.md): Slurm job scripts, NSF ACCESS system
+  profiles, Earth Engine throttling and the two-phase stage/compute workflow
+  (`agribound tiles`).
+- [`regions/README.md`](regions/README.md): 16 region definitions and the
+  region driver [`run_region_delineation.sh`](run_region_delineation.sh).
 
-- Estimated runtimes assume a single NVIDIA GPU (e.g., A100/V100) and moderate internet speed for GEE downloads.
-- GEE composite generation adds ~2--5 minutes per year per source.
-- CPU-only runs (example 05, embedding engine) are 2--5x slower for inference but have no GPU requirement.
-- Fine-tuning (examples 01, 12) takes ~30 minutes per model on an Apple M2 Max (MPS). In example 12, DA (2 variants) and GeoAI/Prithvi are fine-tuned on NMOSE reference boundaries (~1.5 hours total). FTW uses pre-trained weights directly (fine-tuning not yet supported — FTW requires paired temporal windows). Fine-tuned checkpoints are cached and reused across years.
-- SAM2 boundary refinement (example 12) runs once on the final grand ensemble output per year. Example 14 runs SAM2 per source using each sensor's native raster for accurate per-field segmentation. With the `large` model and per-field cropping, refinement takes ~2--5 minutes per source per year depending on field count.
-- **NAIP and SPOT over large areas:** NAIP (1 m) and SPOT (6 m) produce rasters that are 100–900x larger in pixel count than Sentinel-2 (10 m) for the same study area. Inference on these high-resolution sources over county-scale or larger areas can take hours even on GPU. Consider subsetting the study area or using `tile_size` to process in chunks. Fine-tuning on NAIP/SPOT is also significantly slower due to the larger training chips.
-- **Apple Silicon (MPS):** The GeoAI engine (Mask R-CNN) crashes on MPS due to Metal command buffer errors. Agribound automatically falls back to CPU for GeoAI training and inference. All other engines (FTW, Delineate-Anything, Prithvi) work correctly on MPS.
-- **GeoAI requires fine-tuning:** Without fine-tuning on region-specific reference boundaries, GeoAI's Mask R-CNN typically does not delineate any fields. For out-of-the-box delineation without reference data, use FTW (pre-trained models for 25 countries) or Delineate-Anything (resolution-agnostic).
-- The 40-year New Mexico script (01) is best run as an overnight batch job or on HPC. The notebook version runs only 2023--2025.
+## Notes
 
-## LULC Crop Filtering
-
-Agribound automatically filters detected field boundaries to agricultural areas using land-use/land-cover (LULC) data. This is **enabled by default** (`lulc_filter=True`) and removes non-agricultural polygons (roads, water, forest, urban areas, etc.) from the output.
-
-The appropriate LULC dataset is selected automatically based on the study area location and target year:
-
-| Region | Dataset | Years | Resolution | Crop Classes |
-|--------|---------|-------|------------|-------------|
-| CONUS | USGS Annual NLCD | 1985–2024 (nearest year) | 30 m | 81 (Pasture/Hay), 82 (Cultivated Crops) |
-| Global, ≥2015 | Google Dynamic World | 2015–present (nearest year) | 10 m | `crops` probability band |
-| Global, <2015 | Copernicus C3S Land Cover | 1992–2022 (nearest year) | 300 m | 10, 20, 30 (Cropland classes) |
-
-**Configuration:**
-- `lulc_filter=True` (default) — enable crop filtering
-- `lulc_filter=False` — disable (used for local files without GEE, or unsupervised embedding clusters)
-- `lulc_crop_threshold=0.3` (default) — minimum fraction of crop pixels to keep a polygon
-
-**Disabled by default for:**
-- Example 05 (unsupervised embedding clusters — no semantic meaning)
-- Example 10 (local GeoTIFF — no GEE access)
-- Example 16 (USGS NAIP Plus — purely non-GEE workflow)
-
-## SPOT Access
-
-Examples 08 and 11 use SPOT 6/7 imagery, which is restricted to select GEE users under a data-sharing agreement. This source is primarily for internal DRI use. If you receive an access error, contact the agribound author (sayantan.majumdar@dri.edu) to request field boundary processing for your study area.
-
-## When to Use Ensembles
-
-Ensembles work best when **multiple models are run on the same sensor data**. Each model architecture (DA, FTW, GeoAI, DINOv3, Prithvi) has different biases — vote-merging across models cancels out individual errors because every model sees the **same pixels** but interprets them differently.
-
-Ensembles across **different sensors** (e.g., Sentinel-2 + Landsat + NAIP) do not work well because:
-
-- **Resolution mismatch** — a 1 m NAIP polygon and a 30 m Landsat polygon for the same field have different shapes, producing poor vote overlap
-- **Temporal mismatch** — each sensor captures different dates, so field states (bare vs cropped) may differ
-- **Spatial alignment** — sub-pixel registration errors between sensors create artificial disagreements at boundaries
-
-For multi-sensor analysis, **compare per-source results independently** (example 14) rather than merging them. The multi-model ensemble (example 12) runs all engines on the same eastern Lea County area for this reason.
-
-## Recommended Approaches
-
-- **With reference boundaries:** DINOv3 + SAM2 per source (example 14). DINOv3's SAT-493M backbone fine-tunes well on each sensor with just 10--30 epochs.
-- **Without reference boundaries:** Embedding clustering + LULC filter + SAM2 (example 15). TESSERA embeddings produce more accurate boundaries than Google (see below). No training required.
-- **Multi-model ensemble:** Example 12 runs all engines on the same sensor and merges via majority vote. Best accuracy but slowest.
-
-## Embedding Comparison: Google vs TESSERA (Example 15)
-
-Testing over the Argentine Pampas shows that **TESSERA embeddings produce more accurate field boundaries than Google AlphaEarth Embeddings** when used with the automated pipeline (embedding clustering + LULC filter + SAM2). The two embedding products differ fundamentally in architecture and input data:
-
-- **TESSERA** ([Feng et al., 2025](https://arxiv.org/abs/2506.20380)) is a pixel-wise foundation model trained on **multi-modal Sentinel-1/2 time series** using Barlow Twins self-supervision. It processes "d-pixels" — full temporal sequences of all spectral bands (S2) and SAR backscatter (S1) at each pixel — learning 128-D embeddings that are invariant to cloud-induced temporal gaps. Because it encodes the **complete phenological trajectory** (planting, growth, senescence) rather than a single composite, adjacent fields with different crop types, planting dates, or irrigation schedules produce distinct embeddings even when they appear spectrally similar in any single image.
-
-- **Google AlphaEarth** ([Brown et al., 2025](https://arxiv.org/abs/2507.22291)) uses a video summarization architecture with a "Space Time Precision" encoder that assimilates multiple EO sources into 64-D annual embeddings on the unit sphere S63. While it also incorporates temporal information through its support/valid period design, the released annual embedding fields are **static temporal summaries** that compress a full year into a single vector. The architecture prioritizes generality across diverse mapping tasks (land cover, biomass, evapotranspiration) rather than fine-grained agricultural phenology.
-
-- **Why TESSERA produces better field boundaries**: TESSERA's explicit modeling of temporal sampling invariance — training on random 40-observation subsets from the annual S1/S2 time series — makes it particularly sensitive to within-season crop dynamics. Two soybean fields planted two weeks apart produce different temporal profiles that TESSERA preserves in its embeddings. Google's annual summary tends to average out these intra-seasonal differences, causing adjacent fields with similar average reflectance to merge into single clusters.
-
-- **Trade-offs**: Google AlphaEarth has global coverage for 2017--2024 and is available as a GEE ImageCollection. TESSERA coverage varies by region/year (2017--2025) and requires the [geotessera](https://github.com/ucam-eo/geotessera) library for tile download and mosaicking.
-
-For new study areas **without reference boundaries**, we recommend the example 15 pipeline with TESSERA embeddings where available, falling back to Google embeddings for global coverage.
-
-## NMOSE Reference Data
-
-Examples 01, 12, 13, and 14 use NMOSE (New Mexico Office of the State Engineer) WUCB agricultural polygon boundaries for fine-tuning and/or evaluation. Examples 12 and 14 filter to eastern Lea County (County 25). Example 13 uses pre-computed DINOv3 boundaries from Lea County for standalone SAM2 refinement. The NMOSE shapefile is not included in the public repository — contact the agribound author (sayantan.majumdar@dri.edu) for access.
-
-## Output Structure
-
-Each example creates an output directory under `outputs/`:
-
-```
-outputs/
-├── new_mexico_timeseries/
-│   ├── fields_landsat_1985.gpkg
-│   ├── fields_landsat_1986.gpkg
-│   ├── ...
-│   ├── map_predicted_vs_reference.html
-│   ├── map_timeseries_comparison.html
-│   └── map_latest.html
-├── india_nadia/
-│   ├── fields_ftw_s2_2024.gpkg
-│   ├── fields_google_2024.gpkg
-│   ├── fields_tessera_2024.gpkg
-│   ├── fields_spot_pan_2023.gpkg
-│   └── map_ftw_vs_tessera.html
-└── ...
-```
-
-- `.gpkg` files contain field boundary polygons with area, perimeter, and provenance metadata.
-- `.html` files are standalone interactive maps (open in any browser) showing field boundaries overlaid on satellite basemaps.
+- **LULC crop filter.** On by default; it reads Annual NLCD (where at least
+  90 % of the area has NLCD data), Dynamic World (2016 to the last complete
+  year) or C3S (before 2016) from Earth Engine and removes polygons with a
+  crop fraction below 0.3. It is off in examples 05, 10 and 16 (see their
+  docstrings). The Earth Engine catalogue notes that Dynamic World crop
+  probabilities can be low in arid regions, so the default threshold may
+  remove real fields there.
+- **Label-free vs fine-tuned.** Delineate-Anything, FTW, the embedding engine
+  and Prithvi's `embed`/`pca` modes run without labels. GeoAI and DINOv3 have
+  no published field-boundary weights and need fine-tuning on reference
+  boundaries (examples 12, 14). FTW cannot be fine-tuned in agribound.
+- **Resolution.** Delineate-Anything was trained on 0.25-10 m imagery; 30 m
+  Landsat and HLS are outside that range, and FTW is calibrated on
+  Sentinel-2 (both are logged and recorded in `engine_meta`). SAM refines only
+  fields whose bounding box is at least about 49 pixels on each side (about
+  1.5 km at 30 m, 490 m at 10 m, 49 m at 1 m).
+- **Ensembles** combine several engines or models on the same raster
+  (examples 09, 12); results from different sensors are compared, not merged
+  (example 14).
+- **Evaluation against NMOSE** in examples 01, 12, 14 is in-sample for the
+  fine-tuned engines (they were trained on the same polygons), and NMOSE may
+  not contain every field in an area, so predictions of missing fields count
+  as false positives. Example 20 shows a stratified evaluation.
+- **SPOT 6/7** (examples 02, 03, 08, 11, 12, 14, 15, 20) is restricted to
+  select Earth Engine users (internal DRI use). Without access the SPOT runs
+  fail with a message: examples 08 and 11, which use only SPOT, produce no
+  fields; the others report the failed SPOT run and continue with their other
+  sources. External users who need SPOT-based field boundaries can contact
+  the package author (sayantan.majumdar@dri.edu).
+- **NMOSE reference data** (examples 01, 12, 13, 14, 20, 21) are not included
+  in the repository; the scripts expect
+  `examples/NMOSE Field Boundaries/WUCB ag polys.shp`. Contact the author for
+  access.
+- **Large areas.** High-resolution sources (NAIP, SPOT) over large areas
+  produce very large rasters; tile them with `agribound tiles` (example 19,
+  `hpc/README.md`) rather than running one composite.

@@ -1,0 +1,140 @@
+# Region: Mekong Delta, Vietnam
+# Read by examples/run_region_delineation.sh (via 'agribound tiles region') and
+# agribound.hpc.regions.load_region. 'run' holds the defaults the driver uses;
+# everything else documents how the region was checked. bbox values are EPSG:4326
+# [minx, miny, maxx, maxy]. Paths in 'run' are relative to this file.
+name: mekong_delta_vn
+title: Mekong Delta, Vietnam
+description: 'The Mekong Delta: rice paddies, orchards and aquaculture.'
+country: VN
+bbox: [104.4, 8.55, 106.85, 11.05]
+bbox_source: hand-drawn box over the delta
+test_bbox: [105.35, 10.35, 105.5, 10.5]
+test_bbox_source: hand-picked box around Long Xuyen (An Giang), checked with WorldCover (2026-09-26)
+study_area: null
+area_km2: 74326
+utm_zones: [48]
+run:
+  years: [2023, 2024]
+  sources: [sentinel2, landsat, google-embedding]
+  engines: [delineate-anything, ftw, embedding]
+  tile_size_km: 20
+  halo_m: 1000
+  reference: null
+tiling:
+  n_tiles: 196
+  grid: utm
+  computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=20000, halo_m=1000, crs='utm', clip=True)
+  halo_note: halo_m is an agribound choice; it must exceed the largest field dimension expected here (fields
+    larger than the halo that cross a tile core boundary can be truncated). Check n_reaching_halo_edge
+    in the merge summary.
+verification:
+  worldcover_date: '2026-09-26'
+  method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
+    seed 0) sampled at 10 m inside the bbox, the same share among land points (Map != 80), and the mean
+    of the class-40 mask at 1 km (GEE pyramid, approximate).'
+  worldcover_v200_cropland_fraction: 0.349
+  worldcover_v200_cropland_fraction_of_land: 0.576
+  worldcover_v200_cropland_fraction_1km: 0.375
+  worldcover_points: 1658 cropland of 4757 valid points
+  test_bbox_worldcover_v200_cropland_fraction: 0.567
+sources:
+  checked: GEE image counts 2026-09-26 (with the author's Earth Engine project); TESSERA manifests fetched 2026-09-26;
+    USGS NAIP Plus catalogue queried 2026-09-27
+  sentinel2:
+    collection: COPERNICUS/S2_SR_HARMONIZED
+    images_intersecting_bbox:
+      2017: 31
+      2019: 1459
+      2023: 1493
+      2024: 1484
+      2025: 1742
+  landsat:
+    collection: LANDSAT/LC08|LC09/C02/T1_L2 (L8 + L9 counted)
+    images_intersecting_bbox:
+      2023: 347
+      2024: 336
+  hls:
+    collection: NASA/HLS/HLSL30/v002 + HLSS30/v002
+    l30_images:
+      2023: 1075
+      2024: 1044
+    s30_images:
+      2023: 2606
+      2024: 2735
+  naip: not available (US only)
+  usgs-naip-plus: not available (US only)
+  spot:
+    access: restricted (AIRBUS/SPOT6_7; DRI-internal GEE access)
+    scenes_intersecting_bbox_by_year:
+      2013: 24
+      2014: 16
+      2015: 57
+      2016: 42
+      2017: 42
+      2018: 23
+      2019: 26
+      2020: 10
+      2021: 15
+      2022: 1
+      2023: 6
+    note: 'Scene counts, not coverage: scenes may cover only part of the bbox.'
+  google-embedding:
+    collection: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
+    images_by_year:
+      2017: 9
+      2018: 9
+      2019: 9
+      2020: 9
+      2021: 9
+      2022: 9
+      2023: 9
+      2024: 9
+      2025: 9
+  tessera-embedding:
+    v1:
+      tiles_expected: 650
+      tiles_by_year:
+        2017: 40
+        2018: 46
+        2019: 41
+        2020: 47
+        2021: 69
+        2022: 44
+        2023: 43
+        2024: 456
+    v1.1:
+      tiles_expected: 650
+      tiles_by_year:
+        2017: 73
+        2018: 73
+        2019: 73
+        2020: 73
+        2021: 73
+        2022: 73
+        2023: 73
+        2024: 73
+        2025: 73
+    note: 'Tile counts from the TESSERA manifests (v1 ''vultr'', v1.1 ''cambridge'') fetched 2026-09-26:
+      0.1-degree tiles present per year vs. all tiles intersecting the bbox (expected includes water,
+      which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
+      before large runs.'
+reference_data:
+- 'FTW benchmark chips for Vietnam (ftw-tools: ''ftw data download''); these are sample chips, not wall-to-wall
+  boundaries.'
+ftw:
+  in_ftw_benchmark_countries: true
+  note: Vietnam is one of the FTW benchmark countries (ftw_tools.settings.ALL_COUNTRIES); the default
+    FTW model (FTW_PRUE_EFNET_B5) was trained on the full FTW data.
+  published_predictions: FTW Global prediction polygons exist for country VN (Source Cooperative alpha/results-by-admin-conf);
+    query them with 'agribound query-ftw --study-area bbox:... --year 2024'. They are model outputs, not
+    reference data.
+notes:
+- 'Persistent wet-season cloud: consider --s2-cloud-mask cloud_score_plus and check composite coverage.'
+- 'The bbox includes sea (no WorldCover data there): cropland is 58 % of land points.'
+- 'TESSERA is not a default source here: v1 has 456 of 650 tiles in 2024 and under 70 in other years,
+  v1.1 has 73.'
+- 'The bbox extends into Cambodia: 8.0 % of it is Cambodia (LSIB_SIMPLE/2017), holding about 19 % of the
+  WorldCover 2021 cropland in the bbox (300 m, approximate; checked 2026-09-28). The
+  worldcover_v200_cropland_fraction values above cover the whole bbox; clip results to Vietnam for
+  statistics about the delta.'

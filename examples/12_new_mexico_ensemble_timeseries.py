@@ -1,46 +1,99 @@
 """
-12 — Eastern Lea County, NM: Multi-Model Per-Source Ensemble (2024)
+12 — Eastern Lea County, NM: Multi-Model, Per-Source Ensembles (2022)
 
-Comprehensive field boundary delineation using all available satellite
-sources and engines with **per-source** vote-based ensemble merging.
-Ensembles are computed within each sensor (multiple models on same data),
-not across sensors — merging across different resolutions produces noisy
-results.
+Runs every engine that supports each source on one study area and year,
+merges the results of each source with a pixel vote, refines each per-source
+ensemble with SAM 2, and evaluates everything against the NMOSE polygons.
+Ensembles are built within a source (several models on the same imagery),
+not across sources, and only for sources with at least two finished runs:
+google-embedding and tessera-embedding have a single run each (the
+embedding engine), so they get no ensemble and no SAM step.
 
-Sources: Sentinel-2, Landsat, HLS, NAIP, SPOT, Google & TESSERA embeddings
-Engines: delineate-anything (2 variants), FTW (3 models: B3/B5/B7),
-         GeoAI, DINOv3, Prithvi, embedding
+Sources and engines (each engine only on the sources it supports):
+    sentinel2, landsat, hls : FTW (FTW_PRUE_EFNET_B3/B5/B7), DINOv3, Prithvi,
+                              Delineate-Anything (large_v2, small); GeoAI on
+                              Sentinel-2 only
+    naip                    : GeoAI, DINOv3, Delineate-Anything (large_v2, small)
+    spot                    : DINOv3, Delineate-Anything (large_v2, small)
+    google-embedding,
+    tessera-embedding (v1)  : embedding clustering
 
-For each source, multiple engines are run and merged via majority vote.
-Each engine is independently fine-tuned on NMOSE reference boundaries.
-SAM2 refines each per-source ensemble using that source's native raster.
+Fine-tuning: Delineate-Anything, GeoAI, DINOv3 and Prithvi are fine-tuned on
+the NMOSE polygons of the study area (GeoAI and DINOv3 cannot run without a
+fine-tuned checkpoint). FTW and the embedding engine cannot be fine-tuned and
+run label-free. On Landsat and HLS, FTW is out of distribution (it is
+calibrated on Sentinel-2) and Delineate-Anything is outside its 0.25-10 m
+training range; agribound logs WARNINGs and records both in ``engine_meta``.
+Non-FTW engines on Sentinel-2, Landsat and HLS use an October composite; FTW
+builds its own two seasonal windows. The LULC crop filter is on in every
+run (NLCD is selected in the conterminous US) and needs Earth Engine.
 
-Study area: Eastern Lea County (County 25), a ~20×22 km bbox over the
-center pivot irrigation area.
+SAM 2 on 30 m sources: SAM prompts a polygon only if its bounding box,
+padded by 15 %, is at least 64 pixels on each side (``sam_min_crop_px`` and
+``sam_crop_padding`` defaults), i.e. about 49 pixels unpadded: ~1.5 km at
+30 m, ~490 m at 10 m, ~295 m at 6 m and ~49 m at 1 m. Of the 230 NMOSE
+polygons intersecting the box (median bounding-box width ~780 m), none pass
+at 30 m, 151 at 10 m, 186 at 6 m and 226 at 1 m. On the Landsat and HLS
+ensembles SAM therefore changes only polygons whose bounding box is about
+1.5 km or more on each side (e.g. several fields merged into one); the
+script prints how many polygons it refined.
 
-Estimated runtime: ~3–6 hours (up to 20+ source–engine–model combos +
-per-model fine-tuning, GPU recommended).  Best run on HPC/cloud with GPU.
+Why 2022: it is the latest year with every source over this box. Earth Engine
+NAIP ends in 2023 and eastern Lea County has NAIP for 2020 and 2022 but not
+2021 or 2023-2025; SPOT 6/7 ends on 2023-11-15; TESSERA v1 has every tile of
+the box in 2017-2025 (queried 2026-09-27).
+
+Environments: FTW needs ftw-tools (core environment) and Prithvi needs
+terratorch (GFM environment); they cannot be installed together. The script
+skips engines whose package is missing. Outputs are separate files per
+source, engine, model and year, so running the script once in each
+environment adds the missing engines; the ensembles and the evaluation use
+every output present.
+
+Evaluation: against the 227 NMOSE polygons whose representative point lies
+in the box, the rule the pipeline uses to keep predictions
+(``aoi_selection="representative_point"``), so a field crossing the box edge
+is left out of both layers. The fine-tuning reference file holds all 230
+polygons that intersect the box. For the fine-tuned engines (and ensembles
+that contain them) the evaluation is in-sample: they were trained on these
+polygons. NMOSE may not include every field in the box; predictions of
+fields it lacks count as false positives ("FP-noref" = false positives that
+overlap no reference polygon).
+
+Estimated runtime (not measured for 1.0): several hours (31 source-engine-model
+runs, 20 of them fine-tuned, in the two environments together; GPU required in
+practice). Best run on HPC/cloud.
 
 Prerequisites:
-    pip install agribound[gee,delineate-anything,ftw,geoai,prithvi,samgeo]
+    Core env:  pip install "agribound[gee,delineate-anything,ftw,geoai,samgeo,tessera]"
+    GFM env:   conda env create -f environment-gfm.yml   (Prithvi)
     agribound auth --project YOUR_GEE_PROJECT
+    NMOSE shapefile at "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
+    SPOT 6/7 is restricted to select Earth Engine users (the SPOT runs fail otherwise)
+    Run from the repository root: python examples/12_new_mexico_ensemble_timeseries.py
 """
 
 import argparse
+import importlib.util
 import json
+import logging
+import os
+import sys
 import warnings
 from pathlib import Path
 
-warnings.filterwarnings("ignore", message=".*organizePolygons.*")
-warnings.filterwarnings("ignore", message=".*STAC entry.*", category=RuntimeWarning)
-warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
-
-import logging
-
 import agribound
 from agribound.evaluate import evaluate
+from agribound.provenance import read_provenance
+from agribound.registry import engine_supports_source, list_sources
 
-# Enable agribound logging so download/processing progress is visible
+# Paths below are relative to the repository root. The notebook version of this
+# script runs from examples/notebooks/, so it changes to the repository root first.
+if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
+    os.chdir(Path.cwd().parents[1])
+
+warnings.filterwarnings("ignore", message=".*organizePolygons.*")
+warnings.filterwarnings("ignore", message=".*STAC entry.*", category=RuntimeWarning)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(message)s",
@@ -51,32 +104,20 @@ logging.getLogger("googleapiclient").setLevel(logging.CRITICAL)
 logging.getLogger("geedim").setLevel(logging.ERROR)
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("methods").setLevel(logging.WARNING)
 
 # --- Configuration ---
 NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
 OUTPUT_DIR = Path("outputs/lea_county_ensemble")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_CRS = "EPSG:26913"  # Match NMOSE reference CRS (NAD83 / UTM zone 13N)
+COUNTY_CODE = "25"  # Lea County in the NMOSE "County" column
+BBOX = (-103.25, 32.75, -103.05, 32.95)  # eastern Lea County (centre pivots)
+YEAR = 2022
+FINE_TUNE_EPOCHS = 10  # 20 or more for production runs
+FINE_TUNE_ENGINES = {"delineate-anything", "geoai", "dinov3", "prithvi"}
+BATCH_SIZE = 8
+SAM_REFINE = True  # SAM 2 on each per-source ensemble (needs agribound[samgeo])
+SAM_MODEL = "tiny"  # SAM 2 size alias: tiny, small, base_plus, large
+VOTE_THRESHOLD = 0.3
 
-COUNTY_CODE = "25"  # Lea County
-FINE_TUNE = True  # Fine-tune engines on NMOSE reference boundaries
-FINE_TUNE_EPOCHS = 10  # Set to 20 for production runs
-FINE_TUNE_ENGINES = {
-    "delineate-anything",
-    "geoai",
-    "prithvi",
-    "dinov3",
-}  # FTW uses pre-trained weights
-BATCH_SIZE = 8  # Increase for more RAM (e.g. 16 for 128 GB)
-SAM_REFINE = True  # Refine boundaries with SAM2 (requires pip install agribound[samgeo])
-SAM_MODEL = "tiny"  # SAM2 variant: "tiny", "small", "base_plus", "large"
-SAM_BATCH_SIZE = 50  # Number of field boxes per SAM2 batch
-YEARS = [2024]
-VOTE_THRESHOLD = 0.3  # Fraction of source–engine combos that must agree
-
-# Source → compatible engines
-# For "ftw" entries, each FTW model is run separately via FTW_MODELS below.
 SOURCE_ENGINE_MAP = {
     "sentinel2": ["ftw", "geoai", "dinov3", "prithvi", "delineate-anything"],
     "landsat": ["ftw", "dinov3", "prithvi", "delineate-anything"],
@@ -86,453 +127,297 @@ SOURCE_ENGINE_MAP = {
     "google-embedding": ["embedding"],
     "tessera-embedding": ["embedding"],
 }
+FTW_MODELS = ["FTW_PRUE_EFNET_B3", "FTW_PRUE_EFNET_B5", "FTW_PRUE_EFNET_B7"]
+DA_MODELS = ["large_v2", "small"]  # Delineate-Anything v2 (YOLO11x) and v1 small (YOLO11n)
 
-# FTW v3 EfficientNet models (current, best performance).
-# When "ftw" appears in SOURCE_ENGINE_MAP, each of these models is run.
-FTW_MODELS = [
-    "FTW_PRUE_EFNET_B3",
-    "FTW_PRUE_EFNET_B5",
-    "FTW_PRUE_EFNET_B7",
-]
-
-# Delineate-Anything model variants (instance segmentation).
-# When "delineate-anything" appears in SOURCE_ENGINE_MAP, both are run.
-DA_MODELS = [
-    "DelineateAnything",  # Full model (more accurate, slower)
-    "DelineateAnything-S",  # Small model (faster, less accurate)
-]
-
-# Year availability constraints (failures outside range are expected)
-SOURCE_YEAR_RANGE = {
-    "sentinel2": (2017, 2025),
-    "landsat": (1985, 2025),
-    "hls": (2013, 2025),
-    "naip": (2003, 2025),  # Periodic acquisition; may not cover every year
-    "spot": (2012, 2023),  # Restricted access; 2012-10-17 to 2023-11-15
-    "google-embedding": (2018, 2024),
-    "tessera-embedding": (2017, 2024),
+#: Python package each engine needs.
+ENGINE_PACKAGES = {
+    "delineate-anything": "ultralytics",
+    "ftw": "ftw_tools",
+    "geoai": "geoai",
+    "dinov3": "geoai",
+    "prithvi": "terratorch",
+    "embedding": "sklearn",
 }
 
 
-def create_county_study_area(shapefile_path, county_code):
-    """Extract eastern Lea County study area and reference boundaries.
+def engine_available(engine):
+    """True if the engine's Python package can be imported in this environment."""
+    return importlib.util.find_spec(ENGINE_PACKAGES[engine]) is not None
 
-    Uses a ~20×22 km bbox over eastern Lea County where center pivots are
-    dense.  This keeps NAIP (1 m) and SPOT (6 m) runtimes practical.
-    """
+
+def create_study_area(shapefile_path, county_code):
+    """Write the study-area GeoJSON and the NMOSE polygons that intersect it."""
     import geopandas as gpd
     from shapely.geometry import box
 
-    gdf = gpd.read_file(shapefile_path)
+    minx, miny, maxx, maxy = BBOX
+    ring = [[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]
+    feature = {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring]}}
+    feature["properties"] = {"name": f"Eastern Lea County (County {county_code})"}
+    aoi_path = OUTPUT_DIR / "lea_county_study_area.geojson"
+    aoi_path.write_text(json.dumps({"type": "FeatureCollection", "features": [feature]}))
 
-    # Filter to target county
-    county_gdf = gdf[gdf["County"] == county_code].copy()
-    if len(county_gdf) == 0:
-        raise ValueError(
-            f"No records found for County {county_code}. "
-            f"Available counties: {sorted(gdf['County'].unique())}"
-        )
-
-    # Eastern Lea County bbox (center pivot area)
-    bbox_geojson = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [
-                        [
-                            [-103.25, 32.75],
-                            [-103.05, 32.75],
-                            [-103.05, 32.95],
-                            [-103.25, 32.95],
-                            [-103.25, 32.75],
-                        ]
-                    ],
-                },
-                "properties": {"name": f"Eastern Lea County (County {county_code})"},
-            }
-        ],
-    }
-    out_path = OUTPUT_DIR / "lea_county_study_area.geojson"
-    with open(out_path, "w") as f:
-        json.dump(bbox_geojson, f)
-
-    # Clip reference boundaries to the study area bbox
-    bbox_geom = box(-103.25, 32.75, -103.05, 32.95)
-    county_4326 = county_gdf.to_crs(epsg=4326)
-    ref_clipped = county_4326[county_4326.intersects(bbox_geom)].copy()
-    ref_clipped = ref_clipped.to_crs(county_gdf.crs)
-
-    # Save reference boundaries for fine-tuning
     ref_path = OUTPUT_DIR / "lea_county_reference.gpkg"
+    # Written once: the file's modification time is part of the fine-tuning cache key.
     if not ref_path.exists():
-        ref_clipped.to_file(ref_path, driver="GPKG")
+        ref = gpd.read_file(shapefile_path)
+        ref = ref[ref["County"] == county_code]
+        ref = ref[ref.to_crs(epsg=4326).intersects(box(*BBOX))]
+        ref.to_file(ref_path, driver="GPKG", layer="fields")
+    return str(aoi_path), gpd.read_file(ref_path), str(ref_path)
 
-    return str(out_path), ref_clipped, str(ref_path)
 
+def evaluation_reference(ref_gdf, study_area):
+    """Reference polygons whose representative point lies in the study area.
 
-def run_delineation(source, engine, year, study_area, gee_project, model=None, ref_path=None):
-    """Run a single source–engine delineation, returning (GeoDataFrame, path).
-
-    Parameters
-    ----------
-    model : str or None
-        Model name override for FTW (e.g. ``"FTW_PRUE_EFNET_B7"``) or
-        Delineate-Anything (e.g. ``"DelineateAnything-S"``).
-    ref_path : str or None
-        Path to reference boundaries for fine-tuning.
+    This is the rule the pipeline applies to the predictions
+    (``aoi_selection="representative_point"``), computed with the pipeline's
+    own functions.
     """
+    from agribound.config import AgriboundConfig
+    from agribound.pipeline import select_in_study_area, study_area_in_crs
+
+    aoi = study_area_in_crs(AgriboundConfig(study_area=study_area), ref_gdf.crs)
+    return select_in_study_area(ref_gdf, aoi, "representative_point")[0]
+
+
+def output_path_for(source, engine, model=None):
+    """Output file of one source-engine(-model) run."""
+    suffix = f"_{model}" if model else ""
+    return OUTPUT_DIR / f"fields_{source}_{engine}{suffix}_{YEAR}.gpkg"
+
+
+def load_finished(path):
+    """Load an output whose provenance record reports success (e.g. from the other env)."""
     import geopandas as gpd
 
-    suffix = f"_{model}" if model else ""
-    output_path = OUTPUT_DIR / f"fields_{source}_{engine}{suffix}_{year}.gpkg"
+    record = read_provenance(path)
+    if path.exists() and record is not None and record.get("status") == "success":
+        return gpd.read_file(path)
+    return None
 
-    if output_path.exists():
-        return gpd.read_file(output_path), output_path
 
+def run_delineation(source, engine, study_area, gee_project, ref_path, model=None):
+    """Run one source-engine(-model) delineation; return (GeoDataFrame, output path)."""
+    output_path = output_path_for(source, engine, model)
+    engine_params = {}
     kwargs = dict(
         study_area=study_area,
         source=source,
-        year=year,
+        year=YEAR,
         engine=engine,
         output_path=str(output_path),
         gee_project=gee_project,
         min_area=2500,
         simplify=2.0,
-        device="auto",
-        engine_params={"batch_size": BATCH_SIZE},
     )
-
-    # Fine-tune on NMOSE reference boundaries if supported
-    if FINE_TUNE and ref_path and engine in FINE_TUNE_ENGINES:
-        kwargs["reference_boundaries"] = ref_path
-        kwargs["fine_tune"] = True
-        kwargs["fine_tune_epochs"] = FINE_TUNE_EPOCHS
-
-    # Source-specific composite parameters
-    # Use October (harvest season) composite for non-FTW engines.
-    # FTW builds its own bi-temporal input (Apr + Oct) internally.
-    if source in ("sentinel2", "landsat", "hls"):
-        kwargs["composite_method"] = "median"
-        kwargs["cloud_cover_max"] = 20
-        if engine != "ftw":
-            kwargs["date_range"] = (f"{year}-10-01", f"{year}-10-31")
-    elif source == "spot":
-        kwargs["composite_method"] = "median"
-        kwargs["cloud_cover_max"] = 15
-    elif source == "naip":
-        kwargs["min_area"] = 5000  # 1 m resolution → larger minimum
-    elif source in ("google-embedding", "tessera-embedding"):
-        kwargs["device"] = "cpu"
-        kwargs["min_area"] = 5000
-        kwargs["engine_params"].update(
-            {
-                "use_pca": True,
-                "pca_components": 16,
-                "n_clusters": "auto",
-            }
+    if engine != "embedding":
+        engine_params["batch_size"] = BATCH_SIZE
+    if engine in FINE_TUNE_ENGINES:
+        kwargs.update(
+            reference_boundaries=ref_path, fine_tune=True, fine_tune_epochs=FINE_TUNE_EPOCHS
         )
-
-    # Model override for FTW or Delineate-Anything
+    if source in ("sentinel2", "landsat", "hls"):
+        kwargs.update(composite_method="median", cloud_cover_max=20)
+        if engine != "ftw":
+            kwargs["date_range"] = (f"{YEAR}-10-01", f"{YEAR}-10-31")
+    elif source == "spot":
+        kwargs.update(composite_method="median", cloud_cover_max=15)
+    elif source == "naip":
+        kwargs["min_area"] = 5000
+    elif source == "tessera-embedding":
+        kwargs.update(tessera_version="v1", device="cpu", min_area=5000)
+    elif source == "google-embedding":
+        kwargs.update(device="cpu", min_area=5000)
     if model and engine == "ftw":
-        kwargs.setdefault("engine_params", {})
-        kwargs["engine_params"]["model"] = model
+        engine_params["model"] = model
     elif model and engine == "delineate-anything":
-        kwargs.setdefault("engine_params", {})
-        kwargs["engine_params"]["da_model"] = model
-
-    gdf = agribound.delineate(**kwargs)
-    # Reproject to match NMOSE reference CRS
-    if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
-        gdf = gdf.to_crs(OUTPUT_CRS)
-        gdf.to_file(output_path, driver="GPKG", layer="fields")
-    return gdf, output_path
+        engine_params["da_model"] = model
+    kwargs["engine_params"] = engine_params
+    # An existing output with a matching provenance record is loaded, not recomputed.
+    return agribound.delineate(**kwargs), output_path
 
 
-def grand_ensemble_vote(results, threshold):
-    """Merge results from multiple source–engine combos via majority vote."""
-    from agribound.engines.ensemble import EnsembleEngine
+def raster_of(output_path):
+    """Composite path recorded in an output's provenance record (or None)."""
+    record = read_provenance(output_path) or {}
+    return (record.get("facts") or {}).get("raster_path"), record.get("config")
 
-    return EnsembleEngine._merge_vote(results, threshold)
+
+def parse_args(argv=None):
+    """Parse command-line arguments (none are read inside Jupyter)."""
+    parser = argparse.ArgumentParser(description="Lea County: per-source multi-model ensembles.")
+    parser.add_argument(
+        "--gee-project",
+        default=None,
+        help=(
+            "Earth Engine project ID (default: $GEE_PROJECT, then the gcloud project, then "
+            "the project_id of the $AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY or "
+            "$GOOGLE_APPLICATION_CREDENTIALS file)."
+        ),
+    )
+    parser.add_argument("--no-sam", action="store_true", help="Skip the SAM 2 refinement.")
+    if argv is None and "ipykernel" in sys.modules:
+        argv = []  # Jupyter passes its own kernel arguments in sys.argv
+    return parser.parse_args(argv)
 
 
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Lea County multi-source ensemble time series.")
-    parser.add_argument("--gee-project", default=None, help="GEE project ID.")
-    return parser.parse_args()
+def show_in_notebook(web_map):
+    """Display *web_map* inline when this file runs as a Jupyter notebook."""
+    if "ipykernel" in sys.modules:
+        from IPython.display import display
+
+        display(web_map)
 
 
 def main():
-    """Run multi-source ensemble field boundary delineation for Lea County."""
     args = parse_args()
-    gee_project = args.gee_project
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not Path(NMOSE_SHAPEFILE).exists():
+        raise SystemExit(f"NMOSE reference not found: {NMOSE_SHAPEFILE}")
+    study_area, ref_gdf, ref_path = create_study_area(NMOSE_SHAPEFILE, COUNTY_CODE)
+    eval_ref = evaluation_reference(ref_gdf, study_area)
+    print(
+        f"Study area: {study_area} ({len(ref_gdf)} NMOSE polygons intersect it (fine-tuning "
+        f"reference); {len(eval_ref)} have their representative point in it (evaluation))"
+    )
 
-    import geopandas as gpd
-
-    # --- Derive study area from Lea County subset ---
-    study_area, ref_gdf, ref_path = create_county_study_area(NMOSE_SHAPEFILE, COUNTY_CODE)
-    print(f"Study area: Lea County ({len(ref_gdf)} reference polygons)")
-    print(f"Study area GeoJSON: {study_area}")
-    if FINE_TUNE:
-        print(f"Fine-tuning enabled ({FINE_TUNE_EPOCHS} epochs) using: {ref_path}")
-
-    # ================================================================
-    # Phase 1: Individual source–engine delineation (2020–2022)
-    # ================================================================
-    print(f"\n{'=' * 70}")
-    print("Phase 1: Per-source, per-engine delineation")
-    print(f"  Sources: {', '.join(SOURCE_ENGINE_MAP)}")
-    print(f"  Years:   {min(YEARS)}–{max(YEARS)}")
-    print(f"{'=' * 70}")
-
-    all_results = {}  # {year: {"source/engine": gdf}}
-
-    for year in YEARS:
-        print(f"\n--- Year {year} ---")
-        all_results[year] = {}
-
-        # Skip Phase 1 entirely if the grand ensemble for this year exists
-        ensemble_path = OUTPUT_DIR / f"fields_grand_ensemble_{year}.gpkg"
-        if ensemble_path.exists():
-            print(f"  Grand ensemble already exists: {ensemble_path}, skipping individual runs.")
-            # Still load individual results for evaluation (Phase 3)
-            for source, engines in SOURCE_ENGINE_MAP.items():
-                yr_min, yr_max = SOURCE_YEAR_RANGE[source]
-                if year < yr_min or year > yr_max:
-                    continue
-                for engine in engines:
-                    if engine == "ftw":
-                        for ftw_model in FTW_MODELS:
-                            tag = f"{source}/ftw/{ftw_model}"
-                            p = OUTPUT_DIR / f"fields_{source}_{engine}_{ftw_model}_{year}.gpkg"
-                            if p.exists():
-                                all_results[year][tag] = gpd.read_file(p)
-                    elif engine == "delineate-anything":
-                        for da_model in DA_MODELS:
-                            tag = f"{source}/da/{da_model}"
-                            p = OUTPUT_DIR / f"fields_{source}_{engine}_{da_model}_{year}.gpkg"
-                            if p.exists():
-                                all_results[year][tag] = gpd.read_file(p)
-                    else:
-                        tag = f"{source}/{engine}"
-                        p = OUTPUT_DIR / f"fields_{source}_{engine}_{year}.gpkg"
-                        if p.exists():
-                            all_results[year][tag] = gpd.read_file(p)
-            continue
-
-        for source, engines in SOURCE_ENGINE_MAP.items():
-            yr_min, yr_max = SOURCE_YEAR_RANGE[source]
-            if year < yr_min or year > yr_max:
-                continue
-
-            for engine in engines:
-                if engine == "ftw":
-                    # Run every FTW model separately for ensemble diversity
-                    for ftw_model in FTW_MODELS:
-                        tag = f"{source}/ftw/{ftw_model}"
-                        print(f"  {tag}: starting...", flush=True)
-                        try:
-                            gdf, _ = run_delineation(
-                                source,
-                                engine,
-                                year,
-                                study_area,
-                                gee_project,
-                                model=ftw_model,
-                                ref_path=ref_path,
-                            )
-                            all_results[year][tag] = gdf
-                            print(f"  {tag}: {len(gdf)} fields")
-                        except Exception as exc:
-                            print(f"  {tag}: FAILED — {exc}")
-                elif engine == "delineate-anything":
-                    # Run both DA model variants
-                    for da_model in DA_MODELS:
-                        tag = f"{source}/da/{da_model}"
-                        print(f"  {tag}: starting...", flush=True)
-                        try:
-                            gdf, _ = run_delineation(
-                                source,
-                                engine,
-                                year,
-                                study_area,
-                                gee_project,
-                                model=da_model,
-                                ref_path=ref_path,
-                            )
-                            all_results[year][tag] = gdf
-                            print(f"  {tag}: {len(gdf)} fields")
-                        except Exception as exc:
-                            print(f"  {tag}: FAILED — {exc}")
-                else:
-                    tag = f"{source}/{engine}"
-                    print(f"  {tag}: starting...", flush=True)
-                    try:
-                        gdf, _ = run_delineation(
-                            source,
-                            engine,
-                            year,
-                            study_area,
-                            gee_project,
-                            ref_path=ref_path,
-                        )
-                        all_results[year][tag] = gdf
-                        print(f"  {tag}: {len(gdf)} fields")
-                    except Exception as exc:
-                        print(f"  {tag}: FAILED — {exc}")
-
-    # ================================================================
-    # Phase 2: Per-source ensemble (vote merge across engines, not sensors)
-    # ================================================================
-    # Ensembles work best when multiple models run on the same sensor.
-    # Merging across different sensors (1m NAIP + 30m Landsat) produces
-    # noisy vote overlap due to resolution/temporal mismatches.
-    print(f"\n{'=' * 70}")
-    print(f"Phase 2: Per-source ensemble (vote threshold={VOTE_THRESHOLD})")
-    print(f"{'=' * 70}")
-
-    from agribound.postprocess import filter_polygons
-
-    ensemble_results = {}  # {year: {source: gdf}}
-
-    for year in YEARS:
-        year_results = all_results.get(year, {})
-        if not year_results:
-            continue
-
-        ensemble_results[year] = {}
-
-        # Group results by source
-        source_groups = {}  # {source: {tag: gdf}}
-        for tag, gdf in year_results.items():
-            source = tag.split("/")[0]
-            source_groups.setdefault(source, {})[tag] = gdf
-
-        for source, engine_results in sorted(source_groups.items()):
-            if len(engine_results) < 2:
-                # Single engine — use directly, no vote needed
-                only_gdf = next(iter(engine_results.values()))
-                ensemble_results[year][source] = only_gdf
-                print(f"  {year}/{source}: single engine, {len(only_gdf)} fields")
-                continue
-
-            output_path = OUTPUT_DIR / f"fields_ensemble_{source}_{year}.gpkg"
-
-            if output_path.exists():
-                ensemble_results[year][source] = gpd.read_file(output_path)
-                print(f"  {year}/{source}: loaded cached ensemble")
-                continue
-
+    for engine in sorted({e for engines in SOURCE_ENGINE_MAP.values() for e in engines}):
+        if not engine_available(engine):
             print(
-                f"  {year}/{source}: merging {len(engine_results)} engines...",
-                end=" ",
+                f"  {engine}: package {ENGINE_PACKAGES[engine]!r} is not installed; only "
+                "finished outputs from another environment are used"
             )
-            try:
-                gdf = grand_ensemble_vote(engine_results, VOTE_THRESHOLD)
-                gdf = filter_polygons(gdf, min_area_m2=2500)
-                print(f"{len(gdf)} fields")
-
-                # SAM2 refinement using this source's raster
-                if SAM_REFINE:
-                    try:
-                        from agribound.config import AgriboundConfig
-                        from agribound.engines.samgeo_engine import refine_boundaries
-
-                        raster_cache = OUTPUT_DIR / ".agribound_cache"
-                        raster_candidates = sorted(raster_cache.glob(f"*{source}*{year}*.tif"))
-                        if raster_candidates:
-                            sam_config = AgriboundConfig(
-                                source=source,
-                                engine="ensemble",
-                                year=year,
-                                study_area=study_area,
-                                output_path=str(output_path),
-                                engine_params={
-                                    "sam_model": SAM_MODEL,
-                                    "sam_batch_size": SAM_BATCH_SIZE,
-                                },
-                                device="auto",
-                            )
-                            gdf = refine_boundaries(gdf, str(raster_candidates[0]), sam_config)
-                            print(f"    SAM2 refined → {len(gdf)} fields")
-                    except Exception as exc:
-                        print(f"    SAM2 failed: {exc}")
-
-                if gdf.crs is not None and str(gdf.crs) != OUTPUT_CRS:
-                    gdf = gdf.to_crs(OUTPUT_CRS)
-                gdf.to_file(output_path, driver="GPKG", layer="fields")
-                ensemble_results[year][source] = gdf
-            except Exception as exc:
-                print(f"FAILED — {exc}")
 
     # ================================================================
-    # Phase 3: Evaluation against NMOSE reference
+    # Phase 1: one run per source, engine and model
     # ================================================================
-    print(f"\n{'=' * 70}")
-    print("Phase 3: Evaluation against NMOSE reference")
-    print(f"{'=' * 70}")
-
-    header = f"  {'Source/Engine':<40} {'Fields':>6} {'F1':>6} {'IoU':>6} {'P':>6} {'R':>6}"
-    print(f"\n{header}")
-    print(f"  {'-' * 40} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6}")
-
-    for year in YEARS:
-        # Individual runs
-        for tag, gdf in sorted(all_results.get(year, {}).items()):
-            try:
-                m = evaluate(gdf, ref_gdf)
-                print(
-                    f"  {tag:<40} {len(gdf):>6} "
-                    f"{m['f1']:.3f} {m['iou_mean']:.3f} "
-                    f"{m['precision']:.3f} {m['recall']:.3f}"
-                )
-            except Exception:
-                pass
-
-        # Per-source ensembles
-        year_ensembles = ensemble_results.get(year, {})
-        for source, gdf in sorted(year_ensembles.items()):
-            try:
-                m = evaluate(gdf, ref_gdf)
-                print(
-                    f"  {'** ' + source + ' ENSEMBLE **':<40} {len(gdf):>6} "
-                    f"{m['f1']:.3f} {m['iou_mean']:.3f} "
-                    f"{m['precision']:.3f} {m['recall']:.3f}"
-                )
-            except Exception:
-                pass
+    print(f"\n{'=' * 70}\nPhase 1: per-source, per-engine delineation ({YEAR})\n{'=' * 70}")
+    results = {}  # {source: {tag: (gdf, path)}}
+    for source, engines in SOURCE_ENGINE_MAP.items():
+        for engine in engines:
+            if not engine_supports_source(engine, source):
+                continue
+            models = FTW_MODELS if engine == "ftw" else DA_MODELS
+            if engine not in ("ftw", "delineate-anything"):
+                models = [None]
+            for model in models:
+                tag = f"{source}/{engine}" + (f"/{model}" if model else "")
+                if not engine_available(engine):
+                    path = output_path_for(source, engine, model)
+                    gdf = load_finished(path)
+                    if gdf is not None:
+                        results.setdefault(source, {})[tag] = (gdf, path)
+                        print(f"  {tag}: loaded {len(gdf)} fields from {path}")
+                    continue
+                print(f"  {tag}: starting", flush=True)
+                try:
+                    gdf, path = run_delineation(
+                        source, engine, study_area, args.gee_project, ref_path, model=model
+                    )
+                except Exception as exc:
+                    print(f"  {tag}: FAILED ({type(exc).__name__}: {exc})")
+                    continue
+                results.setdefault(source, {})[tag] = (gdf, path)
+                print(f"  {tag}: {len(gdf)} fields")
 
     # ================================================================
-    # Phase 4: Visualization
+    # Phase 2: per-source vote ensembles (+ SAM 2)
     # ================================================================
-    print(f"\n{'=' * 70}")
-    print("Generating maps...")
-    print(f"{'=' * 70}")
+    print(f"\n{'=' * 70}\nPhase 2: per-source vote ensembles\n{'=' * 70}")
+    from agribound.config import AgriboundConfig
+    from agribound.engines.ensemble import EnsembleEngine
+    from agribound.postprocess import filter_polygons
+    from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
 
+    resolution = {name: info["resolution_m"] for name, info in list_sources().items()}
+    ensembles = {}  # {label: gdf}
+    use_sam = SAM_REFINE and not args.no_sam and importlib.util.find_spec("samgeo") is not None
+    for source, members in results.items():
+        if len(members) < 2:
+            continue
+        member_gdfs = {tag: gdf for tag, (gdf, _) in members.items()}
+        vote = EnsembleEngine._merge_vote(
+            member_gdfs, VOTE_THRESHOLD, resolution=resolution[source]
+        )
+        min_votes = (vote.attrs.get("vote_stats") or {}).get("min_votes")
+        vote = filter_polygons(vote, min_area_m2=2500)
+        print(f"  {source}: {len(members)} members, min_votes={min_votes} -> {len(vote)} polygons")
+        if len(vote):
+            vote.to_file(OUTPUT_DIR / f"fields_{source}_ensemble-vote_{YEAR}.gpkg", layer="fields")
+        ensembles[f"{source} ensemble"] = vote
+        if not use_sam or len(vote) == 0:
+            continue
+        # Refine on the raster the non-FTW members used (recorded in their provenance).
+        non_ftw = [p for tag, (_, p) in members.items() if "/ftw/" not in tag]
+        raster_path, member_config = raster_of(non_ftw[0]) if non_ftw else (None, None)
+        if not raster_path or not member_config:
+            print(f"    no raster recorded for {source}; SAM skipped")
+            continue
+        sam_config = AgriboundConfig.from_dict(member_config).merged(
+            sam_backend="sam2", sam_model=SAM_MODEL
+        )
+        from agribound.engines.samgeo_engine import refine_boundaries
+
+        try:
+            refined = refine_boundaries(vote, raster_path, sam_config)
+        except Exception as exc:
+            print(f"    SAM 2 failed for {source}: {type(exc).__name__}: {exc}")
+            continue
+        stats = refined.attrs.get("sam_stats", {})
+        refined = filter_polygons(refined, min_area_m2=2500)
+        refined = simplify_polygons(smooth_polygons(refined, iterations=3), tolerance=2.0)
+        refined.to_file(
+            OUTPUT_DIR / f"fields_{source}_ensemble-vote-sam2_{YEAR}.gpkg", layer="fields"
+        )
+        ensembles[f"{source} ensemble + SAM 2"] = refined
+        print(
+            f"    SAM 2 ({stats.get('model')}): refined {stats.get('n_refined')} of "
+            f"{stats.get('n_total')} (too small: {stats.get('n_skipped_small')})"
+        )
+
+    # ================================================================
+    # Phase 3: evaluation against the NMOSE polygons
+    # ================================================================
+    print(f"\n{'=' * 70}\nPhase 3: evaluation against NMOSE ({len(eval_ref)} polygons)\n{'=' * 70}")
+    print(f"  {'Run':<46} {'Fields':>6} {'F1':>6} {'IoU':>6} {'P':>6} {'R':>6} {'FP-noref':>8}")
+
+    def report(label, gdf, in_sample):
+        m = evaluate(gdf, eval_ref)
+        note = " (in-sample)" if in_sample else ""
+        print(
+            f"  {label + note:<46} {len(gdf):>6} {m['f1']:.3f}  {m['iou_mean']:.3f}  "
+            f"{m['precision']:.3f}  {m['recall']:.3f}  {m['count_fp_unassigned']:>8}"
+        )
+
+    for members in results.values():
+        for tag, (gdf, _) in members.items():
+            report(tag, gdf, tag.split("/")[1] in FINE_TUNE_ENGINES)
+    for label, gdf in ensembles.items():
+        fine_tuned = any(
+            tag.split("/")[1] in FINE_TUNE_ENGINES for tag in results[label.split()[0]]
+        )
+        report(label, gdf, fine_tuned)
+
+    # ================================================================
+    # Phase 4: map
+    # ================================================================
+    if not ensembles:
+        print("\nNo ensemble was built; no map written.")
+        return
     from agribound.visualize import show_comparison
 
-    for year in YEARS:
-        year_ensembles = ensemble_results.get(year, {})
-        if not year_ensembles:
-            continue
-
-        # Per-source ensemble comparison + reference
-        comp_gdfs = list(year_ensembles.values()) + [ref_gdf]
-        comp_labels = [f"{s} ensemble" for s in year_ensembles] + ["NMOSE Reference"]
-        show_comparison(
-            comp_gdfs,
-            labels=comp_labels,
-            basemap="Esri.WorldImagery",
-            output_html=str(OUTPUT_DIR / f"map_ensemble_comparison_{year}.html"),
-        )
-        print(f"  Ensemble comparison: {OUTPUT_DIR / f'map_ensemble_comparison_{year}.html'}")
+    map_path = OUTPUT_DIR / f"map_ensemble_comparison_{YEAR}.html"
+    web_map = show_comparison(
+        [*ensembles.values(), eval_ref],
+        labels=[*ensembles.keys(), "NMOSE reference"],
+        basemap="Esri.WorldImagery",
+        output_html=str(map_path),
+    )
+    show_in_notebook(web_map)
+    print(f"\n  Ensemble comparison map: {map_path}")
 
 
 if __name__ == "__main__":
     main()
-    import os
-
-    os._exit(0)  # Force exit — geedim\'s async runner hangs on cleanup

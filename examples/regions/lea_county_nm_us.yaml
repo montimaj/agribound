@@ -1,0 +1,155 @@
+# Region: Lea County, New Mexico, USA
+# Read by examples/run_region_delineation.sh (via 'agribound tiles region') and
+# agribound.hpc.regions.load_region. 'run' holds the defaults the driver uses;
+# everything else documents how the region was checked. bbox values are EPSG:4326
+# [minx, miny, maxx, maxy]. Paths in 'run' are relative to this file.
+name: lea_county_nm_us
+title: Lea County, New Mexico, USA
+description: 'Lea County in south-eastern New Mexico: centre-pivot and dryland fields on the Llano Estacado
+  along the Texas border.'
+country: US
+bbox: [-103.8146, 32.0002, -103.0526, 33.5706]
+bbox_source: TIGER/2018/Counties bounds of Lea County (STATEFP 35), rounded outwards
+test_bbox: [-103.25, 32.75, -103.05, 32.95]
+test_bbox_source: study area of examples/12_new_mexico_ensemble_timeseries.py (eastern Lea County); its
+  east edge (-103.05) lies 0.0026 degrees east of the county box
+study_area: null
+area_km2: 12432
+utm_zones: [13]
+run:
+  years: [2022, 2024]
+  sources: [sentinel2, naip, usgs-naip-plus, google-embedding, tessera-embedding]
+  engines: [delineate-anything, ftw, embedding]
+  tile_size_km: 10
+  halo_m: 1200
+  reference: ../NMOSE Field Boundaries/WUCB ag polys.shp
+tiling:
+  n_tiles: 144
+  grid: utm
+  computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=10000, halo_m=1200, crs='utm', clip=True)
+  halo_note: 'halo_m is an agribound choice; fields longer than the halo that cross a tile core boundary
+    can be truncated (see notes). Check n_reaching_halo_edge in the merge summary.'
+verification:
+  worldcover_date: '2026-09-26'
+  method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
+    seed 0) sampled at 10 m inside the bbox, the same share among land points (Map != 80), and the mean
+    of the class-40 mask at 1 km (GEE pyramid, approximate).'
+  worldcover_v200_cropland_fraction: 0.024
+  worldcover_v200_cropland_fraction_of_land: 0.024
+  worldcover_v200_cropland_fraction_1km: 0.018
+  worldcover_points: 120 cropland of 5000 valid points
+  test_bbox_worldcover_v200_cropland_fraction: 0.219
+  cdl_2023_cultivated_fraction: 0.036
+  test_bbox_cdl_2023_cultivated_fraction: 0.265
+  cdl_method: 'USDA/NASS/CDL 2023 ''cultivated'' band == 2: share of 5,000 (test box 2,000) seeded random
+    points sampled at 30 m.'
+sources:
+  checked: GEE image counts 2026-09-26 (with the author's Earth Engine project); TESSERA manifests fetched 2026-09-26;
+    USGS NAIP Plus catalogue queried 2026-09-27
+  sentinel2:
+    collection: COPERNICUS/S2_SR_HARMONIZED
+    images_intersecting_bbox:
+      2017: 100
+      2019: 222
+      2023: 216
+      2024: 219
+      2025: 263
+  landsat:
+    collection: LANDSAT/LC08|LC09/C02/T1_L2 (L8 + L9 counted)
+    images_intersecting_bbox:
+      2023: 206
+      2024: 202
+  hls:
+    collection: NASA/HLS/HLSL30/v002 + HLSS30/v002
+    l30_images:
+      2023: 262
+      2024: 250
+    s30_images:
+      2023: 1699
+      2024: 1845
+  naip:
+    collection: USDA/NAIP/DOQQ
+    doqqs_by_year:
+      2004: 14
+      2005: 40
+      2006: 174
+      2008: 70
+      2009: 347
+      2010: 70
+      2011: 347
+      2012: 140
+      2014: 417
+      2016: 417
+      2018: 417
+      2020: 407
+      2022: 378
+  usgs-naip-plus:
+    catalogue_items_by_year:
+      2022: 417
+    note: Latest NAIP/HRO vintage per state only (Category = 1 items).
+  spot:
+    access: restricted (AIRBUS/SPOT6_7; DRI-internal GEE access)
+    scenes_intersecting_bbox_by_year:
+      2013: 7
+      2014: 19
+      2015: 33
+      2016: 11
+      2017: 7
+      2018: 29
+      2019: 71
+      2020: 104
+      2021: 8
+      2022: 47
+      2023: 18
+    note: 'Scene counts, not coverage: scenes may cover only part of the bbox.'
+  google-embedding:
+    collection: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
+    images_by_year:
+      2017: 4
+      2018: 4
+      2019: 4
+      2020: 4
+      2021: 4
+      2022: 4
+      2023: 4
+      2024: 4
+      2025: 4
+  tessera-embedding:
+    v1:
+      tiles_expected: 144
+      tiles_by_year:
+        2017: 144
+        2018: 144
+        2019: 144
+        2020: 144
+        2021: 144
+        2022: 144
+        2023: 144
+        2024: 144
+        2025: 144
+    v1.1:
+      tiles_expected: 144
+      tiles_by_year: {}
+    note: 'Tile counts from the TESSERA manifests (v1 ''vultr'', v1.1 ''cambridge'') fetched 2026-09-26:
+      0.1-degree tiles present per year vs. all tiles intersecting the bbox (expected includes water,
+      which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
+      before large runs.'
+reference_data:
+- examples/NMOSE Field Boundaries/WUCB ag polys.shp (NMOSE, local; evaluation uses the polygons intersecting
+  the study area).
+ftw:
+  in_ftw_benchmark_countries: false
+  note: Not an FTW benchmark country (ftw_tools.settings.ALL_COUNTRIES), so FTW models run out of their
+    training distribution here; compare with Delineate-Anything and check a reference sample.
+  published_predictions: FTW Global prediction polygons exist for country US (Source Cooperative alpha/results-by-admin-conf);
+    query them with 'agribound query-ftw --study-area bbox:... --year 2024'. They are model outputs, not
+    reference data.
+notes:
+- WorldCover cropland is 2.4 % of the county box; the fields are concentrated in the east (22 % in the
+  test box).
+- 'Centre pivots are about 800 m across; halo_m 1200 exceeds that, but 42 of the 1,123 NMOSE single-part
+  polygons whose representative point lies in the bbox are longer (bounding-box long side in UTM 13N,
+  checked 2026-09-28: median 736 m, p99 1609 m, max 3772 m). Check n_reaching_halo_edge in the merge
+  summary.'
+- 10 km tiles keep 1 m NAIP tiles at about 12,400 x 12,400 px including the halo.
+- USGS NAIP Plus serves only the latest vintage per state (2022 here).

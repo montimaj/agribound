@@ -1,0 +1,132 @@
+# Region: Punjab, India
+# Read by examples/run_region_delineation.sh (via 'agribound tiles region') and
+# agribound.hpc.regions.load_region. 'run' holds the defaults the driver uses;
+# everything else documents how the region was checked. bbox values are EPSG:4326
+# [minx, miny, maxx, maxy]. Paths in 'run' are relative to this file.
+name: punjab_in
+title: Punjab, India
+description: 'The Indian state of Punjab: irrigated rice-wheat cropping.'
+country: IN
+bbox: [73.8708, 29.5461, 76.9314, 32.5266]
+bbox_source: FAO/GAUL/2015/level1 bounds of Punjab (India), rounded outwards
+test_bbox: [75.05, 30.7, 75.15, 30.8]
+test_bbox_source: hand-picked box near Moga, checked with WorldCover (2026-09-26)
+study_area: null
+area_km2: 96547
+utm_zones: [43]
+run:
+  years: [2024]
+  sources: [sentinel2, landsat, google-embedding, tessera-embedding]
+  engines: [delineate-anything, ftw, embedding]
+  tile_size_km: 20
+  halo_m: 1000
+  reference: null
+tiling:
+  n_tiles: 255
+  grid: utm
+  computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=20000, halo_m=1000, crs='utm', clip=True)
+  halo_note: halo_m is an agribound choice; it must exceed the largest field dimension expected here (fields
+    larger than the halo that cross a tile core boundary can be truncated). Check n_reaching_halo_edge
+    in the merge summary.
+verification:
+  worldcover_date: '2026-09-27'
+  method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
+    seed 0) sampled at 10 m inside the bbox, the same share among land points (Map != 80), and the mean
+    of the class-40 mask at 1 km (GEE pyramid, approximate).'
+  worldcover_v200_cropland_fraction: 0.699
+  worldcover_v200_cropland_fraction_of_land: 0.704
+  worldcover_v200_cropland_fraction_1km: 0.769
+  worldcover_points: 3493 cropland of 5000 valid points
+  test_bbox_worldcover_v200_cropland_fraction: 0.936
+sources:
+  checked: GEE image counts 2026-09-27 (with the author's Earth Engine project); TESSERA manifests fetched 2026-09-26;
+    USGS NAIP Plus catalogue queried 2026-09-27
+  sentinel2:
+    collection: COPERNICUS/S2_SR_HARMONIZED
+    images_intersecting_bbox:
+      2017: 732
+      2019: 2635
+      2023: 2623
+      2024: 2721
+      2025: 3183
+  landsat:
+    collection: LANDSAT/LC08|LC09/C02/T1_L2 (L8 + L9 counted)
+    images_intersecting_bbox:
+      2023: 515
+      2024: 493
+  hls:
+    collection: NASA/HLS/HLSL30/v002 + HLSS30/v002
+    l30_images:
+      2023: 1526
+      2024: 1509
+    s30_images:
+      2023: 3737
+      2024: 3949
+  naip: not available (US only)
+  usgs-naip-plus: not available (US only)
+  spot:
+    access: restricted (AIRBUS/SPOT6_7; DRI-internal GEE access)
+    scenes_intersecting_bbox_by_year:
+      2013: 65
+      2014: 111
+      2015: 111
+      2016: 75
+      2017: 103
+      2018: 73
+      2019: 43
+      2020: 48
+      2021: 49
+      2022: 110
+      2023: 70
+    note: 'Scene counts, not coverage: scenes may cover only part of the bbox.'
+  google-embedding:
+    collection: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
+    images_by_year:
+      2017: 9
+      2018: 9
+      2019: 9
+      2020: 9
+      2021: 9
+      2022: 9
+      2023: 9
+      2024: 9
+      2025: 9
+  tessera-embedding:
+    v1:
+      tiles_expected: 992
+      tiles_by_year:
+        2017: 91
+        2018: 94
+        2019: 95
+        2020: 95
+        2021: 95
+        2022: 85
+        2023: 87
+        2024: 992
+    v1.1:
+      tiles_expected: 992
+      tiles_by_year: {}
+    note: 'Tile counts from the TESSERA manifests (v1 ''vultr'', v1.1 ''cambridge'') fetched 2026-09-26:
+      0.1-degree tiles present per year vs. all tiles intersecting the bbox (expected includes water,
+      which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
+      before large runs.'
+reference_data:
+- 'FTW benchmark chips for India (ftw-tools: ''ftw data download''); these are sample chips, not wall-to-wall
+  boundaries.'
+ftw:
+  in_ftw_benchmark_countries: true
+  note: India is one of the FTW benchmark countries (ftw_tools.settings.ALL_COUNTRIES); the default FTW
+    model (FTW_PRUE_EFNET_B5) was trained on the full FTW data.
+  published_predictions: FTW Global prediction polygons exist for country IN (Source Cooperative alpha/results-by-admin-conf);
+    query them with 'agribound query-ftw --study-area bbox:... --year 2024'. They are model outputs, not
+    reference data.
+notes:
+- TESSERA v1 is complete here only for 2024 (about 9 % of tiles in other years) and v1.1 has no tiles,
+  so the default year is 2024; other years need --sources without tessera-embedding.
+- Check that typical field widths span several pixels of the chosen source before large runs (agribound.evaluate.pixels_per_field
+  with a reference sample).
+- 'The bbox is the bounding box of Indian Punjab and extends beyond it: 17.6 % of it is Pakistan (Pakistani
+  Punjab, also intensively cropped; LSIB_SIMPLE/2017) and it covers parts of neighbouring Indian states.
+  About 20 % of the WorldCover 2021 cropland in the bbox (300 m, approximate; checked 2026-09-28) lies in
+  Pakistan, and the worldcover_v200_cropland_fraction values above cover the whole bbox. Clip results to
+  the state for statistics about Indian Punjab.'

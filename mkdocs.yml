@@ -1,8 +1,13 @@
 site_name: Agribound
-site_description: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings.
+site_description: Agricultural field boundary delineation from satellite imagery with published segmentation models, geospatial foundation models and embeddings.
 site_url: https://montimaj.github.io/agribound
 repo_url: https://github.com/montimaj/agribound
 repo_name: montimaj/agribound
+
+validation:
+  omitted_files: warn
+  unrecognized_links: warn
+  anchors: warn
 
 theme:
   name: material
@@ -53,7 +58,11 @@ plugins:
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
@@ -68,25 +77,38 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Installation: installation.md
+  - Migrating to 1.0: migration-1.0.md
   - User Guide:
       - Quickstart: user-guide/quickstart.md
       - Satellite Sources: user-guide/satellite-sources.md
       - Delineation Engines: user-guide/engines.md
+      - SAM Refinement: user-guide/sam-refinement.md
       - Configuration Reference: user-guide/configuration.md
       - CLI Usage: user-guide/cli.md
+      - Fine-Tuning: user-guide/fine-tuning.md
+      - Evaluation: user-guide/evaluation.md
+      - Reproducibility: user-guide/reproducibility.md
+      - HPC and Large Areas: user-guide/hpc.md
+      - Agent Layer: user-guide/agent.md
       - FTW Polygon Query: user-guide/ftw-query.md
       - GEE Setup: user-guide/gee-setup.md
-      - Fine-Tuning: user-guide/fine-tuning.md
   - API Reference:
       - Pipeline: api/pipeline.md
       - Configuration: api/config.md
+      - Registry: api/registry.md
       - Composites: api/composites.md
       - Engines: api/engines.md
       - Post-Processing: api/postprocess.md
       - I/O Utilities: api/io.md
       - Evaluation: api/evaluate.md
+      - Provenance and Reproducibility: api/provenance.md
+      - Published FTW Polygons: api/ftw-query.md
+      - HPC Tiling: api/hpc.md
+      - Agent: api/agent.md
       - Visualization: api/visualize.md
-  - Gallery: gallery.md
+  - Gallery:
+      - agribound 1.0: gallery.md
+      - agribound 0.1.x (archived): gallery-0.1x.md
   - Blog: blog/index.md
   - Contributing: contributing.md
   - Citation & References: citation.md

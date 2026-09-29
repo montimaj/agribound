@@ -19,6 +19,21 @@ https://montimaj.github.io/agribound/
 
 # Own repo files added in PRs (won't be on main until merged)
 https://github.com/montimaj/agribound/blob/main/environment.yml
+https://github.com/montimaj/agribound/blob/main/examples/hpc/README.md
+https://github.com/montimaj/agribound/blob/main/examples/regions/README.md
+https://github.com/montimaj/agribound/blob/main/examples/18_agent_orchestration.py
+https://github.com/montimaj/agribound/blob/main/examples/19_hpc_tiling.py
+https://github.com/montimaj/agribound/blob/main/examples/20_stratified_evaluation.py
+https://github.com/montimaj/agribound/blob/main/examples/21_published_ftw_audit.py
+https://github.com/montimaj/agribound/blob/main/examples/notebooks/18_agent_orchestration.ipynb
+https://github.com/montimaj/agribound/blob/main/examples/notebooks/19_hpc_tiling.ipynb
+https://github.com/montimaj/agribound/blob/main/examples/notebooks/20_stratified_evaluation.ipynb
+https://github.com/montimaj/agribound/blob/main/examples/notebooks/21_published_ftw_audit.ipynb
+https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png
+https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/
+https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_0.1x/
+https://github.com/montimaj/agribound/blob/main/tools/make_gallery.py
+https://github.com/montimaj/agribound/blob/main/assets/gallery_1.0/gallery_stats.json
 
 # GitHub stargazers page: valid badge link, but returns 404/429 to
 # unauthenticated link checkers

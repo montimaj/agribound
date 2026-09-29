@@ -1,0 +1,166 @@
+# Region: Iowa (Corn Belt), USA
+# Read by examples/run_region_delineation.sh (via 'agribound tiles region') and
+# agribound.hpc.regions.load_region. 'run' holds the defaults the driver uses;
+# everything else documents how the region was checked. bbox values are EPSG:4326
+# [minx, miny, maxx, maxy]. Paths in 'run' are relative to this file.
+name: iowa_corn_belt_us
+title: Iowa (Corn Belt), USA
+description: 'The state of Iowa: maize and soybean fields on the Public Land Survey grid.'
+country: US
+bbox: [-96.6395, 40.3754, -90.14, 43.5012]
+bbox_source: TIGER/2018/States bounds of Iowa, rounded outwards to 1e-4 degrees
+test_bbox: [-93.84, 42.88, -93.74, 42.98]
+test_bbox_source: 0.1-degree cell picked by a CDL cultivated / WorldCover class-40 search (2026-09-26)
+study_area: null
+area_km2: 187046
+utm_zones: [14, 15]
+run:
+  years: [2023, 2024]
+  sources: [sentinel2, landsat, naip, tessera-embedding]
+  engines: [delineate-anything, ftw, embedding]
+  tile_size_km: 20
+  halo_m: 1000
+  reference: null
+tiling:
+  n_tiles: 510
+  grid: utm
+  computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=20000, halo_m=1000, crs='utm', clip=True)
+  halo_note: halo_m is an agribound choice; it must exceed the largest field dimension expected here (fields
+    larger than the halo that cross a tile core boundary can be truncated). Check n_reaching_halo_edge
+    in the merge summary.
+verification:
+  worldcover_date: '2026-09-26'
+  method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
+    seed 0) sampled at 10 m inside the bbox, the same share among land points (Map != 80), and the mean
+    of the class-40 mask at 1 km (GEE pyramid, approximate).'
+  worldcover_v200_cropland_fraction: 0.667
+  worldcover_v200_cropland_fraction_of_land: 0.674
+  worldcover_v200_cropland_fraction_1km: 0.711
+  worldcover_points: 3336 cropland of 5000 valid points
+  test_bbox_worldcover_v200_cropland_fraction: 0.932
+  cdl_2023_cultivated_fraction: 0.659
+  test_bbox_cdl_2023_cultivated_fraction: 0.927
+  cdl_method: 'USDA/NASS/CDL 2023 ''cultivated'' band == 2: share of 5,000 (test box 2,000) seeded random
+    points sampled at 30 m.'
+sources:
+  checked: GEE image counts 2026-09-26 (with the author's Earth Engine project); TESSERA manifests fetched 2026-09-26;
+    USGS NAIP Plus catalogue queried 2026-09-27
+  sentinel2:
+    collection: COPERNICUS/S2_SR_HARMONIZED
+    images_intersecting_bbox:
+      2017: 2858
+      2019: 5783
+      2023: 5814
+      2024: 5860
+      2025: 6899
+  landsat:
+    collection: LANDSAT/LC08|LC09/C02/T1_L2 (L8 + L9 counted)
+    images_intersecting_bbox:
+      2023: 612
+      2024: 608
+  hls:
+    collection: NASA/HLS/HLSL30/v002 + HLSS30/v002
+    l30_images:
+      2023: 3400
+      2024: 3429
+    s30_images:
+      2023: 5743
+      2024: 5923
+  naip:
+    collection: USDA/NAIP/DOQQ
+    doqqs_by_year:
+      2002: 395
+      2003: 1005
+      2004: 5733
+      2005: 5768
+      2006: 5847
+      2007: 5368
+      2008: 4687
+      2009: 5503
+      2010: 5769
+      2011: 4634
+      2012: 1209
+      2013: 4607
+      2014: 5423
+      2015: 5008
+      2016: 653
+      2017: 5016
+      2018: 1079
+      2019: 4589
+      2020: 1091
+      2021: 4617
+      2022: 1068
+      2023: 4810
+  usgs-naip-plus:
+    catalogue_items_by_year:
+      2019: 394
+      2021: 85
+      2022: 1093
+      2023: 4239
+    note: Latest NAIP/HRO vintage per state only (Category = 1 items).
+  spot:
+    access: restricted (AIRBUS/SPOT6_7; DRI-internal GEE access)
+    scenes_intersecting_bbox_by_year:
+      2013: 126
+      2014: 122
+      2015: 203
+      2016: 157
+      2017: 296
+      2018: 113
+      2019: 47
+      2020: 62
+      2021: 126
+      2022: 181
+      2023: 138
+    note: 'Scene counts, not coverage: scenes may cover only part of the bbox.'
+  google-embedding:
+    collection: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
+    images_by_year:
+      2017: 15
+      2018: 15
+      2019: 15
+      2020: 15
+      2021: 15
+      2022: 15
+      2023: 15
+      2024: 15
+      2025: 15
+  tessera-embedding:
+    v1:
+      tiles_expected: 2178
+      tiles_by_year:
+        2017: 2178
+        2018: 2178
+        2019: 2178
+        2020: 2178
+        2021: 2178
+        2022: 2178
+        2023: 2178
+        2024: 2178
+        2025: 2178
+    v1.1:
+      tiles_expected: 2178
+      tiles_by_year:
+        2015: 6
+        2017: 165
+        2018: 165
+        2019: 165
+        2020: 165
+        2021: 165
+        2022: 165
+        2023: 165
+        2024: 165
+        2025: 165
+    note: 'Tile counts from the TESSERA manifests (v1 ''vultr'', v1.1 ''cambridge'') fetched 2026-09-26:
+      0.1-degree tiles present per year vs. all tiles intersecting the bbox (expected includes water,
+      which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
+      before large runs.'
+reference_data:
+- No field-boundary reference data is bundled with agribound for this region.
+ftw:
+  in_ftw_benchmark_countries: false
+  note: Not an FTW benchmark country (ftw_tools.settings.ALL_COUNTRIES), so FTW models run out of their
+    training distribution here; compare with Delineate-Anything and check a reference sample.
+  published_predictions: FTW Global prediction polygons exist for country US (Source Cooperative alpha/results-by-admin-conf);
+    query them with 'agribound query-ftw --study-area bbox:... --year 2024'. They are model outputs, not
+    reference data.

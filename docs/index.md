@@ -1,69 +1,64 @@
 # Agribound
 
-**Unified agricultural field boundary delineation from satellite imagery** using geospatial foundation models, pre-trained segmentation, and embeddings.
+**Agricultural field boundary delineation from satellite imagery** with
+published segmentation models, geospatial foundation models and satellite
+embeddings, through one configuration and one pipeline.
 
-[![Release](https://img.shields.io/badge/release-v0.1.3.post1-green.svg)](https://github.com/montimaj/agribound/releases)
+[![Release](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)
 [![Downloads](https://static.pepy.tech/badge/agribound/month)](https://pepy.tech/projects/agribound)
 [![CI](https://github.com/montimaj/agribound/actions/workflows/ci.yml/badge.svg)](https://github.com/montimaj/agribound/actions/workflows/ci.yml)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://montimaj.github.io/agribound)
 [![GEE](https://img.shields.io/badge/Google%20Earth%20Engine-4285F4?logo=google-earth&logoColor=white)](https://earthengine.google.com/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](https://github.com/montimaj/agribound/blob/main/LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19229665.svg)](https://doi.org/10.5281/zenodo.19229665)
 [![GitHub stars](https://img.shields.io/github/stars/montimaj/agribound)](https://github.com/montimaj/agribound/stargazers)
 
-Agribound provides a single interface to multiple delineation engines and satellite sources, handling the full pipeline from satellite composite generation through post-processing and export. It supports Google Earth Engine-based imagery (Landsat, Sentinel-2, HLS, NAIP, SPOT), USGS NAIP Plus (direct ImageServer, no GEE required), local GeoTIFFs, and pre-computed embedding datasets (Google Satellite Embedding, TESSERA).
+Agribound runs a composite → delineation → post-processing → crop-filter →
+export pipeline over ten sources (Landsat, Sentinel-2, HLS, NAIP and SPOT 6/7
+composites on Google Earth Engine, USGS NAIP Plus, local GeoTIFFs, and Google
+Satellite Embedding and TESSERA embeddings) with seven engines
+(Delineate-Anything, Fields of The World, GeoAI Mask R-CNN, DINOv3,
+Prithvi-EO-2.0, embedding clustering and ensembles). Every run is seeded,
+cached under content-addressed names and documented by a provenance record;
+evaluation, tiling for HPC clusters and an optional human-confirmed agent
+layer are included.
 
-The pipeline runs: **composite building** &rarr; **optional fine-tuning** &rarr; **delineation engine** &rarr; **post-processing** (smooth, simplify, filter) &rarr; **LULC crop filtering** &rarr; **export**. For ensembles, SAM2 boundary refinement is applied per source for pixel-accurate boundaries.
+!!! warning "Upgrading from 0.1.x"
+    Version 1.0.0 fixes defects that affected results produced with agribound
+    0.1.x (for example FTW season windows, Landsat/HLS radiometry, caches that
+    ignored the study area and year, and silent engine fallbacks). See the
+    [migration guide](migration-1.0.md) and the
+    [list of affected results](https://github.com/montimaj/agribound/blob/main/CHANGELOG.md#results-produced-with-agribound--013-that-are-affected).
 
-<img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow.png" alt="The agribound framework and its six-stage delineation pipeline" width="900">
+## How it works
 
-*The agribound framework. An **agentic orchestration layer** exposes the whole pipeline through a single `delineate()` entry point and autonomously selects the sensor, engine, and LULC filter &mdash; and a natural-language **LLM-orchestrator** is [in development](#roadmap-agentic-orchestration). The six-stage pipeline runs from ten satellite/embedding sources (1984&ndash;present) through cloud compositing, optional fine-tuning, delineation by one of seven engines (task-specific segmentation, geospatial foundation models, and label-free embedding clustering, plus ensembling), SAM2 refinement and post-processing, server-side LULC crop filtering (USGS NLCD, Google Dynamic World, Copernicus C3S Land Cover), and export to standards-compliant vector formats.*
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png" alt="The agribound 1.0 workflow: an optional agent layer with a human confirmation gate and a deterministic entry point above a six-stage pipeline from ten imagery and embedding sources to field boundaries" width="900"></a>
 
-### Automatic LULC Crop Filtering
+*The agribound 1.0 workflow (select the image for full resolution): a six-stage pipeline from ten imagery and embedding sources (0.3–30 m, 1984–present) to field boundaries, with a deterministic entry point and an optional, human-confirmed agent layer above it.*
 
-Unlike other field boundary packages that detect *all* visual boundaries (including roads, water, forests, and buildings), agribound **automatically removes non-agricultural polygons** using land-use/land-cover data. This is enabled by default and requires no user configuration.
+1. **Composite.** Earth Engine builds a median or greenest-pixel (max-NDVI) composite for a year or a date window and exports it on a UTM grid. NAIP is mosaicked, and only Landsat, Sentinel-2 and HLS are cloud-masked and scaled to reflectance ×10 000. USGS NAIP Plus, TESSERA and local GeoTIFF inputs are read without Earth Engine.
+2. **Fine-tuning (optional).** Full (Delineate-Anything, GeoAI, DINOv3, Prithvi) or LoRA (DINOv3, Prithvi) fine-tuning on reference boundaries, validated by default on a spatially blocked split (5 km blocks). GeoAI, DINOv3 and Prithvi's UPerNet mode need a checkpoint, from fine-tuning or supplied by the user.
+3. **Delineation.** One of seven engines, coloured by family: task-specific segmentation, geospatial foundation model, label-free embedding clustering and multi-engine ensemble.
+4. **Refine and post-process.** Optional SAM refinement (SAM 2, 2.1 or 3; the SAM 3 backends are [untested](user-guide/sam-refinement.md#sam-3-is-untested)), then study-area selection, merging, minimum-area filtering, smoothing and simplification.
+5. **LULC crop filter.** Removes polygons whose crop fraction is below 0.3, computed on Earth Engine or locally on a downloaded crop raster. Annual NLCD, Dynamic World or C3S Land Cover is selected by coverage and year; CDL (CONUS only) is used on request.
+6. **Export.** GeoParquet (fiboa-style columns), GeoPackage or GeoJSON, with per-field area, perimeter, compactness and crop fraction, plus a `provenance.json` record.
 
-The best available LULC dataset is selected automatically based on your study area:
+Around the pipeline:
 
-- **US:** USGS Annual NLCD (1985&ndash;2024, 30 m) &mdash; classes 81/82 (Pasture, Cultivated Crops)
-- **Global (&ge;2015):** Google Dynamic World (10 m, nearest year) &mdash; crop probability band
-- **Global, pre-2015:** Copernicus C3S Land Cover (1992&ndash;2022, 300 m) &mdash; cropland classes
+- **Entry point.** `delineate()` and `agribound delineate --config` run the six stages directly. Every run is seeded and uses a content-addressed cache, and `provenance.json` is written by default.
+- **Agent layer (optional).** A language model, reached through the Claude API or an MCP host (or a local Anthropic-compatible server via `base_url`), investigates with typed read-only tools and proposes one configuration. It runs only after you confirm that exact plan at the human gate, with an approval bound to the plan's hash and used once. At most one plan runs per session, and the session then stops (see [Agent layer](user-guide/agent.md)).
+- **Scale out and evaluate.** `agribound tiles make`, `run` and `merge` split a large study area into tiles that run as Slurm array jobs (see [HPC and large areas](user-guide/hpc.md)). `evaluate()` scores results against reference boundaries with object-level and area-weighted metrics (see [Evaluation](user-guide/evaluation.md)).
 
-Disable with `lulc_filter=False` for local files without GEE access or unsupervised embedding workflows.
-
-### Example Results
-
-**Supervised: DINOv3 + SAM2 on NAIP (Eastern Lea County, New Mexico, USA)** — Fine-tuned on NMOSE reference boundaries, LULC-filtered (NLCD), SAM2-refined on 1 m NAIP. Blue = predicted, yellow = reference. Note: Fields in Texas bordering New Mexico are also present.
-
-<img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/NM_example.png" alt="DINOv3 + SAM2 on NAIP" width="700">
-
-**Unsupervised: TESSERA + LULC Filter + SAM2 (Pampas, Argentina)** — No training, no reference data. TESSERA embedding clustering + LULC crop filter (Dynamic World) + SAM2 on Sentinel-2.
-
-<img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/Pampas_example.png" alt="TESSERA + LULC + SAM2" width="700">
-
-See the [Gallery](gallery.md) for results across all regions and engines.
-
-*Note: The satellite basemap shown in these screenshots may not correspond to the same acquisition date as the imagery used for delineation.*
-
----
-
-## Quick Install
-
-```bash
-pip install agribound
-```
-
-For GPU-accelerated engines and GEE support, install optional extras:
+## Quick install
 
 ```bash
-pip install agribound[gee,delineate-anything]
+pip install "agribound[gee,delineate-anything]"
 ```
 
-See the [Installation guide](installation.md) for all available extras.
-
----
+Two environments are needed for the full stack because FTW and Prithvi
+require incompatible `lightning` versions; see [Installation](installation.md).
 
 ## Quickstart
 
@@ -79,66 +74,75 @@ gdf = agribound.delineate(
 )
 ```
 
-The returned `GeoDataFrame` contains field boundary polygons with area, perimeter, and provenance metadata. See the [Quickstart tutorial](user-guide/quickstart.md) for a complete walkthrough.
+The result is a GeoDataFrame of field polygons with area, perimeter,
+compactness and provenance columns, written to `fields_sentinel2_2024.gpkg`
+with a `.provenance.json` record next to it. See the
+[Quickstart](user-guide/quickstart.md).
 
----
+## LULC crop filter
 
-## Key Sections
+Engines delineate visual boundaries, which include roads, water bodies, forest
+and built-up areas. The LULC filter, on by default, removes polygons whose crop
+fraction in a land-cover dataset is below 0.3:
 
-| Section | Description |
+- **Annual NLCD** (1985-2025, 30 m, classes 81/82) where at least 90 % of the
+  area has NLCD data (conterminous US);
+- otherwise **Dynamic World** (10 m, annual median crop probability) for 2016
+  up to the last complete year;
+- otherwise **C3S Land Cover** (2000-2022, 300 m, classes 10, 11, 12, 20, 30);
+- **CDL** (`cultivated`, 2013-2023) on request.
+
+It reads the datasets from Earth Engine for every source and raises by default
+when it fails. See [LULC crop filter](user-guide/satellite-sources.md#lulc-crop-filter).
+
+## Example results
+
+From the agribound 1.0.0 example runs. Each map is drawn on a composite from
+the run, named under the map: usually the engine's input; for FTW, its window
+A; for the SAM-refined embedding panels, the Sentinel-2 composite SAM 2 read.
+Select an image for the full-resolution file; see the [Gallery](gallery.md)
+for all regions and engines.
+
+**From 30 m to 1 m (San Juan County, New Mexico).** Delineate Anything v2,
+used as released, on Landsat, Sentinel-2, SPOT 6/7 and NAIP of 2018 against
+the 944 NMOSE polygons (cyan; not used for training or fine-tuning in these
+runs): object F1 (IoU ≥ 0.5) 0.15, 0.34, 0.33 and 0.43.
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/San_Juan_resolution_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/San_Juan_resolution_example.webp" alt="Delineate-Anything v2 from 30 m to 1 m" width="800"></a>
+
+**Supervised: DINOv3 fine-tuned + SAM 2 (eastern Lea County, New Mexico).**
+In-sample F1 against the training polygons: 0.09 (Landsat), 0.39
+(Sentinel-2), 0.48 (SPOT) and 0.60 (NAIP).
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/NM_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/NM_example.webp" alt="DINOv3 fine-tuned and SAM 2 on four sources" width="800"></a>
+
+**Label-free: embeddings + SAM 2 vs Delineate-Anything v2 (Pampas,
+Argentina).** No reference data or training; centre pivots near Pergamino.
+Orange = refined by SAM 2.
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_example.webp" alt="Embeddings with SAM 2 vs Delineate-Anything v2" width="800"></a>
+
+## Documentation
+
+| Section | Content |
 |---|---|
-| [Installation](installation.md) | Install agribound and optional dependencies |
-| [Quickstart](user-guide/quickstart.md) | 5-minute tutorial covering Python and CLI usage |
-| [Satellite Sources](user-guide/satellite-sources.md) | Available imagery sources and compositing options |
-| [Engines](user-guide/engines.md) | Comparison of all seven delineation engines |
-| [Configuration](user-guide/configuration.md) | Full reference for `AgriboundConfig` |
-| [CLI Usage](user-guide/cli.md) | Command-line interface reference |
-| [API Reference](api/pipeline.md) | Python API documentation |
-| [Gallery](gallery.md) | Visual results across 9 regions, 5 satellites, and all engines |
-| [Contributing](contributing.md) | Developer guide for adding engines and sources |
-| [Citation & References](citation.md) | How to cite agribound, funding sources, and disclaimer |
-
----
-
-## Roadmap: Agentic Orchestration
-
-Agribound already performs a form of **autonomous orchestration**: a single `agribound.delineate()` call decides which composite to build, selects the LULC dataset by area and year, routes canonical bands to each engine, tiles and parallelizes large areas, and chains delineation &rarr; refinement &rarr; filtering &rarr; export &mdash; all without user micromanagement.
-
-The next step, currently **in development**, is an **LLM-orchestrator** that layers a natural-language, agent-driven interface on top of this machinery. Instead of choosing the source, engine, filter, and post-processing yourself, you describe the goal and an agent plans and executes the underlying agribound tool calls, reasons over the intermediate results, and reports what it did.
-
-**How it will work.** Agribound's core operations &mdash; `delineate()`, `query_ftw()`, fine-tuning, SAM2 refinement, LULC filtering, and evaluation &mdash; are exposed to the agent as typed tools. Given a request, the orchestrator:
-
-1. **Plans** a workflow &mdash; e.g., pick a sensor and year, decide whether fine-tuning is warranted (are reference boundaries available?), and choose an engine and LULC filter appropriate to the region.
-2. **Executes** the resulting tool calls, tiling and caching exactly as the deterministic pipeline does today.
-3. **Reflects** on intermediate output &mdash; e.g., if too few polygons survive the crop filter it can lower the threshold or switch LULC datasets and re-run; if boundaries look coarse it can enable SAM2 refinement at native resolution.
-4. **Reports** the chosen configuration and full provenance, so every agent-driven run stays as reproducible as a hand-written one.
-
-**Planned interface** (illustrative; subject to change):
-
-```python
-import agribound as ab
-
-# Natural-language request -> the agent plans and executes agribound tool calls
-result = ab.agent(
-    "Map irrigated field boundaries in this AOI for 2024, "
-    "prefer a label-free approach, and refine the edges.",
-    study_area="fields.geojson",
-    gee_project="my-gee-project",
-)
-```
-
-```bash
-agribound agent "delineate smallholder fields in this AOI using Sentinel-2 for 2023" \
-    --study-area fields.geojson
-```
-
-**Design principles.** The orchestrator will be **model-agnostic** (usable with hosted or local LLMs), **opt-in** via an optional extra (`pip install agribound[agent]`) so core installs stay lightweight, and **transparent** &mdash; it emits the exact tool calls and parameters it ran, never hiding decisions behind the natural-language layer. The deterministic `delineate()` API remains the supported path for scripted, reproducible pipelines; the agent is a convenience layer on top, not a replacement.
-
-!!! note "Under active development"
-    This feature is not yet released. Follow the [repository](https://github.com/montimaj/agribound) and [CHANGELOG](https://github.com/montimaj/agribound/blob/main/CHANGELOG.md) for updates.
-
----
+| [Installation](installation.md) | environments, extras, Apple-silicon notes |
+| [Migrating to 1.0](migration-1.0.md) | every breaking change, old vs new |
+| [Quickstart](user-guide/quickstart.md) | Python and CLI in five minutes |
+| [Satellite sources](user-guide/satellite-sources.md) | coverage, resolution, value scales, masking, LULC filter |
+| [Engines](user-guide/engines.md) and [SAM refinement](user-guide/sam-refinement.md) | what each engine does, weights, parameters, limits |
+| [Configuration](user-guide/configuration.md) and [CLI](user-guide/cli.md) | every field and command |
+| [Fine-tuning](user-guide/fine-tuning.md) | training on reference boundaries |
+| [Evaluation](user-guide/evaluation.md) | metric definitions |
+| [Reproducibility](user-guide/reproducibility.md) | seeds, cache keys, provenance, output reuse |
+| [HPC and large areas](user-guide/hpc.md) | tiling, two-phase runs, Earth Engine quotas, NSF ACCESS |
+| [Agent layer](user-guide/agent.md) | human-confirmed planning, MCP server |
+| [FTW polygon query](user-guide/ftw-query.md) and [GEE setup](user-guide/gee-setup.md) | published FTW polygons by area; Earth Engine credentials and project |
+| [API reference](api/pipeline.md) | generated from the docstrings |
+| [Gallery](gallery.md) | maps from the 1.0.0 example runs |
 
 ## License
 
-Agribound is released under the [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0).
+Agribound is released under the [Apache 2.0 License](https://github.com/montimaj/agribound/blob/main/LICENSE).
+The Delineate-Anything model code and weights and Ultralytics are AGPL-3.0;
+check the licences of the models and datasets you use.
