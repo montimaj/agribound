@@ -1937,6 +1937,13 @@ def propose_run_tool(ctx: ToolContext, inp: ProposeRunInput) -> ProposeRunOutput
         inputs_json = canonical_json(input_fingerprints(draft))
     except (FileNotFoundError, ValueError, OSError) as exc:
         raise AgentToolError(f"Could not fingerprint the plan inputs: {exc}") from exc
+    from agribound._results import results_versions
+
+    versions = results_versions(draft)
+    if versions:
+        # A release that changes these results (agribound._results) gets a new directory:
+        # agent runs never overwrite, so the old output would block the run.
+        key_config["results_versions"] = versions
     run_key = compute_plan_hash(canonical_json(key_config), inputs_json)[:10]
     plan_dir = ctx.workdir / "plans" / f"{inp.source}_{inp.year}_{inp.engine}_{run_key}"
     try:

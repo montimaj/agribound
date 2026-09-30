@@ -18,8 +18,9 @@ download), so data preparation can happen on a node with network access and
 delineation later on a GPU node.
 
 Every stage runs inside :meth:`agribound.provenance.RunRecorder.step`; the
-record is written to ``<output_path>.provenance.json`` and its configuration
-hash decides whether an existing output can be reused.
+record is written to ``<output_path>.provenance.json`` and decides whether an
+existing output can be reused (:func:`agribound.provenance.reuse_mismatch`:
+configuration hash, study-area fingerprint and results versions).
 """
 
 from __future__ import annotations
@@ -209,7 +210,12 @@ def delineate(
     ------
     FileExistsError
         If *output_path* exists, ``overwrite`` is *False*, and its provenance
-        record is missing, failed, or has a different configuration hash.
+        record is missing, failed, has a different configuration hash, was
+        made from a study-area file whose geometry has changed at the same
+        path (without a study area: from a local raster whose path, size or
+        modification time has changed), or has different results versions
+        (:mod:`agribound._results`: a component's output for the same
+        configuration has changed since the release that made it).
     RuntimeError
         If the LULC filter fails and ``lulc_on_error="raise"`` (the default).
 
@@ -217,8 +223,14 @@ def delineate(
     -----
     An existing output is returned without recomputation when its
     provenance record reports a successful run with the same
-    :func:`agribound.provenance.config_hash`. With ``provenance=False`` no
-    record is written, so a later run on the same *output_path* needs
+    :func:`agribound.provenance.config_hash`, study-area fingerprint
+    (``facts["aoi_fingerprint"]``) and results versions
+    (``facts["results_versions"]``); see
+    :func:`agribound.provenance.reuse_mismatch`. A record of agribound <=
+    1.0.0 has neither fact: it counts as results version 1, and a
+    study-area file (or local raster) cannot be verified (logged at WARNING;
+    the output is reused). With ``provenance=False`` no record is
+    written, so a later run on the same *output_path* needs
     ``overwrite=True``.
 
     Zero detections are not an early exit: an empty output file, the
@@ -276,9 +288,12 @@ def delineate(
     if existing is not None:
         return existing
 
-    from agribound.provenance import RunRecorder, write_provenance
+    from agribound.provenance import RunRecorder, reuse_facts, write_provenance
 
     recorder = RunRecorder(config)
+    # Checked by the reuse test of later runs, with the configuration hash.
+    for key, value in reuse_facts(config).items():
+        recorder.set(key, value)
     output_file = Path(config.output_path)
     start = time.perf_counter()
     try:
@@ -1042,10 +1057,11 @@ def _load_existing_output(config: AgriboundConfig) -> gpd.GeoDataFrame | None:
     ------
     FileExistsError
         If the output exists, ``overwrite`` is *False* and it cannot be
-        verified to come from the same configuration.
+        verified to come from the same configuration, study area and results
+        versions (:func:`agribound.provenance.reuse_mismatch`).
     """
     from agribound.io.vector import read_vector
-    from agribound.provenance import config_hash, provenance_path, read_provenance
+    from agribound.provenance import provenance_path, read_provenance, reuse_mismatch
 
     output_file = Path(config.output_path)
     if not output_file.exists() or output_file.stat().st_size == 0:
@@ -1055,9 +1071,9 @@ def _load_existing_output(config: AgriboundConfig) -> gpd.GeoDataFrame | None:
         return None
 
     record = read_provenance(output_file)
-    current = config_hash(config)
     if record is not None and record.get("status") == "success":
-        if record.get("config_hash") == current:
+        reason = reuse_mismatch(record, config, output_file)
+        if reason is None:
             logger.info("Output exists with matching provenance: loading %s", output_file)
             gdf = read_vector(output_file)
             gdf.attrs["run_id"] = record.get("run_id")
@@ -1070,10 +1086,6 @@ def _load_existing_output(config: AgriboundConfig) -> gpd.GeoDataFrame | None:
                 gdf.attrs["evaluation_metrics"] = facts["evaluation"]
             logger.info("Loaded %d field boundaries from %s", len(gdf), output_file)
             return gdf
-        reason = (
-            f"it was produced with a different configuration (config_hash "
-            f"{str(record.get('config_hash'))[:12]} != {current[:12]})"
-        )
     elif record is not None:
         reason = f"its provenance record reports status {record.get('status')!r}"
     else:

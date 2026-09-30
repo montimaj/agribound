@@ -42,7 +42,8 @@ agribound tiles merge --manifest runs/iowa --reference reference.gpkg
   done. `--stage composite` only downloads; `--stage delineate` delineates a
   staged tile; `--stage all` does both.
 - **`tiles status`** shows per-tile states: `done`, `pending`, `failed`,
-  `stale` (output from another configuration), `no-data` and `error`.
+  `stale` (output from another configuration, or from a release whose results
+  for that configuration differ), `no-data` and `error`.
   `--list failed|pending|not-done|...` prints indices as an `sbatch --array`
   list.
 - **`tiles merge`** keeps a tile's polygon only if the tile owns the polygon's
@@ -111,7 +112,7 @@ agribound tiles prefetch --config base.yaml      # the same downloads for a tile
   so a missing file fails at once; for DINOv3 set `DINOV3_LOCATION` to the hub
   directory that `prefetch` printed; for SAM 3 (Meta backend)
   `SAM3_CHECKPOINT_PATH` can point at a downloaded checkpoint. The SAM 3
-  backends (`sam3`, `sam3-hf`) are untested in 1.0.0 and log a WARNING when
+  backends (`sam3`, `sam3-hf`) are untested in 1.0.1 and log a WARNING when
   loaded (see [SAM refinement](sam-refinement.md#sam-3-is-untested)).
 - Delineate-Anything with `backend="ftw"` resolves its checkpoint relative to
   the current working directory, so the run must start from the directory

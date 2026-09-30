@@ -219,6 +219,25 @@ configuration is validated; a year without tiles over the study area raises
 coverage of a bounding box from the dataset manifest without downloading
 embeddings.
 
+TESSERA pixels are placed on the grid the Zarr store publishes (read with
+`read_region`); agribound copies them without resampling when the export CRS
+is the same UTM zone. On that grid, the TESSERA v1 2024 raster did not line up
+exactly with optical composites of the same areas. With phase correlation of
+edge maps (2026-09-29), it sat about 9-10 m east of the Sentinel-2 and SPOT
+6/7 composites of example 15 (Pampas, Argentina) and about 5 m east and 5 m
+south of those of example 02 (West Bengal, India). The store and the v1
+GeoTIFF tiles that agribound 0.1.x downloaded hold the same values, on average
+about a third of a pixel (3.3 m) apart in the Pampas (1-5.5 m, depending on
+the tile); the 0.1.x mosaic of those tiles, however, placed the data about 9 m
+west of the store's grid there (about 7 m west of the tiles' own
+georeferencing), which happened to cancel most of the offset. Other areas were
+not checked. Polygons of TESSERA clusters carry the offset (about 8 m in the
+Pampas, measured against Sentinel-2 and SPOT edges and Delineate-Anything
+polygons). SAM refinement on an optical composite redraws the outlines it
+refines from that image: there, the polygons SAM 2 refined on Sentinel-2 sat
+about 1-4 m east, while the polygons it left unrefined kept the offset of the
+clusters.
+
 Both embedding readers hold the whole area in memory while it is assembled
 (about 512 bytes per pixel for TESSERA and 256 for Google embeddings, roughly
 twice that at peak), so very large regions should be tiled (see

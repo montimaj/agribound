@@ -30,7 +30,7 @@ tags:
     post is named and linked through the TESSERA blog index, and Jeremy
     Rapp's name links to the ORCID record (the Michigan State directory page
     it linked to no longer exists).
-    Several statements in it no longer hold for agribound 1.0.0, and some
+    Several statements in it no longer hold for agribound 1.0, and some
     0.1.x results were affected by defects fixed in 1.0.0 (see the
     [v1.0.0 release post](v1.0.0-release.md), the
     [migration guide](../../migration-1.0.md) and the
@@ -145,7 +145,7 @@ For GPU engines and GEE support:
 pip install agribound[gee,delineate-anything]
 ```
 
-Check out the [Quickstart tutorial](../../user-guide/quickstart.md) for a complete walkthrough, or browse the [archived 0.1.x Gallery](../../gallery-0.1x.md) for the results shown at the time: ten study areas; NAIP, Sentinel-2, HLS and SPOT 6/7 imagery and TESSERA embeddings; and every engine except GeoAI, which had no gallery example. The [current gallery](../../gallery.md) shows the 1.0.0 runs.
+Check out the [Quickstart tutorial](../../user-guide/quickstart.md) for a complete walkthrough, or browse the [archived 0.1.x Gallery](../../gallery-0.1x.md) for the results shown at the time: ten study areas; NAIP, Sentinel-2, HLS and SPOT 6/7 imagery and TESSERA embeddings; and every engine except GeoAI, which had no gallery example. The [current gallery](../../gallery.md) shows the 1.0.1 runs.
 
 ## Community Recognition
 

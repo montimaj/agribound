@@ -180,6 +180,19 @@ class TestConfiguration:
         ok = _config(tmp_path, raster, smooth_iterations=0, regularize="none", sam_model="tiny")
         assert EnsembleEngine.resolve_params(ok)["merge_strategy"] == "intersection"
 
+    def test_every_sam_engine_param_is_accepted(self, tmp_path, raster):
+        """The SAM stage refines the ensemble output, so its keys pass resolve_params."""
+        import inspect
+        import re
+
+        from agribound.engines import samgeo_engine
+
+        keys = set(re.findall(r'\.get\("(sam_\w+)"', inspect.getsource(samgeo_engine)))
+        assert {"sam_overlaps", "sam_min_coverage", "sam_window_px"} <= keys
+        assert keys <= ens.PIPELINE_KEYS
+        cfg = _config(tmp_path, raster, sam_min_coverage=0.3, sam_overlaps="keep")
+        assert EnsembleEngine.resolve_params(cfg)["merge_strategy"] == "intersection"
+
     def test_member_config(self, tmp_path, raster):
         cfg = _config(
             tmp_path,

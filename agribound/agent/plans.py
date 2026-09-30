@@ -51,9 +51,9 @@ THRESHOLD_FIELDS: tuple[str, ...] = (
 Includes ``lulc_on_error`` (``"warn"`` keeps the unfiltered polygons when the
 LULC filter fails), ``aoi_selection`` (which predictions are kept at, or cut
 to, the study-area outline) and ``sam_refine`` (replaces engine geometries
-with SAM refinements). A plan that sets any of them to a value other than the package
-default carries an explicit warning, so the human reviewer sees the change
-before approving.
+with SAM masks that cover enough of them). A plan that sets any of them to a
+value other than the package default carries an explicit warning, so the human
+reviewer sees the change before approving.
 """
 
 METHOD_FIELDS: tuple[str, ...] = (

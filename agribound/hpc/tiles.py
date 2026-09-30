@@ -1482,15 +1482,20 @@ def _write_failed_marker(path: Path, stage: str, entry: dict, exc: BaseException
 
 
 def _output_is_current(config: Any, output: Path) -> dict | None:
-    """Return the provenance record if *output* is a successful run of *config*."""
-    from agribound.provenance import config_hash, read_provenance
+    """Return the provenance record if *output* is a successful run of *config*.
+
+    The same test as the pipeline's reuse check
+    (:func:`agribound.provenance.reuse_mismatch`): configuration hash,
+    study-area fingerprint and results versions.
+    """
+    from agribound.provenance import read_provenance, reuse_mismatch
 
     if not output.exists() or output.stat().st_size == 0:
         return None
     record = read_provenance(output)
     if record is None or record.get("status") != "success":
         return None
-    if record.get("config_hash") != config_hash(config):
+    if reuse_mismatch(record, config, output) is not None:
         return None
     return record
 
@@ -1561,7 +1566,9 @@ def run_tile(
     -----
     Completion is decided from content, not from markers alone: a
     delineation is done when the tile output exists and its provenance
-    record reports success with the current configuration hash; a composite
+    record reports success with the current configuration hash and results
+    versions (the pipeline's reuse test,
+    :func:`agribound.provenance.reuse_mismatch`); a composite
     stage is done when the content-addressed stage markers in the tile's
     cache directory point to existing rasters (composite; LULC raster when
     needed; FTW window rasters when needed).
@@ -1847,13 +1854,15 @@ def tile_status(manifest: str | Path | dict) -> pd.DataFrame:
         and ``delineate`` (``"done"``, ``"failed"``, ``"pending"`` or
         ``"no-data"`` -- no input data, a final state, see the module
         docstring; the delineation can also be ``"stale"`` -- an output
-        exists but was made with a different configuration -- and either
+        exists but was made with a different configuration, or by an
+        agribound release whose results for it differ
+        (:mod:`agribound._results`) -- and either
         column is ``"error"`` when the tile configuration cannot be loaded),
         ``n_output``, ``run_id``, ``error`` (first line of the latest
         failure, if any) and ``no_data_reason``.
     """
     from agribound.config import AgriboundConfig
-    from agribound.provenance import config_hash, read_provenance
+    from agribound.provenance import read_provenance, reuse_mismatch
 
     m = load_manifest(manifest)
     rows = []
@@ -1888,7 +1897,7 @@ def tile_status(manifest: str | Path | dict) -> pd.DataFrame:
         output = paths["output"]
         record = read_provenance(output) if output.exists() else None
         if record is not None and record.get("status") == "success":
-            if record.get("config_hash") == config_hash(config):
+            if reuse_mismatch(record, config, output) is None:
                 row["delineate"] = _DONE
                 row["n_output"] = (record.get("facts") or {}).get("n_output")
                 row["run_id"] = record.get("run_id")

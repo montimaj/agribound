@@ -1,9 +1,17 @@
 # Example Gallery (agribound 1.0)
 
-Field boundaries from the agribound 1.0.0 example scripts, run at their
-default settings on 2026-09-28 and 29. The exception is example 13, which
-refines example 20's output (see its entry); examples 01 and 12 were not run
-end to end (12's NAIP runs were). The 0.1.x screenshots are kept on the
+Field boundaries from the agribound example scripts, run at their default
+settings. Examples 02, 05, 13, 14, 15 and 22 were re-run with agribound 1.0.1
+on 2026-09-29. The other entries show outputs of the same scripts run with
+agribound 1.0.0 on 2026-09-28 and 29, which 1.0.1 reuses unchanged: 1.0.1
+changed only the embedding engine's clustering, SAM refinement and output
+reuse, and the code paths of these entries are the same in both releases. The
+1.0.1 runs of examples 02 and 15 also reused their 1.0.0 FTW and
+Delineate-Anything outputs (their provenance records say 1.0.0), and example
+13's 1.0.1 output is identical to its 1.0.0 output. Every legend reads
+"agribound 1.0.1 fields", also in the images drawn from 1.0.0 outputs. Example
+13 refines example 20's output (see its entry); examples 01 and 12 were not
+run end to end (12's NAIP runs were). The 0.1.x screenshots are kept on the
 [archived 0.1.x page](gallery-0.1x.md).
 
 **How to read the images.** Red outlines are agribound output, cyan outlines
@@ -13,9 +21,11 @@ engine's input; for FTW, window A, the first of FTW's two season inputs; for
 the SAM entries, the composite SAM read. The imagery therefore shows the
 acquisition period of that composite. Zoom panels and cropped windows show the
 square with the most polygons of one layer (named in each entry), not a random
-sample of the study area. The number in a panel title counts every polygon in
+sample of the study area; the Pampas windows (example 15) follow the rules their
+entries state. The number in a panel title counts every polygon in
 that output, not only those inside the window shown. The inset locates the
-study area (red dot) in its country; India is drawn from the Survey of India
+study area (red dot) in its country (in example 22, the six study areas,
+numbered as the panels, on a world map); India is drawn from the Survey of India
 outline, all other boundaries from Natural Earth. Under each image are the
 imagery, the model and its version.
 
@@ -59,7 +69,7 @@ evaluation metrics files and
 | Prithvi | `ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL` at revision `63adbd3`, terratorch 1.2.13 |
 | GeoAI | torchvision Mask R-CNN ResNet50-FPN via geoai-py 0.43.1, fine-tuned on the reference polygons (no published field weights); chips sized from the reference fields; instances split at the inference-window edges joined |
 | DINOv3 | `dinov3_vitl16` (ViT-L/16) with the SAT-493M weights `giswqs/geoai/dinov3_vitl16_sat493m.pth` at revision `aa2b25d`, geoai-py 0.43.1; full fine-tuning on the reference polygons (no published field weights) |
-| Embeddings | Google Satellite Embedding (`GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL`, AlphaEarth Foundations, 64-D) and TESSERA v1 (128-D, geotessera 0.10.2); PCA to 16 components, then MiniBatchKMeans (k chosen by silhouette score among 5, 10, 15, 20, 30 and 50 unless stated; in every automatic choice here the score was highest at k = 5, the smallest candidate, and smaller k were not tested) |
+| Embeddings | Google Satellite Embedding (`GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL`, AlphaEarth Foundations, 64-D) and TESSERA v1 (128-D, geotessera 0.10.2); PCA to 16 components, then scikit-learn `KMeans` with ten restarts (`n_init=10`); k chosen by silhouette score among 5, 10, 15, 20, 30 and 50 unless stated (in every automatic choice here the score was highest at k = 5, the smallest candidate, and smaller k were not tested). agribound 1.0.0 used `MiniBatchKMeans` on rasters of more than 100,000 valid pixels, as all of these are |
 
 **SAM size rule.** SAM is prompted only when a field's bounding box, padded
 on every side by 15 % of its size (a factor of 1.3), is at least 64 pixels
@@ -67,7 +77,9 @@ wide and 64 pixels tall. That is an unpadded box of at least about 49 pixels
 on each side (64 / 1.3 ≈ 49.2): about 490 m at 10 m, 295 m at 6 m and 49 m at
 1 m. Fields below that keep their geometry. With the default
 `sam_overlaps="trim"`, a refined mask cannot take area from a neighbouring
-polygon.
+polygon. Since 1.0.1, a mask that covers less than half of its input polygon
+after that trim (`sam_min_coverage`, default 0.5) is not used, and the polygon
+keeps its input geometry.
 
 ---
 
@@ -91,20 +103,26 @@ in-sample F1 without and with SAM 2 are:
 
 | Source | Fields (without / with SAM 2) | In-sample F1 without SAM 2 | In-sample F1 with SAM 2 |
 |---|---|---|---|
-| Landsat 30 m | 31 / 31 | 0.06 | 0.09 |
-| Sentinel-2 10 m | 116 / 114 | 0.38 | 0.39 |
-| SPOT 6/7 6 m | 137 / 135 | 0.42 | 0.48 |
-| NAIP 1 m | 190 / 181 | 0.60 | 0.60 |
+| Landsat 30 m | 31 / 31 | 0.06 | 0.06 |
+| Sentinel-2 10 m | 116 / 114 | 0.38 | 0.38 |
+| SPOT 6/7 6 m | 137 / 137 | 0.42 | 0.45 |
+| NAIP 1 m | 190 / 191 | 0.60 | 0.59 |
 
 (HLS 30 m, not shown: in-sample F1 0.11 with and without SAM 2.) The training
 data change with resolution as well: the box holds 4 training chips of 256
 pixels at 30 m (3 for training, 1 for validation), 49 at 10 m, 126 at 6 m and
 2,014 at 1 m, so this comparison changes the amount of training data along
 with the pixel size (and NAIP uses a minimum area of 5,000 m² rather than
-2,500 m²). In-sample F1 rises most with SAM 2 at 6 m (0.42 to 0.48); at 1 m
-SAM 2 raises the mean IoU of matched fields from 0.88 to 0.91, while in-sample
-F1 stays at 0.60 (0.604 without SAM 2 and 0.598 with it; 126 and 122 matched
-fields).
+2,500 m²). In-sample F1 rises most with SAM 2 at 6 m (0.42 to 0.45); at 1 m
+SAM 2 raises the mean IoU of matched fields from 0.88 to 0.89, while in-sample
+F1 falls from 0.604 to 0.589 (126 and 123 matched fields). Many NAIP polygons
+hold more than one reference field: SAM 2 was prompted with 1,164 of them and
+its mask covered less than half of 463, which keep their DINOv3 outline
+(`sam_min_coverage`, new in 1.0.1; 3, 4, 1 and 9 for Sentinel-2, Landsat, HLS
+and SPOT). Run with agribound 1.0.1 on 2026-09-29; the four fine-tuned
+checkpoints were trained again for it, since the fine-tuning cache key changed
+before the 1.0.0 release, and the scores without SAM 2 are unchanged to two
+decimals.
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/NM_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/NM_example.webp" alt="Lea County — DINOv3 fine-tuned and SAM 2 on Landsat, Sentinel-2, SPOT and NAIP" width="800"></a>
 
@@ -229,59 +247,183 @@ some polygons that do overlap reference fields (a few are visible here).
 
 **Example 15** · Pergamino partido, Buenos Aires Province, east of the city ·
 label-free (no training and no reference data) · min. area 5,000 m²; Dynamic
-World crop filter of each input's year (2024; 2023 for SPOT) · window: the
-most centre pivots among the SAM-refined TESSERA fields.
+World crop filter of each input's year (2024; 2023 for SPOT) · window: zoom 1
+of the next entry, the 4 km square with the most centre pivots.
 
 - Top: Google Satellite Embedding and TESSERA v1 clusters of 2024, after the
-  crop filter and SAM 2 on a Sentinel-2 composite of October 2024 (2,366 and
-  1,918 fields; see the next entry).
+  crop filter and SAM 2 on a Sentinel-2 composite of October 2024, with parts
+  over 50 ha kept unrefined (1,986 and 2,170 fields; see the next entry).
 - Bottom left: Delineate Anything v2 on the same October 2024 Sentinel-2
   composite (8 images): 2,818 fields (the crop filter kept 2,818 of 3,297).
 - Bottom right: Delineate Anything v2 on SPOT 6/7 (6 m), 2023 (6 images;
   AIRBUS/SPOT6_7 ends on 2023-11-15): 3,306 fields (kept 3,306 of 3,761).
 
-On Sentinel-2, Delineate-Anything outlines most pivots in the window as fields
-of their own and splits a few along tone changes inside the circle. On SPOT it
-leaves at least one faint pivot inside a larger rectangular field and breaks
-the two-tone pivot at the top left into pieces. The two inputs differ in date,
-season and resolution (SPOT: a 2023 median of 6 images at 6 m; Sentinel-2: an
-October 2024 median of 8 images at 10 m) and in crop-filter year (2023 and
-2024); which of these differences causes the different outlines was not
-tested. The TESSERA clusters already follow most pivot circles before SAM 2
-(see the next entry), while the Google clusters split several pivots, and
-SAM 2 does not join the pieces (it returns one polygon per input polygon).
-There is no reference layer here; the
-panels compare outlines, not accuracy.
+The two Delineate-Anything layers are the 1.0.0 outputs, which the 1.0.1 run
+reused. On Sentinel-2, Delineate-Anything outlines most pivots in the window as
+fields of their own and splits a few along tone changes inside the circle. On
+SPOT it leaves at least one faint pivot inside a larger rectangular field and
+breaks the two-tone pivot at the top left into pieces. The two inputs differ
+in date, season and resolution (SPOT: a 2023 median of 6 images at 6 m;
+Sentinel-2: an October 2024 median of 8 images at 10 m) and in crop-filter
+year (2023 and 2024); which of these differences causes the different outlines
+was not tested. Before SAM 2, 8 of the 14 pivots in the window have a TESSERA
+polygon of their own (IoU ≥ 0.8) and 7 a Google one (3 with 1.0.0); the others
+have a rougher polygon (IoU 0.5–0.8), are part of larger polygons or, for one
+Google pivot, have almost no polygon (see zoom 1 in the next entry). SAM 2
+neither joins pieces nor splits merged polygons (it returns one polygon per
+input polygon). The pivots here are 40.5–56.8 ha, close to 50 ha, so some are
+refined (orange) and others keep their cluster outline (red). There is no
+reference layer here; the panels compare outlines, not accuracy.
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_example.webp" alt="Pampas — embeddings with SAM 2 vs Delineate-Anything v2 on Sentinel-2 and SPOT" width="800" loading="lazy"></a>
 
 ---
 
-## Pampas, Argentina — Google Satellite Embedding and TESSERA, before and after SAM 2
+## Pampas, Argentina — Google Satellite Embedding and TESSERA, whole study area and three zooms
 
-**Example 15** (steps 1–4) · Label-free: no training and no reference data · Pergamino
-partido, Buenos Aires Province, east of the city · min. area 5,000 m²;
-Dynamic World 2024 crop filter · window: the most centre pivots among the
-SAM-refined TESSERA fields.
+**Example 15** (steps 1–4) · Label-free: no training and no reference data ·
+Pergamino partido, Buenos Aires Province, east of the city · min. area
+5,000 m²; Dynamic World 2024 crop filter · the whole study area (a pentagon
+with a bounding box of about 28 × 31 km), then three 4 km windows (yellow
+squares 1–3).
 
 Google Satellite Embedding (top) and TESSERA v1 (bottom) embeddings of 2024
-are clustered (k = 5) and kept where they pass the crop filter (left); SAM 2
-then refines them on a Sentinel-2 composite of October 2024, 8 images
-(right). The crop filter kept 2,372 of 2,846 Google and 1,923 of 2,461
-TESSERA polygons. SAM 2 was prompted for 442 Google and 511 TESSERA polygons
-and refined 439 and 510 of them. The other 3 and 1 keep their input geometry:
-one Google mask was empty, and the overlap trim removed 2 Google masks and
-1 TESSERA mask entirely. The remaining 1,930 and 1,412 polygons were below the
-size rule and were not prompted. After the 5,000 m² filter, 2,366 and 1,918
-polygons remain; the refined fields are outlined in orange. The script smooths
-and simplifies all polygons again after SAM. On the pivots, the TESSERA
-clusters follow most circles, while the Google clusters split several of
-them. SAM 2 redraws many pivot outlines along their edges; it returns one
-polygon per input polygon, so it neither splits a field in two nor joins the
-pieces of a split pivot, and it can leave holes inside a field along
-within-field variation.
+are clustered (k = 5) and kept where they pass the crop filter (left): it kept
+1,986 of 2,307 Google and 2,170 of 2,314 TESSERA polygons. SAM 2 then refines
+them on a Sentinel-2 composite of October 2024, 8 images (right), in the
+example's split variant: parts over 50 ha are kept unrefined (205 Google and
+283 TESSERA polygons; neither crop layer has multi-part polygons, so nothing
+was split). Of the other 1,781 and 1,887 polygons, SAM 2 was prompted for 236
+and 302 and refined 208 and 289. The other 28 and 13 masks covered less than
+half of their input polygon, so those polygons keep their input geometry;
+1,545 and 1,585 polygons were below the size rule and were not prompted.
+SAM's overlap trim sees only the polygons it is given, so the example then
+trims the refined masks where they overlap the kept polygons (167 Google and
+191 TESSERA masks). The 5,000 m² filter that follows removed no polygon:
+1,986 and 2,170 remain, 208 and 289 of them refined (orange). The script
+smooths and simplifies the polygons of 50 ha or less again after SAM; the
+larger ones keep their crop-filter outline.
 
-<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_SAM2_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_SAM2_example.webp" alt="Pampas — Google Satellite Embedding and TESSERA clusters before and after SAM 2" width="800" loading="lazy"></a>
+Each crop layer leaves a large group of fields without a polygon. In the
+TESSERA cluster raster, one cluster forms a connected region of 21,452 ha. Its
+representative point lies outside the study area, so the study-area rule
+drops it. In the Google cluster raster, a connected region of 11,105 ha is
+kept as one polygon, which the crop filter then removes. Delineate-Anything
+outlines 2,939 ha (TESSERA region) and 1,896 ha (Google region) of fields on
+Sentinel-2 in these regions; 2,893 ha and 1,881 ha of them are covered by no
+crop-filter polygon of that embedding (see
+[Engines](user-guide/engines.md#embedding-clustering-embedding)).
+
+Why the split: SAM returns one object for each box prompt, and the refined
+polygon replaces the whole input polygon when its mask covers at least
+`sam_min_coverage` = 0.5 of it (the 1.0.1 default; 1.0.0 replaced it in every
+case). Refining every polygon (`fields_*_crop_sam2-s2_2024.gpkg`) removed
+4.9 % of the Google and 6.6 % of the TESSERA crop-filter area (EPSG:6933
+sums); in that run, 70 Google and 37 TESSERA masks covered less than half of
+their polygon and were not used. Of 29 centre pivots located in the composite
+and checked by eye, 4 (Google) and 2 (TESSERA) were then less than half
+covered by any polygon. Three of the Google ones had been part of a cluster
+polygon more than twice their area (2.4 to 7.1 times); the fourth lay inside
+the 11,105 ha polygon that the crop filter removed, so it had almost no
+polygon already before SAM (0.4 % covered). Of the two TESSERA pivots, one
+(2.4 % covered) had been part of a polygon 2.7 times its area and the other
+(45.7 % covered) of one 1.8 times its area. With 1.0.0,
+refining every polygon had removed 24 % and 16 % of the area and left 14 and
+8 pivots less than half covered. With the split, 1 Google pivot and no
+TESSERA pivot is less than half covered: the Google one is that pivot inside
+the removed 11,105 ha polygon (0.2 % covered; see
+[SAM Refinement](user-guide/sam-refinement.md#polygons-that-cover-several-fields)).
+The split layers cover 0.8 % (Google) and 0.1 % (TESSERA) less ground than the
+crop-filter polygons. They keep multi-field polygons as the clustering drew
+them: 6 of the 29 pivots are inside a polygon more than twice their area in
+the TESSERA layer, 9 in the Google layer, all of these polygons unrefined.
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_SAM2_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_SAM2_example.webp" alt="Pampas — Google Satellite Embedding and TESSERA clusters before and after SAM 2, whole study area" width="800" loading="lazy"></a>
+
+### Zoom 1: centre pivots
+
+The 4 km square with the most centre pivots (14 of the 29). The TESSERA
+clusters give 8 of them a polygon of their own (IoU ≥ 0.8) and 2 a rougher one
+(IoU 0.5–0.8). The other four, among them the two-tone pivot at the top left,
+are part of one 568.6 ha polygon, 10 to 14 times the area of each, which stays
+unrefined. The Google clusters give 7 pivots a polygon of their own and 2 a
+rougher one. Three at the left are part of one 137.2 ha polygon (2.4 to 2.6
+times the area of each), and one at the bottom right shares an 89.3 ha
+polygon with the pivot above it (IoU 0.39). The dark-green pivot at the left
+edge has almost no Google polygon (0.4 % covered): it lay inside the
+11,105 ha cluster polygon that the crop filter removed. With 1.0.0, the Google
+clusters gave only 3 of the 14 a polygon of their own and split several into
+pieces. SAM 2 redraws the outlines of the pivots it refines (orange) along
+their edges and can leave holes along within-field variation. With 1.0.1,
+refining every polygon leaves the four TESSERA pivots of the 568.6 ha polygon
+94–98 % covered, because that polygon keeps its input geometry. With 1.0.0,
+refining every polygon had left them at most 7.4 % covered.
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_SAM2_zoom1_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_SAM2_zoom1_example.webp" alt="Pampas — zoom 1, centre pivots: Google and TESSERA clusters before and after SAM 2" width="800" loading="lazy"></a>
+
+### Zoom 2: centre pivots, south-east
+
+A 4 km square around the south-east pivot group (8 of the 29 pivots), most
+of them bare in October 2024. One of them is part of a TESSERA polygon more
+than twice its area (114.1 ha, 2.2 times) and two are part of such Google
+polygons (2,639.3 ha, 45 times, and 125.0 ha, 2.4 times). Three more TESSERA
+pivots are in polygons of 104.6 ha (two pivots share it) and 110.0 ha, 1.8 to
+1.9 times their area, and one more Google pivot is in a 94.4 ha polygon,
+1.7 times its area. All of these polygons are over 50 ha and stay unrefined.
+Refining every polygon left 1 TESSERA pivot (45.7 % covered) and 1 Google
+pivot (5.6 %) of the 8 less than half covered. With 1.0.0, 5 TESSERA and 6
+Google pivots here were part of polygons more than twice their area (the
+Google ones of a single 2,522 ha polygon), and refining every polygon had left
+3 and 6 less than half covered.
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_SAM2_zoom2_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_SAM2_zoom2_example.webp" alt="Pampas — zoom 2, south-east centre pivots: Google and TESSERA clusters before and after SAM 2" width="800" loading="lazy"></a>
+
+### Zoom 3: large merged polygons
+
+This 4 km square (inside the study area, clear of zooms 1 and 2, with no
+checked pivot) is the one with the largest combined TESSERA and Google share
+of its area in crop-filter polygons over 200 ha, chosen on the 1.0.1 layers on
+2026-09-29. 53.1 % of it is in four TESSERA polygons of 246.1 to 414.3 ha, each
+holding 6 to 12 Delineate-Anything Sentinel-2 fields of 5 ha or more (counting
+fields with at least 80 % of their area inside it), and 77.4 % in three Google
+polygons over 200 ha. The largest Google one, 2,639.3 ha, holds 92 such fields
+and also reaches into zoom 2. Both embeddings draw one outline around blocks
+of bare paddocks whose boundaries show in the composite. These polygons are
+over 50 ha, so the split variant leaves them unrefined. How many such merges
+the TESSERA clusters make depends on the k-means solution: the whole 1.0.1
+TESSERA crop layer has 1 polygon over 500 ha (568.6 ha, in zoom 1), against 10
+in 1.0.0 (see [Engines](user-guide/engines.md#embedding-clustering-embedding)).
+The 1.0.0 gallery used another window (centre 734400, 6249600), chosen by the
+share in polygons over 500 ha; on the 1.0.1 layers no TESSERA polygon over
+500 ha touches it.
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_SAM2_zoom3_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_SAM2_zoom3_example.webp" alt="Pampas — zoom 3, large merged polygons: Google and TESSERA clusters before and after SAM 2" width="800" loading="lazy"></a>
+
+### Compared with the 0.1.x README image
+
+The agribound 0.1.x README showed this example as a wide screenshot (top
+left): about 23 × 18 km, rotated, with outlines about 63 m wide, of the 0.1.x
+layer with SAM 2 on three TESSERA dimensions and polygons over 50 ha
+unrefined (its caption said SAM 2 on Sentinel-2). Drawn in the same frame with
+the same line width, the 0.1.x layer (top right) and the two 1.0.1 split layers
+(bottom: the gallery layer, and SAM 2 on three TESSERA dimensions as in 0.1.x)
+look much alike: at this scale single pixels, small fragments and merged
+fields are hard to see, which is why the 4 km zooms above look rougher than
+the 0.1.x image. By their polygon sizes, the 1.0.1 TESSERA clusters are closer
+to the 0.1.x ones than the 1.0.0 clusters were. In the crop-filter layers,
+15.5 % (0.1.x), 38.4 % (1.0.0) and 18.2 % (1.0.1) of the area is in polygons
+over 200 ha, and the largest polygon is 566, 1,447 and 568 ha (EPSG:6933);
+7, 10 and 6 of the 29 pivots are part of a polygon more than twice their area.
+The cluster labels were not compared pixel by pixel (see
+[Engines](user-guide/engines.md#embedding-clustering-embedding)). The 1.0.1
+clusters sit about a pixel further east than the 0.1.x ones (1.0.1 reused the
+TESSERA raster that 1.0.0 built; see
+[Satellite Sources](user-guide/satellite-sources.md#embeddings)). Unlike the
+other images, it has no inset, and its footer names the imagery but not the
+models; the 1.0.1 layers use the models and versions of the entries above. The
+image is rendered by `tools/make_gallery_pampas_0.1x.py`.
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_0.1x_comparison_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_0.1x_comparison_example.webp" alt="Pampas — the 0.1.x README image next to the 0.1.x and 1.0.1 layers drawn in the same frame" width="800" loading="lazy"></a>
 
 ---
 
@@ -306,13 +448,61 @@ crop filter kept 20,765 of those 49,800. Their median area is 0.04 ha, about
 four Sentinel-2 pixels. In this window they do not follow the field edges
 visible in the SPOT-Pan image. Delineate Anything v2 produced 80,045 polygons
 (78,340 inside the study area, 78,083 after the 100 m² filter); the crop
-filter kept 55,995 of 78,083, with a median area of 0.12 ha. There is no
-reference data here; neither output was evaluated. The example also clusters
-Google Satellite Embedding and TESSERA embeddings (1,230 and 8,818 polygons
-after the crop filter; Google with k = 5 chosen automatically, TESSERA with a
-fixed k = 8; not shown).
+filter kept 55,995 of 78,083, with a median area of 0.12 ha. Both layers are
+the 1.0.0 outputs, which the 1.0.1 run reused. There is no reference data
+here; neither output was evaluated. The example also clusters Google Satellite
+Embedding and TESSERA embeddings (not shown; Google with k = 5 chosen
+automatically, TESSERA with a fixed k = 8). With 1.0.1 the crop filter kept
+1,465 of 9,628 Google and 11,722 of 79,712 TESSERA polygons (3,850.2 and
+5,707.3 ha); with 1.0.0 it kept 1,230 and 8,818 (3,341.0 and 5,773.8 ha).
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/India_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/India_example.webp" alt="India — FTW on Sentinel-2 vs Delineate-Anything on SPOT-Pan" width="800" loading="lazy"></a>
+
+---
+
+## Global South — Delineate-Anything v2 on SPOT 6/7 panchromatic, six landscapes
+
+**Example 22** · Label-free · six study areas, each a 3 km square in its UTM
+zone (6 km in western Bahia, where the pivots are about 1 km across) · min.
+area 100 m² · no crop filter on the maps (see below) · in each panel, the
+densest of the 2 km squares whose centres lie on a 1 km grid (four per 3 km
+area), at about 2 m per pixel of the full-size image; in western Bahia, the
+whole 6 km study area (about 6 m per pixel).
+
+Delineate Anything v2 as released on SPOT 6/7 panchromatic 1.5 m composites
+(restricted SPOT access), the median of one calendar year's scenes with at
+most 15 % cloud cover. The years were chosen so that 2 to 6 scenes cover each
+square and none covers only part of it (image counts in the footer include
+selected scenes with no pixels in the square).
+
+| # | Study area | Year | Fields | Median (ha) | Crop filter kept |
+|---|---|---|---:|---:|---:|
+| 1 | Cauvery Delta, Tamil Nadu, India | 2018 | 3,153 | 0.18 | 3,001 |
+| 2 | Hetao irrigation district, Inner Mongolia, China | 2021 | 4,650 | 0.11 | 3,826 |
+| 3 | Agrelo, Mendoza, Argentina | 2019 | 366 | 1.24 | 344 |
+| 4 | Mwea irrigation scheme, Kenya | 2020 | 1,454 | 0.39 | 1,361 |
+| 5 | Nile Delta near Tanta, Egypt | 2020 | 1,578 | 0.19 | 1,460 |
+| 6 | Luís Eduardo Magalhães, western Bahia, Brazil | 2018 | 320 | 1.14 | 47 |
+
+The fields range from small paddies and strip plots to vineyard blocks and
+centre pivots about 1 km across. The model follows the bunds of the Cauvery
+Delta paddies and the Mwea tenant strips and outlines the Mendoza vineyard
+blocks along their windbreaks. In Hetao it draws many polygons smaller than
+the canal-grid blocks. In the Nile Delta it joins neighbouring strips: west of
+the square shown, one polygon of about 105 ha covers a whole block of strip
+plots between two drains. Of the 13 pivots wholly inside the Bahia panel it
+splits eight (four into quarters, two into seven and eleven pieces along their
+sector lines, one into rings and one into halves along an airstrip) and
+outlines five whole; its two largest polygons there (161 and 151 ha) are
+blocks between the pivots. There is no reference data here, so these are
+outlines, not accuracy. The crop filter (Dynamic World of each year, mean
+`crops` probability at least 0.3) runs as a separate step in the example. It
+kept 47 of the 320 Bahia polygons: over the other 273 the mean Dynamic World
+crops probability is below 0.3. The maps therefore show the unfiltered
+polygons. Unlike the other images, the inset is a world map with the six study
+areas numbered as the panels.
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Global_South_SPOT_Pan_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Global_South_SPOT_Pan_example.webp" alt="Global South — Delineate-Anything v2 on SPOT 6/7 panchromatic in six farming landscapes" width="800" loading="lazy"></a>
 
 ---
 
@@ -500,8 +690,8 @@ before the evaluation.
 
 **Example 13** · SAM 2 box-prompted refinement of example 20's
 Delineate-Anything output (Sentinel-2 2019). The default input of this
-example is example 12's output, which was not run for 1.0.0 · window: the
-most SAM-refined fields, the centre pivots of the Navajo Indian Irrigation
+example is example 12's output, which was not run for 1.0.0 or 1.0.1 ·
+window: the most SAM-refined fields, the centre pivots of the Navajo Indian Irrigation
 Project, San Juan County.
 
 At 10 m, only 67 of the 380 fields pass the SAM size rule (all 19 ha or
@@ -514,8 +704,11 @@ to 12.5 m, with SAM and the second smoothing together. SAM replaces each
 prompted polygon with its own mask and never merges or deletes polygons
 (380 in, 380 out), so Delineate-Anything's splits inside pivots remain; with
 `sam_overlaps="trim"` a refined mask also cannot take area from a
-neighbouring polygon (14 masks were trimmed). (Example 13 evaluates all 380
-polygons; example 20 evaluates the 379 inside its box.)
+neighbouring polygon (14 masks were trimmed). Every mask covered at least
+92 % of its polygon, so the coverage test of 1.0.1 (`sam_min_coverage` = 0.5)
+rejected none (covering too little: 0), and the 1.0.1 output is identical to
+the 1.0.0 one. (Example 13 evaluates all 380 polygons; example 20 evaluates
+the 379 inside its box.)
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/SAM2_refinement_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/SAM2_refinement_example.webp" alt="SAM 2 refinement before and after" width="800" loading="lazy"></a>
 

@@ -40,7 +40,7 @@ contextily instead and prints the Esri attribution on the image.
 
 Locator inset
 -------------
-Each image has a locator inset at the bottom right, unless the entry sets
+Each single-area image has a locator inset at the bottom right, unless the entry sets
 ``inset=False``. It shows the country in white, the boundaries of its states
 or provinces, the containing state or province in pink, the neighbouring
 countries in grey and the major lakes, with a red dot at the centre of the
@@ -59,6 +59,14 @@ on first use, checked against pinned SHA-256 hashes (a mismatch raises
 ValueError) and cached: Natural Earth in ``~/.cache/agribound/naturalearth``,
 the India outline in ``~/.cache/agribound/india``. The source credit
 (``INSET_NOTE`` or ``INSET_NOTE_INDIA``) is printed under the image.
+
+Multi-area entries (``Entry.multi_area``, rendered by :func:`render_areas`) draw
+one panel per layer, each in the CRS of its own background composite, on the
+square of side ``Layer.crop_m`` (else ``Entry.crop_m``) that holds the most
+polygon representative points among candidates half a side apart. Their inset
+is a world locator (``WORLD_INSET_W_IN``, ``WORLD_INSET_PAD_DEG``) with one
+numbered red dot per panel; India is drawn from the Survey of India outline as
+above, and the credit line starts "Inset: study areas 1-N; ".
 
 Footer
 ------
@@ -79,7 +87,8 @@ Outputs (``--out-dir``, default ``assets/gallery_1.0``):
   Lanczos resampling, WebP quality 85, method 6, no metadata);
 - ``gallery_stats.json``: per entry, the facts the captions quote (polygon
   counts, area quantiles, source, year, imagery window, engine metadata, the
-  inset location (``location``: lon/lat, country, admin1) and, when the
+  inset location (``location``: lon/lat, country, admin1; for a multi-area
+  entry, one record per panel and each layer's ``window``) and, when the
   example wrote one, its metrics file). A full run writes the file afresh;
   ``--only`` replaces the rendered entries and keeps the others.
 
@@ -119,10 +128,12 @@ from rasterio.windows import from_bounds  # noqa: E402
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+from agribound._version import __version__  # noqa: E402
 from agribound.io.raster import percentile_stretch_uint8  # noqa: E402
 from agribound.registry import SOURCE_REGISTRY  # noqa: E402
 
 PRED_COLOR = "#ff2d2d"
+PRED_LABEL = f"agribound {__version__} fields"  # the release the gallery documents
 REF_COLOR = "#00e5ff"
 ZOOM_COLOR = "#ffd400"
 HIGHLIGHT_COLOR = "#ff9d00"
@@ -196,6 +207,8 @@ INSET_W_IN, INSET_H_IN = 2.1, 1.5  # largest inset box, outside the maps, at the
 INSET_RIGHT_IN = 0.12  # from the right edge of the image
 INSET_TITLE_FS = 8.5
 INSET_TITLE_PAD_PT = 3
+WORLD_INSET_W_IN = 3.0  # widest world locator (multi-area entries)
+WORLD_INSET_PAD_DEG = (12.0, 10.0)  # lon, lat margin around the dots (keeps labels off the frame)
 # Inset layers, bottom to top. Lakes are above every boundary layer, so no border runs
 # through them; India's Survey of India outline is above the neighbours' fills and the
 # subject country's province lines, so no de facto line shows inside it.
@@ -208,15 +221,17 @@ INSET_PART_MAX_AREA = 0.10
 INSET_PART_MAX_DIST = 0.15
 
 
-def _sam2_note(versions: dict, resmoothed: bool = False) -> str:
+def _sam2_note(versions: dict, resmoothed: bool | str = False) -> str:
     """SAM 2 refinement line (refined files of examples 13 and 15 have no sidecar).
 
-    *resmoothed*: the example smooths and simplifies every polygon again after SAM
-    (examples 13 and 15), so the fields SAM did not prompt are not byte-identical.
+    *resmoothed*: True when the example smooths and simplifies every polygon again after
+    SAM (example 13), so the fields SAM did not prompt are not byte-identical; a string
+    names the polygons it smooths again (example 15's split variant).
     """
+    which = resmoothed if isinstance(resmoothed, str) else "all polygons"
     after = (
         "fields whose padded box is under 64 px on a side are not changed by SAM; the example "
-        "then smooths and simplifies all polygons again"
+        f"then smooths and simplifies {which} again"
         if resmoothed
         else "fields whose padded box is under 64 px on a side are left unchanged"
     )
@@ -267,6 +282,7 @@ class Layer:
     background: str | None = None  # per-panel background GeoTIFF glob (per_layer_background)
     background_source: str | None = None
     bg_role: str | None = None
+    crop_m: float | None = None  # multi-area entries: this panel's window side (else the entry's)
 
 
 @dataclass
@@ -286,10 +302,20 @@ class Entry:
     crop_m: float | None = None  # crop every panel to the densest square of this width (metres)
     crop_layer: int = 0  # layer whose polygons define the densest square
     crop_on_reference: bool = False  # the densest square of the reference polygons instead
+    # Crop every panel to this square instead: (centre x, centre y, side in metres), in the
+    # CRS of the background raster (the map CRS).
+    window: tuple[float, float, float] | None = None
+    # Squares outlined and numbered on every layer panel (not a zoom panel): (label, centre x,
+    # centre y, side in metres), in the map CRS, e.g. the windows of the zoomed entries that go
+    # with an overview.
+    mark_windows: list[tuple[str, float, float, float]] = field(default_factory=list)
     ftw_window: str | None = "a"  # FTW outputs: draw this season window ("a" or "b")
     ncols: int | None = None  # panels per row (default: all in one row)
     bg_role: str | None = None  # how the background relates to the engine input (for the note)
     per_layer_background: bool = False  # each panel on its own layer's imagery
+    # Each layer is its own study area: its own CRS, imagery and densest crop_m window, and a
+    # world locator with numbered dots instead of the country inset (render_areas).
+    multi_area: bool = False
     crop_on: str | None = None  # boolean column, or "circular": count only those rows of that layer
     metrics: str | None = None  # glob of a metrics JSON to copy into gallery_stats.json
     overlay: str | None = (
@@ -298,12 +324,56 @@ class Entry:
     overlay_label: str = ""
     model_notes: list[str] = field(default_factory=list)  # extra footer lines
     sam2_note: bool = False  # add the SAM 2 model line (refined files have no sidecar)
-    sam2_resmoothed: bool = False  # the example re-smooths all polygons after SAM (13, 15)
+    sam2_resmoothed: bool | str = (
+        False  # True: re-smooths all polygons after SAM (13); str: which (15)
+    )
     halo: bool = False  # white halo under the outlines, for small fields on busy imagery
     inset: bool = True  # locator inset (country, state/province, study-area marker)
     line_width: float = 0.7
     notes: dict = field(default_factory=dict)
 
+
+# Example 15 zoom windows (label, centre x, centre y, side in m; EPSG:32720, the map CRS):
+# 1 = the 4 km square with the most centre pivots (the densest circular-polygon window of the
+# 1.0.0 gallery; 14 of 29 hand-checked pivots), 2 = a 4 km square around the south-east pivot
+# group (8 pivots), 3 = the 4 km square (inside the study area, clear of 1 and 2; 200 m grid) with
+# the largest summed TESSERA and Google share of its area in crop-filter polygons over 200 ha, on
+# the 1.0.1 layers (TESSERA 53 % in 4 polygons of 246-414 ha holding 6-12 Delineate-Anything
+# fields each; Google 77 %; 2026-09-29). The 1.0.0 window, chosen by the same share over 500 ha,
+# was 734400, 6249600.
+PAMPAS_WINDOWS: list[tuple[str, float, float, float]] = [
+    ("1", 740072.0, 6246718.0, 4000.0),
+    ("2", 748600.0, 6242300.0, 4000.0),
+    ("3", 747200.0, 6246400.0, 4000.0),
+]
+PAMPAS_SPLIT_NOTE = (
+    "SAM 2 variant: polygons over 50 ha kept as the crop filter left them (one box prompt returns "
+    "one object, so a polygon covering several fields would lose the rest), and refined masks "
+    "trimmed where they overlap them; these crop layers have no multi-part polygons to split"
+)
+PAMPAS_RESMOOTHED = "the polygons of 50 ha or less"
+PAMPAS_SAM2_LAYERS = [
+    Layer(
+        "outputs/pampas_semi_supervised/fields_google_crop_2024.gpkg",
+        "Google embedding clusters, crop filter",
+        model_from="outputs/pampas_semi_supervised/fields_google-embedding_embedding_2024_all.gpkg",
+    ),
+    Layer(
+        "outputs/pampas_semi_supervised/fields_google_crop_sam2-s2-split_2024.gpkg",
+        "Google + SAM 2 on Sentinel-2",
+        highlight="agribound:sam_refined",
+    ),
+    Layer(
+        "outputs/pampas_semi_supervised/fields_tessera_crop_2024.gpkg",
+        "TESSERA clusters, crop filter",
+        model_from="outputs/pampas_semi_supervised/fields_tessera-embedding_embedding_2024_all.gpkg",
+    ),
+    Layer(
+        "outputs/pampas_semi_supervised/fields_tessera_crop_sam2-s2-split_2024.gpkg",
+        "TESSERA + SAM 2 on Sentinel-2",
+        highlight="agribound:sam_refined",
+    ),
+]
 
 # Paths are relative to the run root (outputs/examples_1.0). See its PLAN.md.
 ENTRIES: list[Entry] = [
@@ -369,7 +439,7 @@ ENTRIES: list[Entry] = [
         "Pampas: embeddings + SAM 2 vs Delineate-Anything v2 on Sentinel-2 and SPOT",
         [
             Layer(
-                "outputs/pampas_semi_supervised/fields_google_crop_sam2-s2_2024.gpkg",
+                "outputs/pampas_semi_supervised/fields_google_crop_sam2-s2-split_2024.gpkg",
                 "Google embedding + SAM 2",
                 highlight="agribound:sam_refined",
                 model_from="outputs/pampas_semi_supervised/fields_google-embedding_embedding_2024_all.gpkg",
@@ -378,7 +448,7 @@ ENTRIES: list[Entry] = [
                 bg_role="the composite SAM 2 read (fields from embedding clusters)",
             ),
             Layer(
-                "outputs/pampas_semi_supervised/fields_tessera_crop_sam2-s2_2024.gpkg",
+                "outputs/pampas_semi_supervised/fields_tessera_crop_sam2-s2-split_2024.gpkg",
                 "TESSERA + SAM 2",
                 highlight="agribound:sam_refined",
                 model_from="outputs/pampas_semi_supervised/fields_tessera-embedding_embedding_2024_all.gpkg",
@@ -396,49 +466,83 @@ ENTRIES: list[Entry] = [
             ),
         ],
         per_layer_background=True,
-        crop_m=4000,
-        crop_layer=1,
-        crop_on="circular",  # the window with the most centre pivots (same as 15b)
+        window=PAMPAS_WINDOWS[0][1:],  # the pivot window of 15c
+        mark_windows=[PAMPAS_WINDOWS[0]],  # numbered as its square on 15b
         ncols=2,
+        model_notes=[PAMPAS_SPLIT_NOTE],
         sam2_note=True,
-        sam2_resmoothed=True,
+        sam2_resmoothed=PAMPAS_RESMOOTHED,
     ),
     Entry(
         "15b",
         "Pampas_SAM2_example",
-        "Pampas: Google Satellite Embedding and TESSERA, + crop filter + SAM 2",
-        [
-            Layer(
-                "outputs/pampas_semi_supervised/fields_google_crop_2024.gpkg",
-                "Google embedding clusters, crop filter",
-                model_from="outputs/pampas_semi_supervised/fields_google-embedding_embedding_2024_all.gpkg",
-            ),
-            Layer(
-                "outputs/pampas_semi_supervised/fields_google_crop_sam2-s2_2024.gpkg",
-                "Google + SAM 2 on Sentinel-2",
-                highlight="agribound:sam_refined",
-            ),
-            Layer(
-                "outputs/pampas_semi_supervised/fields_tessera_crop_2024.gpkg",
-                "TESSERA clusters, crop filter",
-                model_from="outputs/pampas_semi_supervised/fields_tessera-embedding_embedding_2024_all.gpkg",
-            ),
-            Layer(
-                "outputs/pampas_semi_supervised/fields_tessera_crop_sam2-s2_2024.gpkg",
-                "TESSERA + SAM 2 on Sentinel-2",
-                highlight="agribound:sam_refined",
-            ),
-        ],
+        "Pampas: Google Satellite Embedding and TESSERA, whole study area",
+        PAMPAS_SAM2_LAYERS,
         # The crop and SAM files have no provenance sidecar; SAM 2 read this composite.
         background="outputs/pampas_semi_supervised/.agribound_cache/sentinel2_composite_*.tif",
         background_source="sentinel2",
         bg_role="the composite SAM 2 read (the fields come from embedding clusters)",
-        crop_m=4000,
-        crop_layer=3,
-        crop_on="circular",  # the window with the most centre pivots
+        mark_windows=PAMPAS_WINDOWS,
         ncols=2,
+        line_width=0.45,
+        model_notes=[PAMPAS_SPLIT_NOTE],
         sam2_note=True,
-        sam2_resmoothed=True,
+        sam2_resmoothed=PAMPAS_RESMOOTHED,
+    ),
+    *[
+        Entry(
+            key,
+            name,
+            f"Pampas: Google Satellite Embedding and TESSERA, zoom {label} ({title})",
+            PAMPAS_SAM2_LAYERS,
+            background="outputs/pampas_semi_supervised/.agribound_cache/sentinel2_composite_*.tif",
+            background_source="sentinel2",
+            bg_role="the composite SAM 2 read (the fields come from embedding clusters)",
+            window=(x, y, side),
+            mark_windows=[(label, x, y, side)],  # numbered as its square on 15b
+            ncols=2,
+            model_notes=[PAMPAS_SPLIT_NOTE],
+            sam2_note=True,
+            sam2_resmoothed=PAMPAS_RESMOOTHED,
+        )
+        for (label, x, y, side), (key, name, title) in zip(
+            PAMPAS_WINDOWS,
+            [
+                ("15c", "Pampas_SAM2_zoom1_example", "centre pivots"),
+                ("15d", "Pampas_SAM2_zoom2_example", "centre pivots, south-east"),
+                ("15e", "Pampas_SAM2_zoom3_example", "large merged polygons"),
+            ],
+            strict=True,
+        )
+    ],
+    Entry(
+        "22",
+        "Global_South_SPOT_Pan_example",
+        "Global South: Delineate-Anything v2 on SPOT 6/7 panchromatic 1.5 m, six landscapes",
+        [
+            Layer(
+                f"outputs/global_south_spot_pan/{slug}/fields_spot-pan_delineate-anything_{year}.gpkg",
+                label,
+                crop_m=crop,
+            )
+            for slug, year, label, crop in [
+                ("cauvery_delta", 2018, "Cauvery Delta, India", None),
+                ("hetao", 2021, "Hetao, China", None),
+                ("mendoza", 2019, "Mendoza, Argentina", None),
+                ("mwea", 2020, "Mwea, Kenya", None),
+                ("nile_delta", 2020, "Nile Delta, Egypt", None),
+                (
+                    "western_bahia",
+                    2018,
+                    "Western Bahia, Brazil",
+                    6000,
+                ),  # pivots ~1 km: the whole area
+            ]
+        ],
+        multi_area=True,
+        per_layer_background=True,
+        crop_m=2000,  # per panel: the densest of the 2 km squares on a 1 km grid
+        ncols=3,
     ),
     Entry(
         "02",
@@ -971,6 +1075,23 @@ def _is_circular(gdf: gpd.GeoDataFrame, min_fill: float = 0.8, min_ha: float = 2
     return (fill >= min_fill) & (area >= min_ha * 1e4)
 
 
+def _bool_column(values) -> np.ndarray:
+    """A flag column as a boolean array; missing values are False.
+
+    GeoPackage has no boolean type for a column that also holds missing values, so a
+    flag written through pandas' object dtype comes back as the text "True"/"False";
+    ``astype(bool)`` would make both True.
+    """
+    import pandas as pd
+
+    def one(v) -> bool:
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "yes")
+        return False if pd.isna(v) else bool(v)
+
+    return np.array([one(v) for v in values], dtype=bool)
+
+
 def _is_local_path(value) -> bool:
     """True for absolute filesystem paths (kept out of the committed stats file)."""
     return isinstance(value, str) and (value.startswith(("/", "~")) or value[1:3] == ":\\")
@@ -1043,6 +1164,11 @@ def _background_for(entry: Entry, root: Path, prov: dict, basemap: str, layer: L
         comp_prov = {}  # the window's dates come from its own GeoTIFF tags
         bg_role = f"FTW window {entry.ftw_window.upper()}, one of FTW's two season inputs"
     if basemap == "composite" and not tifs:
+        if entry.multi_area:  # render_areas has no Esri mode
+            raise FileNotFoundError(
+                f"entry {entry.key}: no composite recorded (no facts.raster_path in the layer's "
+                "provenance sidecar); set Layer.background to that panel's GeoTIFF"
+            )
         raise FileNotFoundError(f"entry {entry.key}: no composite recorded; pass --basemap esri")
     return tifs, source, comp_prov, bg_role
 
@@ -1500,7 +1626,10 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
     padx, pady = (maxx - minx) * 0.02, (maxy - miny) * 0.02
     bounds = (minx - padx, miny - pady, maxx + padx, maxy + pady)
 
-    if entry.crop_m:
+    if entry.window:
+        wx, wy, side = entry.window
+        bounds = (wx - side / 2, wy - side / 2, wx + side / 2, wy + side / 2)
+    elif entry.crop_m:
         full = (bounds[0], bounds[2], bounds[1], bounds[3])
         cf = ref if (entry.crop_on_reference and ref is not None) else frames[entry.crop_layer]
         if entry.crop_on == "circular":
@@ -1508,7 +1637,7 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
         elif entry.crop_on == "removed" and removed[entry.crop_layer] is not None:
             cf = cf[removed[entry.crop_layer]]
         elif entry.crop_on:
-            cf = cf[cf[entry.crop_on].fillna(False).astype(bool)]
+            cf = cf[_bool_column(cf[entry.crop_on])]
         z = _densest_window(cf if len(cf) else frames[0], entry.crop_m, full)
         if z is not None:
             bounds = (z[0], z[2], z[1], z[3])
@@ -1526,6 +1655,13 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
             tb_ = np.array(tb_)
             per_panel.append((tb_[:, 0].min(), tb_[:, 1].min(), tb_[:, 2].max(), tb_[:, 3].max()))
         rb = np.array(per_panel)
+        if entry.window and not (
+            rb[:, 0].max() <= bounds[0]
+            and rb[:, 1].max() <= bounds[1]
+            and bounds[2] <= rb[:, 2].min()
+            and bounds[3] <= rb[:, 3].min()
+        ):
+            raise ValueError(f"entry {entry.key}: window {entry.window} is not inside the imagery")
         bounds = (
             max(bounds[0], rb[:, 0].max()),
             max(bounds[1], rb[:, 1].max()),
@@ -1568,7 +1704,7 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
     if loc is not None:
         paragraphs.append(INSET_NOTE_INDIA if _inset_shows_india(loc) else INSET_NOTE)
 
-    handles = [Line2D([], [], color=PRED_COLOR, lw=1.5, label="agribound 1.0.0 fields")]
+    handles = [Line2D([], [], color=PRED_COLOR, lw=1.5, label=PRED_LABEL)]
     if any(lay.highlight for lay, *_ in layers):
         handles.append(Line2D([], [], color=HIGHLIGHT_COLOR, lw=1.5, label=HIGHLIGHT_LABEL))
     if any(r is not None for r in removed):
@@ -1578,6 +1714,14 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
     if overlay is not None:
         handles.append(
             Line2D([], [], color=ZOOM_COLOR, lw=1.2, ls=(0, (4, 3)), label=entry.overlay_label)
+        )
+    if entry.mark_windows:
+        labels = ", ".join(label for label, *_ in entry.mark_windows)
+        name = "Zoom window" if len(entry.mark_windows) == 1 else "Zoom windows"
+        handles.append(
+            Rectangle(
+                (0, 0), 1, 1, fill=False, edgecolor=ZOOM_COLOR, lw=1.1, label=f"{name} {labels}"
+            )
         )
 
     # Footer layout (inches from the bottom of the image): the legend row at the top,
@@ -1677,7 +1821,7 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
                 for coll in ax.collections[n_before:]:
                     coll.set_path_effects(halo)
             if hl and hl in gdf.columns:
-                sel = gdf[gdf[hl].fillna(False).astype(bool)]
+                sel = gdf[_bool_column(gdf[hl])]
                 if len(sel):
                     sel.boundary.plot(ax=ax, color=HIGHLIGHT_COLOR, linewidth=lw * 1.3, zorder=4.5)
             if rm is not None and rm.any():
@@ -1708,6 +1852,32 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
             bg=imgs[i],
             rm=removed[i],
         )
+    for ax in axes[: len(layers)]:
+        for label, wx, wy, side in entry.mark_windows:
+            ax.add_patch(
+                Rectangle(
+                    (wx - side / 2, wy - side / 2),
+                    side,
+                    side,
+                    fill=False,
+                    edgecolor=ZOOM_COLOR,
+                    lw=1.1,
+                    zorder=5,
+                )
+            )
+            ax.text(
+                wx - side / 2 + side * 0.04,
+                wy + side / 2 - side * 0.04,
+                label,
+                color=ZOOM_COLOR,
+                fontsize=TITLE_FS,
+                fontweight="bold",
+                ha="left",
+                va="top",
+                zorder=6,
+                clip_on=True,  # like the square: no stray label for a window off the panel
+                path_effects=[pe.Stroke(linewidth=2, foreground="black"), pe.Normal()],
+            )
     if zoom:
         z = zoom
         axes[0].add_patch(
@@ -1845,6 +2015,379 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
             stats["metrics_error"] = str(exc)
     if zoom:
         stats["zoom_window_m"] = entry.zoom_m
+    if entry.window:
+        stats["window"] = {
+            "crs": str(crs),
+            "centre": list(entry.window[:2]),
+            "side_m": entry.window[2],
+        }
+    if entry.mark_windows:
+        stats["marked_windows"] = [
+            {"label": lab, "centre": [x, y], "side_m": s} for lab, x, y, s in entry.mark_windows
+        ]
+    return stats
+
+
+def _world_view(points: list[tuple[str, float, float]]):
+    """View box (EPSG:4326) around the dots of a multi-area entry."""
+    from shapely.geometry import box
+
+    lons = [p[1] for p in points]
+    lats = [p[2] for p in points]
+    px, py = WORLD_INSET_PAD_DEG
+    return box(
+        max(min(lons) - px, -180.0),
+        max(min(lats) - py, -60.0),
+        min(max(lons) + px, 180.0),
+        min(max(lats) + py, 80.0),
+    )
+
+
+def _draw_world_inset(fig, rect, points: list[tuple[str, float, float]], view) -> tuple:
+    """Locator for multi-area entries: countries of *view* and a numbered dot per study area.
+
+    India is drawn from the Survey of India outline above the neighbouring countries, as in
+    :func:`_draw_inset`. Returns ``(axes, india_drawn)``.
+    """
+    x0, y0, x1, y1 = view.bounds
+    iax = fig.add_axes(rect)
+    iax.set_facecolor(WATER_COLOR)
+    countries = _natural_earth("countries")
+    others = countries[countries["ADM0_A3"] != "IND"].clip(view)
+    if len(others):
+        others.plot(
+            ax=iax, color="#f4f4f4", edgecolor="#a9a9a9", linewidth=0.25, zorder=Z_NEIGHBOURS
+        )
+    india = _india_outline()
+    india_drawn = bool(india.intersects(view))
+    if india_drawn:
+        gpd.GeoSeries([india.intersection(view)], crs=4326).plot(
+            ax=iax, color="#f4f4f4", edgecolor="#a9a9a9", linewidth=0.25, zorder=Z_INDIA
+        )
+    lakes = _natural_earth("lakes").clip(view)
+    with warnings.catch_warnings():  # both areas are in square degrees: a relative test
+        warnings.simplefilter("ignore", UserWarning)
+        lakes = lakes[lakes.geometry.area >= view.area * 2e-4]
+    if len(lakes):
+        lakes.plot(ax=iax, color=WATER_COLOR, edgecolor="#8fa9bf", linewidth=0.25, zorder=Z_LAKES)
+    for label, lon, lat in points:
+        iax.plot(lon, lat, marker="o", ms=4, mfc=PRED_COLOR, mec="black", mew=0.6, zorder=Z_MARKER)
+        iax.annotate(
+            label,
+            (lon, lat),
+            xytext=(3, 2),
+            textcoords="offset points",
+            fontsize=INSET_TITLE_FS - 1,
+            fontweight="bold",
+            zorder=Z_MARKER + 1,
+            path_effects=[pe.Stroke(linewidth=2, foreground="white"), pe.Normal()],
+        )
+    iax.set_xlim(x0, x1)
+    iax.set_ylim(y0, y1)
+    iax.set_aspect(1 / max(math.cos(math.radians((y0 + y1) / 2)), 0.2), adjustable="box")
+    iax.set_anchor("SE")
+    iax.set_xticks([])
+    iax.set_yticks([])
+    for sp in iax.spines.values():
+        sp.set_edgecolor("#333333")
+        sp.set_linewidth(0.7)
+    return iax, india_drawn
+
+
+def _areas_bg_note(panels: list[dict]) -> str:
+    """Background note of a multi-area entry: one line when every panel has the same source."""
+    facts = []
+    for p in panels:
+        tifs, source, comp_prov, role = p["bg"]
+        facts.append((source, role, _composite_facts(comp_prov, tifs[0] if tifs else None)))
+    heads = {
+        (src, role, c.get("resolution_m"), c.get("composite_method")) for src, role, c in facts
+    }
+    if len(heads) != 1:
+        return "Background: " + "; ".join(f"{p['n']}: {_bg_note(p['bg'])}" for p in panels)
+    source, role, res, method = heads.pop()
+    label = SOURCE_LABELS.get(source or "", source or "imagery")
+    if res:
+        label += f" {float(res):g} m"
+    per = []
+    for p, (_src, _role, c) in zip(panels, facts, strict=True):
+        dates = (
+            f"{c['date_start']} to {c['date_end_exclusive']}"
+            if c.get("date_start") and c.get("date_end_exclusive")
+            else "dates not recorded"
+        )
+        n_img = f", {c['n_images']} images" if c.get("n_images") else ""
+        per.append(f"{p['n']}: {dates}{n_img}")
+    kind = f"{method} composites" if method else "composites"
+    return f"Background: {label} {kind} ({role}); end dates exclusive: " + "; ".join(per)
+
+
+def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
+    """Render a multi-area entry: one panel per layer, each on its own study area.
+
+    Each panel is drawn in the CRS of its own background raster, on the square of side
+    ``lay.crop_m`` (else ``entry.crop_m``) holding the most polygon representative points
+    of that layer, among candidate squares half a side apart inside its imagery, with its
+    own scale bar. A world locator with numbered dots replaces the country inset. Options
+    that only :func:`render` implements are refused.
+    """
+    from pyproj import Transformer
+
+    if basemap != "composite":
+        raise ValueError(f"entry {entry.key}: multi-area entries need --basemap composite")
+    if not entry.crop_m:
+        raise ValueError(f"entry {entry.key}: multi-area entries need crop_m")
+    unsupported = [
+        n
+        for n in (
+            "reference",
+            "crop_on_reference",
+            "window",
+            "zoom_m",
+            "overlay",
+            "crop_on",
+            "crop_layer",
+            "mark_windows",
+            "sam2_note",
+            "metrics",
+            "background",
+            "background_from",
+        )
+        if getattr(entry, n)
+    ] + [
+        f"layers[{k}].{n}"
+        for k, lay in enumerate(entry.layers)
+        for n in ("highlight", "removed_vs", "model_from")
+        if getattr(lay, n)
+    ]
+    if unsupported:
+        raise ValueError(
+            f"entry {entry.key}: multi-area entries do not support {', '.join(unsupported)}"
+        )
+    panels = []
+    for i, lay in enumerate(entry.layers):
+        path = _one(lay.path, root)
+        gdf, prov = gpd.read_file(path), _sidecar(path)
+        bg = _background_for(entry, root, prov, basemap, lay)
+        with rasterio.open(bg[0][0]) as src:
+            crs, rb = src.crs, src.bounds
+        g = gdf.to_crs(crs)
+        # The square is placed inside the imagery (which covers the study area), so it fits
+        # even where the polygons span less than crop_m in one direction.
+        full = (rb.left, rb.right, rb.bottom, rb.top)
+        side = lay.crop_m or entry.crop_m
+        ext = _densest_window(g, side, full) if len(g) else None
+        ext = ext or full
+        lon, lat = Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform(
+            (ext[0] + ext[1]) / 2, (ext[2] + ext[3]) / 2
+        )
+        panels.append(
+            {
+                "n": str(i + 1),
+                "lay": lay,
+                "path": path,
+                "gdf": g,
+                "prov": prov,
+                "bg": bg,
+                "crs": crs,
+                "extent": ext,
+                "lon": lon,
+                "lat": lat,
+            }
+        )
+
+    paragraphs = [_areas_bg_note(panels)]
+    model_lines = []
+    for p in panels:
+        m = _model_note(p["prov"])
+        if m and m not in model_lines:
+            model_lines.append(m)
+    for m in entry.model_notes:
+        if m not in model_lines:
+            model_lines.append(m)
+    paragraphs += [("Model: " if k == 0 else "") + m for k, m in enumerate(model_lines)]
+    points = [(p["n"], p["lon"], p["lat"]) for p in panels]
+    view = _world_view(points) if entry.inset else None
+    if view is not None:
+        dots = f"Inset: study areas 1-{len(panels)}; "
+        if _india_outline().intersects(view):
+            paragraphs.append(dots + INSET_NOTE_INDIA.removeprefix("Inset: "))
+        else:
+            paragraphs.append(dots + "Natural Earth country and lake boundaries")
+
+    handles = [Line2D([], [], color=PRED_COLOR, lw=1.5, label=PRED_LABEL)]
+    legend_ncol = len(handles)
+    legend_right, legend_h = _measure_legend(handles, legend_ncol)
+    inset = None
+    if view is not None:
+        vx0, vy0, vx1, vy1 = view.bounds
+        ratio = (vy1 - vy0) / max(math.cos(math.radians((vy0 + vy1) / 2)), 0.2) / (vx1 - vx0)
+        w_in = min(WORLD_INSET_W_IN, INSET_H_IN / ratio)
+        inset = {"w": w_in, "h": w_in * ratio}
+        inset["left"] = FIG_WIDTH_IN - INSET_RIGHT_IN - w_in
+        inset["top"] = FOOT_BOTTOM_IN + inset["h"]
+    note_right = inset["left"] - NOTE_INSET_GAP_IN if inset else FIG_WIDTH_IN - NOTE_X_IN
+    note_lines = [line for par in paragraphs for line in _wrap(par, note_right - NOTE_X_IN)]
+    notes_top = FOOT_TOP_IN + legend_h + LEGEND_NOTE_GAP_IN
+    footer = notes_top + _notes_height_in(len(note_lines)) + FOOT_BOTTOM_IN
+    if inset:
+        beside_legend = legend_right + NOTE_INSET_GAP_IN <= inset["left"]
+        footer = max(footer, inset["top"] + (FOOT_TOP_IN if beside_legend else notes_top))
+
+    n = len(panels)
+    ncols = min(entry.ncols or 3, n)
+    nrows = math.ceil(n / ncols)
+    panel_w = FIG_WIDTH_IN * (MAPS_RIGHT - MAPS_LEFT) / (ncols + MAPS_WSPACE * (ncols - 1))
+    panel_h = panel_w  # square windows
+    row_gap = ROW_GAP_IN if nrows > 1 else 0.0
+    fig_h = TITLE_IN + nrows * panel_h + (nrows - 1) * row_gap + footer
+    px = (panel_w * DPI, panel_h * DPI)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(FIG_WIDTH_IN, fig_h), dpi=DPI, squeeze=False)
+    axes = axes.ravel()
+    for ax in axes[n:]:
+        ax.set_visible(False)
+    lw = entry.line_width * 0.8
+    for ax, p in zip(axes, panels, strict=False):
+        e = p["extent"]
+        tifs, source, *_ = p["bg"]
+        img, img_ext, _stretch = _read_background(
+            tifs, source, (e[0], e[2], e[1], e[3]), p["crs"], px
+        )
+        ax.imshow(img, extent=img_ext, interpolation="auto", zorder=1)
+        g = p["gdf"].cx[e[0] : e[1], e[2] : e[3]]
+        if len(g):
+            n_before = len(ax.collections)
+            g.boundary.plot(ax=ax, color=PRED_COLOR, linewidth=lw, zorder=4)
+            if entry.halo:
+                halo = [pe.Stroke(linewidth=lw + 1.6, foreground="white", alpha=0.85), pe.Normal()]
+                for coll in ax.collections[n_before:]:
+                    coll.set_path_effects(halo)
+        ax.set_xlim(e[0], e[1])
+        ax.set_ylim(e[2], e[3])
+        ax.set_aspect("equal")
+        ax.set_anchor("N")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for sp in ax.spines.values():
+            sp.set_linewidth(0.6)
+        _scalebar(ax, e, p["crs"])
+        title = f"{p['n']}. {p['lay'].label} ({len(p['gdf']):,} fields)"
+        fs = TITLE_FS
+        while fs > 7 and _text_width_in(title, fs) > panel_w * 0.98:
+            fs -= 0.5  # a long title is set smaller, not over the next panel
+        ax.set_title(title, fontsize=fs, pad=4)
+
+    iax = None
+    if inset:
+        rect = [
+            inset["left"] / FIG_WIDTH_IN,
+            FOOT_BOTTOM_IN / fig_h,
+            inset["w"] / FIG_WIDTH_IN,
+            inset["h"] / fig_h,
+        ]
+        iax, _india = _draw_world_inset(fig, rect, points, view)
+    legend = fig.legend(
+        handles=handles,
+        loc="upper left",
+        bbox_to_anchor=(LEGEND_X_IN / FIG_WIDTH_IN, (footer - FOOT_TOP_IN) / fig_h),
+        ncol=legend_ncol,
+        fontsize=LEGEND_FS,
+        frameon=False,
+    )
+    first_baseline = footer - notes_top - NOTE_FS / 72
+    note_texts = [
+        fig.text(
+            NOTE_X_IN / FIG_WIDTH_IN,
+            (first_baseline - i * NOTE_LINE_IN) / fig_h,
+            line,
+            ha="left",
+            va="baseline",
+            fontsize=NOTE_FS,
+            color=NOTE_COLOR,
+        )
+        for i, line in enumerate(note_lines)
+    ]
+    fig.subplots_adjust(
+        left=MAPS_LEFT,
+        right=MAPS_RIGHT,
+        top=1 - TITLE_IN / fig_h,
+        bottom=footer / fig_h,
+        wspace=MAPS_WSPACE,
+        hspace=row_gap / panel_h,
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    png = out_dir / f"{entry.name}.png"
+    fig.savefig(png, dpi=DPI, metadata={"Software": None})
+    try:
+        _check_footer(fig, footer, legend, note_texts, iax)
+    except RuntimeError:
+        png.unlink()
+        raise
+    finally:
+        plt.close(fig)
+    preview = _write_preview(png, out_dir)
+
+    stats = {
+        "example": entry.key,
+        "image": (png.relative_to(REPO) if png.is_relative_to(REPO) else png).as_posix(),
+        "preview": (
+            preview.relative_to(REPO) if preview.is_relative_to(REPO) else preview
+        ).as_posix(),
+        "title": entry.title,
+        "background": "composite",
+        "background_note": "\n".join(note_lines),
+        "model_notes": model_lines,
+        "location": (
+            {
+                "areas": [
+                    {
+                        "panel": p["n"],
+                        **{k: v for k, v in _locate(p["lon"], p["lat"]).items() if k[0] != "_"},
+                    }
+                    for p in panels
+                ]
+            }
+            if entry.inset
+            else {}
+        ),
+        "layers": [],
+    }
+    for p in panels:
+        cfg = p["prov"].get("config") or {}
+        em = p["prov"].get("engine_meta") or {}
+        tifs = p["bg"][0]
+        stats["layers"].append(
+            {
+                "panel": p["n"],
+                "label": p["lay"].label,
+                "file": str(p["path"].relative_to(root)),
+                **_area_stats(p["gdf"]),
+                "source": cfg.get("source"),
+                "engine": cfg.get("engine"),
+                "year": cfg.get("year"),
+                "lulc_filter": cfg.get("lulc_filter"),
+                "lulc_dataset": cfg.get("lulc_dataset"),
+                "sam_refine": cfg.get("sam_refine"),
+                "min_field_area_m2": cfg.get("min_field_area_m2"),
+                "composite": _composite_facts(p["prov"], tifs[0] if tifs else None),
+                "engine_meta": {
+                    k: em[k]
+                    for k in sorted(em)
+                    if isinstance(em[k], (str, int, float, bool)) and not _is_local_path(em[k])
+                },
+                "window": {
+                    "crs": str(p["crs"]),
+                    "bounds": [
+                        float(v)
+                        for v in (p["extent"][0], p["extent"][2], p["extent"][1], p["extent"][3])
+                    ],
+                    "centre_lonlat": [round(p["lon"], 4), round(p["lat"], 4)],
+                },
+                "agribound_version": p["prov"].get("agribound_version"),
+                "run_status": p["prov"].get("status"),
+            }
+        )
     return stats
 
 
@@ -1875,7 +2418,8 @@ def main(argv: list[str] | None = None) -> int:
     failed = []
     for e in entries:
         try:
-            all_stats[e.key] = render(e, root, out_dir, args.basemap)
+            renderer = render_areas if e.multi_area else render
+            all_stats[e.key] = renderer(e, root, out_dir, args.basemap)
             print(f"[{e.key}] {out_dir / (e.name + '.png')}")
         except Exception as exc:  # report and continue with the other entries
             failed.append(e.key)

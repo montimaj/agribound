@@ -89,7 +89,7 @@ chip. Chips are upsampled by the same super-resolution factor as at inference
 (a WARNING is logged and `imgsz_matches_model_input: false` recorded
 otherwise). Settings: `seed=config.seed`, `deterministic=True`, `mosaic=0`,
 AdamW with `lr0` 0.002 (`yolo_lr0`), flips, batch 16 (`yolo_batch`),
-`epochs=fine_tune_epochs`; Ultralytics keeps `best.pt`. The 1.0.0 test suite
+`epochs=fine_tune_epochs`; Ultralytics keeps `best.pt`. The test suite
 runs this trainer against a stub of Ultralytics. Example 12's NAIP runs
 fine-tuned `large_v2` with Ultralytics 8.4.163 (650 chips of 512 px, 10
 epochs); their in-sample scores, and those of the GeoAI and DINOv3 models

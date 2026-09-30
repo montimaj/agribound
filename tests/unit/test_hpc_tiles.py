@@ -406,6 +406,28 @@ class TestRunTile:
         cfg_path.write_text(yaml.safe_dump(data))
         assert hpc_tiles.tile_status(m).set_index("index").loc[0, "delineate"] == "stale"
 
+    def test_output_with_other_results_versions_is_stale(self, tmp_path, fake_pipeline):
+        """The pipeline's reuse test (agribound._results): a 1.0.0 SAM-refined tile is stale."""
+        from agribound._results import results_versions
+
+        tiles = hpc_tiles.make_tiles(SEAM_BBOX)
+        config = _base_config(tmp_path, sam_refine=True)
+        m = hpc_tiles.load_manifest(hpc_tiles.write_tile_manifest(tiles, config, tmp_path / "run"))
+        hpc_tiles.run_tile(m, 0)
+        # The fake pipeline writes the record without results_versions, as 1.0.0 did.
+        assert hpc_tiles.tile_status(m).set_index("index").loc[0, "delineate"] == "stale"
+        # Not skipped (the real pipeline then asks for --overwrite, as for a changed config).
+        assert hpc_tiles.run_tile(m, 0)["status"] == "done"
+        assert fake_pipeline.delineate_calls == 2
+
+        output = Path(m["_root"]) / m["tiles"][0]["output"]
+        record = read_provenance(output)
+        record["facts"]["results_versions"] = results_versions(config)
+        write_provenance(output, record)
+        assert hpc_tiles.tile_status(m).set_index("index").loc[0, "delineate"] == "done"
+        assert hpc_tiles.run_tile(m, 0)["status"] == "skipped"
+        assert fake_pipeline.delineate_calls == 2
+
     def test_tile_selection(self, tmp_path, fake_pipeline):
         m = _make_manifest(tmp_path)
         tid = m["tiles"][2]["tile_id"]

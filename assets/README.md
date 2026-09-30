@@ -7,7 +7,7 @@ of the Python package.
 | Path | What |
 |---|---|
 | `agribound_workflow_1.0.{png,svg}` | Workflow diagram, rendered by `tools/make_workflow_diagram.py` (the PDF it also writes is not tracked) |
-| `gallery_1.0/` | Gallery images from the agribound 1.0.0 example runs, rendered by `tools/make_gallery.py`; `gallery_stats.json` holds the facts the captions quote |
+| `gallery_1.0/` | Gallery images from the agribound 1.0.1 example runs, rendered by `tools/make_gallery.py`; `gallery_stats.json` holds the facts the captions quote. The exception is `Pampas_0.1x_comparison_example.png` (the 0.1.x Pampas README image beside 0.1.x and 1.0.1 layers in its frame), rendered by `tools/make_gallery_pampas_0.1x.py`, with no `gallery_stats.json` entry |
 | `gallery_1.0/preview/` | 1600 px WebP previews of those images, used for the embeds (each links to its 3000 px PNG) |
 | `gallery_0.1x/` | The agribound 0.1.x screenshots (archived; see `docs/gallery-0.1x.md`) |
 | `NM_example.png`, `Pampas_example.png` | Byte-identical copies of `gallery_0.1x/NM_example.png` and `gallery_0.1x/Pampas_example.png`, kept at their old paths because the READMEs of the published 0.1.x releases (shown on PyPI) link them there. Do not move or edit them; git stores each identical file once. |

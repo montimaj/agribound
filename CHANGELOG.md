@@ -2,6 +2,148 @@
 
 All notable changes to agribound will be documented in this file.
 
+## [1.0.1] - 2026-09-30
+
+A bug-fix release. It changes the results of the `embedding` engine and of
+SAM refinement for the same configuration, and it makes output reuse check the
+study area and the release that made an output. 1.0.0 outputs of embedding or
+SAM-refined runs are therefore no longer reused: see
+[Results produced with agribound 1.0.0 that are affected](#results-produced-with-agribound-100-that-are-affected).
+All other 1.0.0 outputs, caches and provenance records remain valid. The
+release also adds example 22, re-runs the affected examples and renumbers the
+gallery to 1.0.1.
+
+### Results produced with agribound 1.0.0 that are affected
+
+- **Embedding engine (`engine="embedding"`).** Clusters, and therefore
+  polygons, change (see Fixed). Recompute with `overwrite=True` (CLI:
+  `--overwrite`).
+- **Any run with SAM refinement (`sam_refine=True`,
+  `engine_params["sam_refine"]`, the embedding engine's own refinement, or
+  `refine_boundaries`).** Polygons whose mask covered less than half of them
+  are no longer replaced (see Fixed). Recompute, or pass
+  `engine_params={"sam_min_coverage": 0}` to keep the 1.0.0 behaviour.
+- Such 1.0.0 outputs now raise `FileExistsError` instead of being reused
+  (pass `overwrite=True`); HPC tiles show as `stale` and need
+  `agribound tiles run --overwrite`, and `tiles merge` of a finished 1.0.0 run
+  that used them now refuses ("N tiles are not done") until they are re-run or
+  `--allow-missing` is passed. Agent plans for such runs get a new plan
+  directory. Examples 12, 14 and 15 have no `--overwrite`: delete their
+  outputs first. Example 13 reuses its refined output by file name: pass
+  `--overwrite`.
+
+### Fixed
+- **Embedding engine k-means depended on the pixel sample.**
+  `clustering_method="kmeans"` now fits scikit-learn `KMeans(n_init=10)` (ten
+  complete restarts, the lowest error kept) whatever the raster size, for the
+  final fit and for the silhouette choice of k. 1.0.0, like 0.1.x, used
+  `MiniBatchKMeans(batch_size=10000, n_init=3)` above 100,000 valid pixels
+  and `KMeans(n_init=5)` below; with 31 seeds on example 15's TESSERA rasters
+  `MiniBatchKMeans` reached the lower-error k = 5 solution in 30 of 62 runs,
+  and not at the default seed 42. The engine metadata records
+  `clusterer="KMeans"` and `kmeans_n_init=10`; cached cluster rasters are
+  recomputed (cache version `embedding-clusters-v4`). On example 15's seed-42
+  fit samples the error fell from 6,687,488 to 6,381,504 (TESSERA) and from
+  2,942.7 to 2,733.2 (Google Satellite Embedding). In the 1.0.1 run the share
+  of the TESSERA crop-filter area in polygons over 200 ha fell from 38.4 % to
+  18.2 %, and the Google crop polygons follow 12 of 29 hand-checked centre
+  pivots with a polygon of their own (IoU >= 0.8), against 4. Lower error is
+  not better fields everywhere: the TESSERA solution also forms one connected
+  21,452 ha green-crop region, which the representative-point study-area rule
+  drops, so about 2,900 ha of Delineate-Anything fields there get no polygon.
+  Results can still differ slightly with the number of OpenMP threads
+  ([Reproducibility](https://montimaj.github.io/agribound/user-guide/reproducibility/#seeds)).
+- **SAM refinement replaced a polygon covering several fields by one of them.**
+  SAM returns one object per box prompt, and the refined polygon replaced the
+  whole input, so the rest of a multi-field polygon (for example a centre
+  pivot an embedding cluster merged with its neighbour) was left without a
+  polygon. New `engine_params["sam_min_coverage"]` (default 0.5; 0 restores
+  the 1.0.0 behaviour): a mask that, after the overlap trim, covers less than
+  this share of its input polygon is not used; the polygon keeps its input
+  geometry (`agribound:sam_refined` False, `agribound:sam_score` NaN) and is
+  counted in the new `sam_stats["n_low_coverage"]`, also in the provenance
+  record. The test also applies with `sam_overlaps="keep"`, and the ensemble
+  engine accepts the key. Replayed on example 15's 1.0.0 inputs, refining
+  every crop polygon on Sentinel-2 left 1 instead of 8 (TESSERA) and 2 instead
+  of 14 (Google) of 29 checked pivots less than half covered; in the 1.0.1 run
+  (with the new clusters) 2 and 4, with 6.6 % and 4.9 % of the input area
+  removed, against 15.7 % and 24.1 % in 1.0.0. Example 13 (Delineate-Anything
+  input, every mask covering at least 92 % of its polygon) is unchanged. On
+  polygons that hold several fields a rejected mask may have matched one of
+  them well: the [SAM Refinement](https://montimaj.github.io/agribound/user-guide/sam-refinement/#masks-that-cover-too-little-of-the-polygon)
+  guide gives the measured trade-off, including Lea County (example 14 inputs).
+- **Output reuse ignored the study area's contents and the release that made
+  an output.** Provenance records gain `facts["aoi_fingerprint"]` and
+  `facts["results_versions"]` (new `agribound._results.RESULTS_VERSIONS`;
+  `config_hash` is unchanged). An existing output is no longer reused when its
+  study-area file's geometry changed at the same path (with no study area:
+  when the local raster's path, size or modification time changed), or when a
+  component's results changed for the same configuration: 1.0.1 sets the
+  `embedding` and `sam_refine` entries to 2. Other 1.0.0 outputs are still
+  reused; when their study area is a file, or there is no study area, a
+  WARNING says the fingerprint cannot be verified. `agribound tiles status`
+  reports such tiles as `stale`, and agent plan directories include the
+  results versions in their name.
+- **Example 15, step 6** (SAM 2 on TESSERA dimensions, split variant): parts
+  kept unrefined now get `agribound:sam_refined = False`. In 1.0.0 they had no
+  value, so `fields_tessera_crop_sam2-tessera-split_2024.gpkg` stored the column
+  as text (`"True"`/`"False"`/NULL), and `astype(bool)` reads `"False"` as True,
+  so every polygon SAM was given counted as refined (1,672 instead of 261).
+  `tools/make_gallery.py` now reads text flags as booleans. The step-6 masks
+  are now also trimmed against the kept parts.
+- **Archived 0.1.x gallery:** the Pampas screenshot shows the 0.1.x split
+  variant with SAM 2 on TESSERA dimensions, not SAM 2 on Sentinel-2 as its
+  caption (and the 0.1.x README) said. SAM 2 changed little of that layer:
+  its unrefined polygons over 50 ha hold 66 % of the area.
+
+### Added
+- **Example 22: SPOT 6/7 panchromatic across the Global South.** Delineate-Anything
+  v2 as released on 1.5 m SPOT-Pan composites of six study areas (3 km squares;
+  6 km for the pivots): Cauvery Delta paddies (India), the Hetao irrigation
+  district (Inner Mongolia, China), Mendoza vineyards (Argentina), the Mwea
+  rice scheme (Kenya), Nile Delta strip plots (Egypt) and centre pivots in
+  western Bahia (Brazil), with the crop filter as a separate step. It is also
+  a new gallery image.
+- **Example 15 (Pampas): a split variant of SAM 2 on Sentinel-2** for both
+  embeddings (`fields_{google,tessera}_crop_sam2-s2-split_2024.gpkg`), the rule
+  the example already applied to SAM 2 on TESSERA dimensions: multi-part
+  polygons are split into parts (the Pampas crop layers have none) and parts
+  over 50 ha are kept unrefined; refined masks are trimmed where they overlap
+  the kept parts. It leaves no checked pivot (TESSERA) and 1 (Google, already
+  missing after the crop filter) less than half covered. Examples 12-15 print
+  `n_low_coverage`.
+- **Documentation:** [SAM Refinement](https://montimaj.github.io/agribound/user-guide/sam-refinement/#masks-that-cover-too-little-of-the-polygon)
+  describes the coverage test and polygons that cover several fields;
+  [Engines](https://montimaj.github.io/agribound/user-guide/engines/#embedding-clustering-embedding)
+  the k-means change and its measurements;
+  [Reproducibility](https://montimaj.github.io/agribound/user-guide/reproducibility/#output-reuse)
+  the new reuse checks and their limits, and the OpenMP thread count;
+  [Satellite Sources](https://montimaj.github.io/agribound/user-guide/satellite-sources/#embeddings)
+  the offset measured between TESSERA v1 and optical composites: in the
+  Pampas, the TESSERA raster agribound builds (the same in 1.0.0 and 1.0.1),
+  on the store's grid, sits about 9-10 m east of the Sentinel-2 and SPOT 6/7
+  composites, and polygons of TESSERA clusters carry that offset; the 0.1.x
+  mosaic of the v1 GeoTIFF tiles placed the data about 9 m west of the store's
+  grid there, which cancelled most of it.
+- `tools/make_gallery.py`: `Entry.window` (an explicit square window),
+  `Entry.mark_windows` (numbered squares drawn on the panels) and
+  `Entry.multi_area` (one panel per study area, each in its own CRS and window,
+  with a world locator) and `Layer.crop_m` (a panel's own window side there).
+- `tools/make_gallery_pampas_0.1x.py`: renders the 0.1.x Pampas README image next
+  to the 0.1.x and 1.0.1 layers drawn in the same frame (a new gallery image).
+
+### Changed
+- **Gallery:** renumbered to 1.0.1. Examples 02, 05, 13, 14, 15 and 22 were
+  re-run with 1.0.1; the other entries show 1.0.0 outputs, which 1.0.1 reuses
+  unchanged (their code paths did not change). The Pampas embedding panels
+  show the split variant; the Google Satellite Embedding and TESSERA
+  comparison has a whole-study-area overview and three zoomed windows (two
+  groups of centre pivots and an area of large merged polygons, re-chosen on
+  the 1.0.1 layers); a comparison with the 0.1.x README image, in its own
+  frame, is added.
+- The SAM 3 backends are documented, and warn at load time, as untested in
+  1.0.1 (they have still not been run end to end: the weights are gated).
+
 ## [1.0.0] - 2026-09-29
 
 agribound 1.0.0 is a major release. It changes defaults, removes silent

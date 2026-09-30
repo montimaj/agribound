@@ -55,12 +55,15 @@ DEFAULT_PARAMS: dict[str, Any] = {
 #: 128-D embedding.
 MATRYOSHKA_DEPTHS: tuple[int, ...] = (4, 16, 32, 64)
 
-#: Above this many valid pixels, k-means uses MiniBatchKMeans (as in 0.1.x).
-_MINIBATCH_ABOVE = 100_000
+#: Complete k-means restarts (``KMeans(n_init=...)``) of the final fit and of each
+#: silhouette fit; the lowest-inertia run is kept.
+_KMEANS_N_INIT = 10
 #: Pixels transformed and predicted per call in the prediction pass.
 _PREDICT_CHUNK = 262_144
-#: Bump when the clustering result changes for the same inputs (v3: finite nodata is invalid).
-_CACHE_VERSION = "embedding-clusters-v3"
+#: Bump when the clustering result changes for the same inputs, since the key does not
+#: name the clusterer (v3: finite nodata is invalid; v4: KMeans(n_init=10) replaces
+#: MiniBatchKMeans in the final fit and the k selection).
+_CACHE_VERSION = "embedding-clusters-v4"
 
 
 class EmbeddingEngine(DelineationEngine):
@@ -81,14 +84,17 @@ class EmbeddingEngine(DelineationEngine):
     n_clusters : int or "auto"
         Number of clusters, or ``"auto"`` (default): the candidate in
         *k_candidates* with the highest silhouette score of a
-        ``MiniBatchKMeans(n_init=3, batch_size=5000)`` fit on the first
-        *silhouette_sample_size* sampled pixels.
+        ``KMeans(n_init=10)`` fit on the first *silhouette_sample_size*
+        sampled pixels.
     clustering_method : str
-        ``"kmeans"`` (default; ``KMeans(n_init=5)``, or
-        ``MiniBatchKMeans(batch_size=10000, n_init=3)`` when the raster has
-        more than 100 000 valid pixels) or ``"spectral"``
-        (``SpectralClustering(affinity="nearest_neighbors")`` on the sample,
-        extended to all pixels with ``NearestCentroid``; slow).
+        ``"kmeans"`` (default) or ``"spectral"``. ``"kmeans"`` fits
+        ``KMeans(n_init=10)`` on the cluster sample whatever the raster size
+        and keeps the lowest-inertia of the ten complete restarts (0.1.x and
+        1.0.0 used ``MiniBatchKMeans(batch_size=10000, n_init=3)`` above
+        100 000 valid pixels, which ends in a higher-inertia solution for
+        many samples, and ``KMeans(n_init=5)`` otherwise). ``"spectral"`` is
+        ``SpectralClustering(affinity="nearest_neighbors")`` on the sample,
+        extended to all pixels with ``NearestCentroid`` (slow).
     k_candidates : list[int]
         Candidates for ``n_clusters="auto"`` (default 5, 10, 15, 20, 30, 50).
     pca_sample_size, cluster_sample_size, silhouette_sample_size : int
@@ -105,8 +111,10 @@ class EmbeddingEngine(DelineationEngine):
     prefix) are finite, not all zero and, when the raster declares a finite
     nodata value, not all equal to it. All
     random choices (pixel sample, PCA solver, k-means initialisation) are
-    seeded from ``config.seed``. The cluster raster (int32; 0 = invalid,
-    ``1..k`` = cluster) is cached with :func:`agribound._cache.cache_path`,
+    seeded from ``config.seed``. scikit-learn computes the k-means sums in
+    parallel, so a different number of OpenMP threads can move a small
+    fraction of pixels to another cluster. The cluster raster (int32;
+    0 = invalid, ``1..k`` = cluster) is cached with :func:`agribound._cache.cache_path`,
     keyed by the study area, source, year, TESSERA version, every parameter
     above except *max_block_mb* (the result does not depend on the block
     size), the seed and the input raster's path, size and modification time.
@@ -404,9 +412,7 @@ class EmbeddingEngine(DelineationEngine):
                 raise ValueError(f"n_clusters={k} exceeds the {len(fit_x)} sampled pixels")
             meta["n_clusters"] = int(k)
 
-            predict = self._fit_clusterer(
-                fit_x, k, params["clustering_method"], n_valid, seed, meta
-            )
+            predict = self._fit_clusterer(fit_x, k, params["clustering_method"], seed, meta)
             logger.info(
                 "Clustering %d valid pixels into %d clusters (%s, reduction=%s)",
                 n_valid,
@@ -443,22 +449,21 @@ class EmbeddingEngine(DelineationEngine):
         return meta
 
     @staticmethod
-    def _fit_clusterer(
-        x: np.ndarray, k: int, method: str, n_valid: int, seed: int, meta: dict[str, Any]
-    ):
-        """Fit the clusterer on *x* and return a ``predict(array) -> labels`` callable."""
-        if method == "kmeans":
-            from sklearn.cluster import KMeans, MiniBatchKMeans
+    def _fit_clusterer(x: np.ndarray, k: int, method: str, seed: int, meta: dict[str, Any]):
+        """Fit the clusterer on *x* and return a ``predict(array) -> labels`` callable.
 
-            if n_valid > _MINIBATCH_ABOVE:
-                model = MiniBatchKMeans(
-                    n_clusters=k, batch_size=10_000, n_init=3, random_state=seed
-                )
-                meta["clusterer"] = "MiniBatchKMeans"
-            else:
-                model = KMeans(n_clusters=k, n_init=5, random_state=seed)
-                meta["clusterer"] = "KMeans"
+        ``"kmeans"`` is ``KMeans(n_init=10)`` on *x* for every raster size; *x*
+        has at most *cluster_sample_size* rows, so the ten complete restarts
+        stay cheap, and unlike ``MiniBatchKMeans`` they reach the
+        lowest-inertia solution for most samples.
+        """
+        if method == "kmeans":
+            from sklearn.cluster import KMeans
+
+            model = KMeans(n_clusters=k, n_init=_KMEANS_N_INIT, random_state=seed)
             model.fit(x)
+            meta["clusterer"] = "KMeans"
+            meta["kmeans_n_init"] = _KMEANS_N_INIT
             meta["inertia"] = float(model.inertia_)
             return model.predict
 
@@ -486,17 +491,19 @@ class EmbeddingEngine(DelineationEngine):
 def _select_k(
     sample: np.ndarray, candidates: list[int], seed: int
 ) -> tuple[int, dict[str, float], int]:
-    """Pick k by silhouette score of ``MiniBatchKMeans(n_init=3, batch_size=5000)`` fits.
+    """Pick k by silhouette score of ``KMeans(n_init=10)`` fits.
 
-    Candidates with ``k >= len(sample)`` are skipped, as are fits that return
-    a single label. Returns ``(best_k, {str(k): score}, len(sample))``.
+    The fits use the same algorithm as the final ``"kmeans"`` fit (1.0.0 used
+    ``MiniBatchKMeans(n_init=3, batch_size=5000)``). Candidates with
+    ``k >= len(sample)`` are skipped, as are fits that return a single label.
+    Returns ``(best_k, {str(k): score}, len(sample))``.
 
     Raises
     ------
     ValueError
         If no candidate can be evaluated.
     """
-    from sklearn.cluster import MiniBatchKMeans
+    from sklearn.cluster import KMeans
     from sklearn.metrics import silhouette_score
 
     scores: dict[str, float] = {}
@@ -504,9 +511,7 @@ def _select_k(
     for k in candidates:
         if k >= len(sample):
             continue
-        labels = MiniBatchKMeans(
-            n_clusters=k, n_init=3, random_state=seed, batch_size=5000
-        ).fit_predict(sample)
+        labels = KMeans(n_clusters=k, n_init=_KMEANS_N_INIT, random_state=seed).fit_predict(sample)
         if len(np.unique(labels)) < 2:
             continue
         score = float(silhouette_score(sample, labels))

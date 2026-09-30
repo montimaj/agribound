@@ -4,7 +4,7 @@
 published segmentation models, geospatial foundation models and satellite
 embeddings, through one configuration and one pipeline.
 
-[![Release](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/montimaj/agribound/releases)
+[![Release](https://img.shields.io/badge/release-v1.0.1-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)
 [![Downloads](https://static.pepy.tech/badge/agribound/month)](https://pepy.tech/projects/agribound)
 [![CI](https://github.com/montimaj/agribound/actions/workflows/ci.yml/badge.svg)](https://github.com/montimaj/agribound/actions/workflows/ci.yml)
@@ -97,7 +97,8 @@ when it fails. See [LULC crop filter](user-guide/satellite-sources.md#lulc-crop-
 
 ## Example results
 
-From the agribound 1.0.0 example runs. Each map is drawn on a composite from
+From the agribound 1.0.1 example runs (the San Juan County map shows 1.0.0
+outputs, which 1.0.1 reuses unchanged). Each map is drawn on a composite from
 the run, named under the map: usually the engine's input; for FTW, its window
 A; for the SAM-refined embedding panels, the Sentinel-2 composite SAM 2 read.
 Select an image for the full-resolution file; see the [Gallery](gallery.md)
@@ -111,14 +112,17 @@ runs): object F1 (IoU ≥ 0.5) 0.15, 0.34, 0.33 and 0.43.
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/San_Juan_resolution_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/San_Juan_resolution_example.webp" alt="Delineate-Anything v2 from 30 m to 1 m" width="800"></a>
 
 **Supervised: DINOv3 fine-tuned + SAM 2 (eastern Lea County, New Mexico).**
-In-sample F1 against the training polygons: 0.09 (Landsat), 0.39
-(Sentinel-2), 0.48 (SPOT) and 0.60 (NAIP).
+In-sample F1 against the training polygons: 0.06 (Landsat), 0.38
+(Sentinel-2), 0.45 (SPOT) and 0.59 (NAIP).
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/NM_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/NM_example.webp" alt="DINOv3 fine-tuned and SAM 2 on four sources" width="800"></a>
 
 **Label-free: embeddings + SAM 2 vs Delineate-Anything v2 (Pampas,
 Argentina).** No reference data or training; centre pivots near Pergamino.
-Orange = refined by SAM 2.
+Orange = refined by SAM 2 (parts over 50 ha kept unrefined). The embedding
+panels come from the agribound 1.0.1 run of 2026-09-29; the Delineate-Anything
+panels are the 1.0.0 outputs, which that run reused. The [gallery](gallery.md)
+adds the whole study area and three zoomed windows.
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_example.webp" alt="Embeddings with SAM 2 vs Delineate-Anything v2" width="800"></a>
 
@@ -139,7 +143,7 @@ Orange = refined by SAM 2.
 | [Agent layer](user-guide/agent.md) | human-confirmed planning, MCP server |
 | [FTW polygon query](user-guide/ftw-query.md) and [GEE setup](user-guide/gee-setup.md) | published FTW polygons by area; Earth Engine credentials and project |
 | [API reference](api/pipeline.md) | generated from the docstrings |
-| [Gallery](gallery.md) | maps from the 1.0.0 example runs |
+| [Gallery](gallery.md) | maps from the 1.0.0 and 1.0.1 example runs |
 
 ## License
 

@@ -747,7 +747,7 @@ class TestPublicApi:
             "show_boundaries",
         ):
             assert hasattr(agribound, name), name
-        assert agribound.__version__ == "1.0.0"
+        assert agribound.__version__ == "1.0.1"
         assert "agent" in dir(agribound)
 
     def test_unknown_attribute(self):

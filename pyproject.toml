@@ -109,7 +109,7 @@ samgeo = [
 # triton-windows under `sys_platform == "windows"`, a marker that never matches (sys.platform is "win32"
 # on Windows), so it is declared here with the correct marker. The transformers backend
 # (sam_backend="sam3-hf") needs no triton and no extra beyond transformers>=5. Weights are gated on HF.
-# Both SAM 3 backends are untested in 1.0.0 (not run end to end); a WARNING is logged when used.
+# Both SAM 3 backends are untested in 1.0.1 (not run end to end); a WARNING is logged when used.
 sam3 = [
     "segment-geospatial[samgeo3]>=1.4.2",
     "triton-windows>=3.3.0.post19; sys_platform == 'win32'",

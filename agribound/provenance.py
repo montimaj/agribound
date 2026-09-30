@@ -5,8 +5,9 @@ Run provenance: what was run, with which inputs, versions and resources.
 (configuration and its hash, seed, package versions, platform, device, step
 timings, peak memory, engine metadata, facts and warnings). The pipeline writes
 it next to the output as ``<output_path>.provenance.json``
-(:func:`provenance_path`) and uses :func:`config_hash` to decide whether an
-existing output can be reused.
+(:func:`provenance_path`) and uses :func:`reuse_mismatch` (the
+:func:`config_hash`, the study-area fingerprint and the results versions of
+:mod:`agribound._results`) to decide whether an existing output can be reused.
 """
 
 from __future__ import annotations
@@ -207,6 +208,181 @@ def read_provenance(output_path: str | Path) -> dict | None:
         logger.warning("Could not read provenance file %s: %s", path, exc)
         return None
     return data if isinstance(data, dict) else None
+
+
+# ---------------------------------------------------------------------------
+# Output reuse
+# ---------------------------------------------------------------------------
+
+
+def reuse_facts(config: Any) -> dict[str, Any]:
+    """Return the facts that :func:`reuse_mismatch` checks besides :func:`config_hash`.
+
+    ``aoi_fingerprint`` is :func:`agribound._cache.aoi_fingerprint`: the
+    study-area geometry (read from the file, ``bbox:`` string or WKT), the ID
+    string of a GEE asset (so no Earth Engine access is needed; the asset's
+    features are not covered), or the local raster's resolved path, size and
+    modification time when there is no study area. It is left out when the
+    study area cannot be read (the composite stage then reports the error).
+    ``results_versions`` is :func:`agribound._results.results_versions`.
+
+    Parameters
+    ----------
+    config : AgriboundConfig
+        Configuration of the run.
+
+    Returns
+    -------
+    dict
+        ``{"aoi_fingerprint": str, "results_versions": dict}``.
+    """
+    from agribound._cache import aoi_fingerprint
+    from agribound._results import results_versions
+
+    facts: dict[str, Any] = {}
+    try:
+        facts["aoi_fingerprint"] = aoi_fingerprint(config)
+    except Exception as exc:
+        logger.debug("No study-area fingerprint for %r: %s", config.study_area, exc)
+    facts["results_versions"] = results_versions(config)
+    return facts
+
+
+def _fingerprinted_input(config: Any) -> str | None:
+    """Name the input whose contents only the study-area fingerprint covers, or *None*.
+
+    :func:`config_hash` covers a ``bbox:`` or WKT study area (the text is the
+    geometry) and a GEE asset (fingerprinted by its ID), but only the path of
+    a study-area file or, without a study area, of the local raster. The
+    string formats are told apart as in :func:`agribound.io.vector.read_study_area`.
+    """
+    from agribound._cache import _is_gee_asset
+    from agribound.io.vector import _WKT_RE
+
+    study_area = str(getattr(config, "study_area", "") or "").strip()
+    if study_area:
+        if _is_gee_asset(study_area) or study_area.lower().startswith("bbox:"):
+            return None
+        if _WKT_RE.match(study_area):
+            return None
+        return f"study-area file {study_area!r}"
+    local_tif = getattr(config, "local_tif_path", None)
+    return f"local raster {str(local_tif)!r}" if local_tif else None
+
+
+def reuse_mismatch(record: dict, config: Any, output: str | Path | None = None) -> str | None:
+    """Return why the output that *record* describes cannot be reused for *config*.
+
+    The output of a successful run is reused only when:
+
+    - its ``config_hash`` equals :func:`config_hash` of *config*;
+    - its ``facts["results_versions"]`` equal
+      :func:`agribound._results.results_versions` of *config* (a missing fact
+      or component counts as version 1, i.e. agribound <= 1.0.0), so an
+      output of a component whose results have changed since is not reused;
+    - its ``facts["aoi_fingerprint"]`` equals
+      :func:`agribound._cache.aoi_fingerprint` of *config* when the study
+      area is a file (a file whose geometry changed at the same path is not
+      reused) or, without a study area, for the local raster (compared by
+      resolved path, size and modification time). A ``bbox:``, WKT or GEE
+      asset study area is covered by the configuration hash already.
+
+    A record without ``aoi_fingerprint`` (agribound <= 1.0.0) is accepted,
+    with a WARNING that the study-area file (or local raster) could not be
+    verified; so is a record whose fingerprint cannot be compared because
+    the file cannot be read now.
+
+    Parameters
+    ----------
+    record : dict
+        Provenance record of a successful run (:func:`read_provenance`).
+    config : AgriboundConfig
+        Configuration of the new run.
+    output : str, Path or None
+        The existing output, named in the warnings.
+
+    Returns
+    -------
+    str or None
+        *None* when the output can be reused, else the reason as a clause
+        (``"it was produced ..."``) for an error message.
+    """
+    from agribound._cache import aoi_fingerprint
+    from agribound._results import results_versions
+    from agribound._version import __version__
+
+    current_hash = config_hash(config)
+    if record.get("config_hash") != current_hash:
+        return (
+            f"it was produced with a different configuration (config_hash "
+            f"{str(record.get('config_hash'))[:12]} != {current_hash[:12]})"
+        )
+
+    facts = record.get("facts") or {}
+    version = record.get("agribound_version")
+    made_by = f"agribound {version}" if version else "an unknown agribound version"
+    target = "the existing output" + (f" {str(output)!r}" if output is not None else "")
+    reasons: list[str] = []
+
+    current_versions = results_versions(config)
+    recorded_versions = facts.get("results_versions")
+    if not isinstance(recorded_versions, dict):
+        recorded_versions = {}
+    changed = {
+        name: (recorded_versions.get(name, 1), current)
+        for name, current in current_versions.items()
+        if recorded_versions.get(name, 1) != current
+    }
+    if changed:
+        changes = ", ".join(f"{name} {old} -> {new}" for name, (old, new) in changed.items())
+        reasons.append(
+            f"it was produced by {made_by}, whose results for this configuration differ from "
+            f"those of agribound {__version__} (results versions of agribound._results: "
+            f"{changes})"
+        )
+
+    checked = _fingerprinted_input(config)
+    recorded_aoi = facts.get("aoi_fingerprint")
+    if checked is not None and recorded_aoi is None:
+        if not reasons:
+            logger.warning(
+                "The provenance record of %s (written by %s) has no study-area fingerprint, so "
+                "it cannot be verified that the output was made from the current %s; reusing "
+                "it. Pass overwrite=True (CLI: --overwrite) if the file has changed since that "
+                "run.",
+                target,
+                made_by,
+                checked,
+            )
+    elif checked is not None:
+        study_area = str(getattr(config, "study_area", "") or "").strip()
+        try:
+            if not study_area and not Path(config.local_tif_path).expanduser().exists():
+                raise FileNotFoundError(f"{config.local_tif_path} does not exist")
+            current_aoi = aoi_fingerprint(config)
+        except Exception as exc:
+            current_aoi = None
+            if not reasons:
+                logger.warning(
+                    "Could not read the %s to check that %s was made from it (%s: %s); "
+                    "reusing the output without that check",
+                    checked,
+                    target,
+                    type(exc).__name__,
+                    exc,
+                )
+        if current_aoi is not None and current_aoi != recorded_aoi:
+            if study_area:
+                what = "for a different study area: the geometry in the"
+                how = "study-area fingerprint"
+            else:
+                what = "from a different local raster: the path, size or modification time of the"
+                how = "fingerprint"
+            reasons.append(
+                f"it was produced {what} {checked} differs from the one recorded for that run "
+                f"({how} {recorded_aoi} -> {current_aoi})"
+            )
+    return " and ".join(reasons) or None
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +666,8 @@ __all__ = [
     "config_hash",
     "provenance_path",
     "read_provenance",
+    "reuse_facts",
+    "reuse_mismatch",
     "to_jsonable",
     "write_provenance",
 ]

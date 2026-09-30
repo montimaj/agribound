@@ -84,6 +84,7 @@ PIPELINE_KEYS: frozenset[str] = frozenset(
         "sam_window_px",
         "sam_rgb_bands",
         "sam_overlaps",
+        "sam_min_coverage",
     }
 )
 

@@ -279,20 +279,120 @@ area and LULC filters.
 
 Defaults (`engine_params`): `use_pca=True`, `pca_components=16`,
 `n_clusters="auto"` (silhouette over `k_candidates` 5, 10, 15, 20, 30, 50),
-`clustering_method="kmeans"` (`"spectral"` is slower), sample sizes
-100 000 / 50 000 / 5 000 for PCA, clustering and silhouette, and
-`max_block_mb=256` (the raster is read in row blocks, so memory is bounded).
-`matryoshka_depth` (4, 16, 32 or 64) clusters a Matryoshka prefix of TESSERA
-v2 embeddings instead of PCA. Every random choice is seeded from
-`config.seed`.
+`clustering_method="kmeans"` (`KMeans(n_init=10)`, see the note below;
+`"spectral"` is slower), sample sizes 100,000 / 50,000 / 5,000 for PCA,
+clustering and silhouette, and `max_block_mb=256` (the raster is read in row
+blocks, so memory is bounded). `matryoshka_depth` (4, 16, 32 or 64) clusters
+a Matryoshka prefix of TESSERA v2 embeddings instead of PCA. Every random
+choice is seeded from `config.seed`.
+
+!!! note "Changed in 1.0.1: complete k-means restarts"
+    With `clustering_method="kmeans"`, agribound 1.0.1 fits scikit-learn
+    `KMeans(n_init=10)` on the clustering sample (50,000 pixels by default)
+    whatever the raster size: ten complete restarts, of which the one with
+    the lowest error (inertia) is kept. The silhouette selection of k
+    (`n_clusters="auto"`) uses `KMeans(n_init=10)` too, on the first 5,000
+    pixels of that sample. agribound 1.0.0 and 0.1.x used
+    `MiniBatchKMeans(batch_size=10000, n_init=3)` when the raster had more
+    than 100,000 valid pixels, `KMeans(n_init=5)` otherwise, and
+    `MiniBatchKMeans(n_init=3, batch_size=5000)` for the silhouette
+    selection. `engine_meta` records `clusterer` (`"KMeans"`),
+    `kmeans_n_init` and `inertia`.
+
+    The reason is that on large rasters the 1.0.0 result depended on the
+    pixel sample. `MiniBatchKMeans` runs once from the best of its `n_init`
+    starting points and stops early, so different samples can end in
+    different solutions. With 31 seeds on each of two TESSERA rasters of
+    example 15 (Pampas; the 1.0.0 raster and the 0.1.x mosaic; 2026-09-29)
+    and k fixed at 5 (the 1.0.0 silhouette selection chose 5 at seed 42, but
+    would have chosen 10 for 3 of these 62 samples), the 1.0.0 code reached
+    the lower-error solution in 30 of 62 runs. In 18, including the default seed 42 on the 1.0.0 raster, it
+    reached a solution with one bare-soil cluster fewer; the rest stopped
+    early. The joined bare-soil cluster merges neighbouring bare fields into
+    polygons of several hundred hectares: after the crop filter, 38 % of the
+    area was in polygons over 200 ha, against 18 % with the lower-error
+    solution. `KMeans(n_init=10)` reached the lower-error solution in 119 of
+    120 new samples at k = 5 (`n_init=5`, the 1.0.0 setting for small
+    rasters: 113 of 120). agribound 0.1.x used the same `MiniBatchKMeans`
+    settings with unseeded samples, so its runs could differ from one another
+    in the same way.
+
+    Inertia of the final fit on the 50,000-pixel fit sample at seed 42
+    (2026-09-29):
+
+    | Raster | k | 1.0.0 `MiniBatchKMeans` | 1.0.1 `KMeans(n_init=10)` | Largest cluster's share of the sample, 1.0.0 → 1.0.1 |
+    |---|---|---|---|---|
+    | Pampas TESSERA (example 15) | 5 | 6,687,488 | 6,381,504 (−4.6 %) | 0.366 → 0.289 |
+    | Pampas Google Satellite Embedding (example 15) | 5 | 2,942.7 | 2,733.2 (−7.1 %) | 0.432 → 0.384 |
+    | India TESSERA (example 02) | 8 | 4,956,497 | 4,901,440 (−1.1 %) | 0.235 → 0.210 |
+    | India Google Satellite Embedding (example 02) | 5 | 3,611.9 | 3,598.9 (−0.4 %) | 0.364 → 0.315 |
+
+    The 1.0.1 example runs of 2026-09-29 recorded the same inertia
+    (`engine_meta["inertia"]`) for the two Google fits at the table's
+    precision (2,733.24 and 3,598.94), and 6,381,499.5 (Pampas) and
+    4,901,444.5 (India) for the TESSERA fits, 4.5 below and 4.5 above the
+    table (under 0.0001 %). In the Pampas cluster rasters of those runs, the
+    largest cluster holds 29.0 % (TESSERA) and 38.5 % (Google) of the pixels.
+
+    Also measured on 2026-09-29: on the Pampas TESSERA raster at k = 5, the
+    error at seeds 42, 7 and 0 varied by 0.19 % in 1.0.1, against 3.6 % in
+    1.0.0. On ten samples of the Pampas and India rasters, the silhouette
+    selection chose k = 5, as in 1.0.0. Rasters with 100,000 valid pixels or
+    fewer can change too, because `n_init` goes from 5 to 10. The restarts
+    cost little: the final fit took about 0.2 s (`MiniBatchKMeans`:
+    0.08-0.19 s) and the silhouette selection about 1.7 s (1.0.0: 1.15 s),
+    while clustering the whole Pampas TESSERA raster took 97-108 s.
+    scikit-learn computes the k-means sums in parallel, so a different number
+    of CPU (OpenMP) threads can move a small share of pixels to another
+    cluster (at most 0.23 % of the fit sample in these tests; see
+    [Seeds](reproducibility.md#seeds)). To see how much a result depends on
+    the sample, re-run with other values of `seed` (with `n_clusters="auto"`
+    a new seed can also change k).
+
+    Lower error is not better fields everywhere. In the 1.0.1 run of example
+    15 on 2026-09-29 (seed 42, `KMeans(n_init=10)`, k = 5 with silhouette
+    0.280), the TESSERA crop-filter layer has 18.2 % of its area in polygons
+    over 200 ha (1.0.0: 38.4 %) and 1 polygon over 500 ha (1.0.0: 10); the
+    largest is 568 ha (1.0.0: 1,447 ha; EPSG:6933). But one cluster, with
+    29.0 % of the pixels and a mean October 2024 Sentinel-2 NDVI of 0.563
+    (the greenest cluster has 0.827, the three others 0.26-0.28), forms one
+    4-connected region of 21,452 ha in the cluster raster. The next largest
+    region is 974 ha, and in 1.0.0 no region was larger than 3,321 ha. The
+    default study-area rule (`aoi_selection="representative_point"`, see
+    [Study-area selection](configuration.md#study-area-selection)) drops that
+    region, because its representative point lies outside the study area,
+    although 66 % of it (14,236 ha) is inside. Delineate-Anything outlines
+    2,939 ha of fields on Sentinel-2 in that region, and 2,893 ha of them have
+    no polygon in the 1.0.1 TESSERA output. The Google Satellite Embedding
+    clusters of the same run have an 11,105 ha region whose representative
+    point is inside the study area. It is kept as one polygon, which the crop
+    filter then removes, so 1,881 of the 1,896 ha of Delineate-Anything fields
+    in it have no crop-filter polygon (1.0.0: the largest Google region,
+    3,266 ha, passed the crop filter as one polygon). The Google crop-filter
+    layer has 52.7 % of its area in polygons over 200 ha (1.0.0: 50.9 %), so
+    it shows no drop in large merged polygons.
+
+    1.0.1 does not reuse an existing output of a 1.0.0 embedding run: the
+    `embedding` results version is now 2 (see
+    [Output reuse](reproducibility.md#output-reuse)), so a 1.0.1 run with the
+    same output path raises `FileExistsError` until you pass `overwrite=True`
+    (CLI: `--overwrite`). Cluster rasters cached by 1.0.0 are computed again
+    (cache version `embedding-clusters-v4`).
 
 `engine="embedding"` accepts only the embedding sources; `source="local"` is
 rejected. With `sam_refine=True` the engine refines its own polygons on the
 embedding raster and then needs `engine_params["sam_rgb_bands"]` (three
 1-based embedding dimensions used as a pseudo-RGB image); without it the
-engine raises before clustering. To refine embedding polygons on optical
-imagery instead, call `agribound.engines.samgeo_engine.refine_boundaries`
-with the optical raster and a configuration for that source.
+engine raises before clustering. The coverage check of SAM refinement
+(`engine_params["sam_min_coverage"]`, default 0.5, added in 1.0.1) applies
+here too, and cluster polygons often hold several fields. With the default,
+a mask that covers less than half of its input polygon (after the overlap
+trim) is not used, the polygon keeps its cluster geometry, and
+`engine_meta["sam_stats"]["n_low_coverage"]` counts it (see
+[SAM refinement](sam-refinement.md#masks-that-cover-too-little-of-the-polygon)).
+To refine embedding polygons on optical imagery instead, call
+`agribound.engines.samgeo_engine.refine_boundaries` with the optical raster
+and a configuration for that source.
 
 ## Ensemble (`ensemble`)
 

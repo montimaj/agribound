@@ -156,7 +156,7 @@ polygons these steps shrank below `min_field_area_m2`; it does not fill holes
 again. The provenance record lists it under `facts.postprocess`
 (`min_field_area_applied`). Outputs can therefore have fewer polygons than
 with agribound 0.1.x, which filtered only before smoothing. Output reuse
-compares only the configuration hash, which does not cover this step: an
+does not cover this step (it is not versioned in `agribound._results`): an
 output written by a build without the second filter that has a matching
 provenance record is reused as it is. Pass `overwrite=True` to recompute it.
 
@@ -190,7 +190,7 @@ and the routing rule.
 | Field | Description |
 |---|---|
 | `sam_refine` (`False`) | Refine polygons with box-prompted SAM. |
-| `sam_backend` (`"sam2"`) | `"sam2"`, `"sam2.1"`, `"sam3"` or `"sam3-hf"`. The two SAM 3 backends are untested in 1.0.0 (not run end to end, because the `facebook/sam3` weights are gated); a WARNING is logged when one is loaded. |
+| `sam_backend` (`"sam2"`) | `"sam2"`, `"sam2.1"`, `"sam3"` or `"sam3-hf"`. The two SAM 3 backends are untested in 1.0.1 (not run end to end, because the `facebook/sam3` weights are gated); a WARNING is logged when one is loaded. |
 | `sam_model` (`None`) | Model id (backend default when `None`). |
 | `sam_min_crop_px` (`64`) | Minimum padded bounding-box side in pixels. |
 | `sam_crop_padding` (`0.15`) | Padding per side as a fraction of the box size. |

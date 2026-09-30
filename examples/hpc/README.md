@@ -91,7 +91,7 @@ examples/regions/run_iowa_corn_belt_us.sh --mode slurm --profile delta \
   Both install agribound in editable mode from the repository root, so create
   them from a clone. Neither includes the `sam3` extra (the Meta SAM 3
   backend, `sam_backend="sam3"`, which needs CUDA and triton). Both SAM 3
-  backends (`sam3`, `sam3-hf`) are untested in 1.0.0 and log a WARNING when
+  backends (`sam3`, `sam3-hf`) are untested in 1.0.1 and log a WARNING when
   loaded.
 - Put the environments, the clone, the weights and the caches in project or
   work storage, not in `$HOME`. conda defaults to `$HOME/.conda`, and home
@@ -386,7 +386,7 @@ Each tile directory `DIR/tiles/<tile_id>/` holds these files:
 Completion is decided from content, not from the markers:
 
 - A tile is delineated when its output exists and its provenance reports
-  success with the current configuration hash.
+  success with the current configuration hash and results versions.
 - A tile is staged when the content-addressed markers in its cache point to an
   existing composite, and to the LULC raster (keyed also by `lulc_dataset`) and
   FTW windows if those are needed. In the composite stage a failed LULC
@@ -395,7 +395,8 @@ Completion is decided from content, not from the markers:
   pipeline, which applies `lulc_on_error`.
 
 Tile states (`agribound tiles status`): `done`, `pending`, `failed`, `stale`
-(an output made with another configuration) and `no-data`. A tile is
+(an output made with another configuration, or by a release whose results for
+it differ) and `no-data`. A tile is
 `no-data` when the composite builder reports that the source has no data for
 it: no image intersects the tile, no valid pixel inside it, no TESSERA or
 Google embedding data, no USGS NAIP Plus imagery, or a local raster that does
@@ -407,7 +408,14 @@ content-addressed `nodata_<key>.json` in the tile's cache, so it is also seen
 by other engines sharing the cache); `tiles run --overwrite` retries it.
 `--list not-done` (used by `--resume`) leaves out done and no-data tiles.
 
-Changing the configuration marks outputs as `stale`. After fixing a failure,
+Changing the configuration marks outputs as `stale`. Upgrading to a release
+that changes a component's results (1.0.1: embedding, SAM refinement) also
+marks those tiles `stale`, and `tiles merge` counts them as not done.
+`submit_region.sh --resume` does not replace them (their runs fail with
+`FileExistsError`): re-run them with `agribound tiles run --overwrite`
+(`tiles status --list stale` prints their indices; add `--stage delineate` on
+offline GPU nodes, to delineate from the cache), then merge with
+`agribound tiles merge --overwrite`. After fixing a failure,
 re-run the same `submit_region.sh` command with `--resume`. Without
 `--keep-going`, a failed stage or compute task leaves the later jobs pending
 with reason `DependencyNeverSatisfied` (unless the site sets

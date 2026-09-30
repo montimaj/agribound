@@ -96,7 +96,7 @@ class TestClustering:
         assert meta["n_clusters"] == 4  # silhouette picks the true k
         assert meta["reduction"] == "pca" and meta["n_features"] == 16
         assert 0 < meta["pca_explained_variance_ratio"] <= 1
-        assert meta["clusterer"] == "KMeans"
+        assert meta["clusterer"] == "KMeans" and meta["kmeans_n_init"] == 10
         assert set(meta["auto_k"]["silhouette"]) == {"2", "3", "4", "5", "6"}
         labels = _labels(meta)
         # Invalid pixels (NaN, all-zero) are label 0; each true class maps to one label.
@@ -113,6 +113,33 @@ class TestClustering:
         meta = EmbeddingEngine().delineate(emb[0], cfg).attrs["engine_meta"]
         assert meta["n_clusters"] == 3 and "auto_k" not in meta
         assert meta["reduction"] == "none" and meta["n_features"] == 128
+
+    def test_kmeans_restarts_whatever_the_raster_size(self, tmp_path, monkeypatch):
+        """Regression: 1.0.0 used MiniBatchKMeans above 100 000 valid pixels.
+
+        The silhouette fits and the final fit are all ``KMeans(n_init=10)``.
+        """
+        import sklearn.cluster
+
+        calls = []
+        kmeans = sklearn.cluster.KMeans
+
+        def spy(**kw):
+            calls.append(kw)
+            return kmeans(**kw)
+
+        monkeypatch.setattr(sklearn.cluster, "KMeans", spy)
+        monkeypatch.setattr(
+            sklearn.cluster, "MiniBatchKMeans", lambda **kw: pytest.fail("MiniBatchKMeans")
+        )
+        path, _ = _embedding_raster(tmp_path / "big.tif", dims=8, h=320, w=320)
+        meta = EmbeddingEngine().delineate(path, _config(tmp_path)).attrs["engine_meta"]
+        assert meta["n_valid_pixels"] > 100_000
+        assert meta["clusterer"] == "KMeans" and meta["kmeans_n_init"] == 10
+        assert meta["n_clusters"] == 4
+        # Five silhouette fits (k_candidates 2..6), then the final fit at k = 4.
+        assert [c["n_clusters"] for c in calls] == [2, 3, 4, 5, 6, 4]
+        assert all(c["n_init"] == 10 and c["random_state"] == 42 for c in calls)
 
     def test_spectral(self, tmp_path):
         path, truth = _embedding_raster(tmp_path / "s.tif", dims=16, h=24, w=24)
@@ -241,6 +268,14 @@ class TestCaching:
         other = EmbeddingEngine.cluster_cache_path(emb[0], _config(tmp_path, **change))
         assert base != other
         assert base.parent == other.parent == (tmp_path / ".agribound_cache")
+
+    def test_cache_version_is_part_of_the_key(self, tmp_path, emb, monkeypatch):
+        """Cluster rasters cached by 1.0.0 (MiniBatchKMeans, cache v3) are not reused."""
+        from agribound.engines import embedding
+
+        current = EmbeddingEngine.cluster_cache_path(emb[0], _config(tmp_path))
+        monkeypatch.setattr(embedding, "_CACHE_VERSION", "embedding-clusters-v3")
+        assert EmbeddingEngine.cluster_cache_path(emb[0], _config(tmp_path)) != current
 
     def test_block_size_shares_cache_entry(self, tmp_path, emb):
         engine = EmbeddingEngine()

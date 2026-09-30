@@ -3,9 +3,9 @@ Box-prompted SAM refinement of field boundaries.
 
 This is a post-processing stage, not a delineation engine: every polygon's
 bounding box is given to a Segment Anything model as a single-instance box
-prompt, and the polygon is replaced by the mask SAM returns. The pipeline runs
-it after delineation when ``config.sam_refine`` is *True* (the embedding
-engine calls it itself).
+prompt, and the polygon is replaced by the mask SAM returns, unless that mask
+covers too little of it (step 7). The pipeline runs it after delineation when
+``config.sam_refine`` is *True* (the embedding engine calls it itself).
 
 Algorithm (:func:`refine_boundaries`)
 -------------------------------------
@@ -63,7 +63,8 @@ Algorithm (:func:`refine_boundaries`)
    the raster) is used. It is vectorised with
    :func:`rasterio.features.shapes`, the largest polygon is kept (holes
    included), repaired if invalid, and reprojected to the input CRS. Boxes
-   are passed as continuous pixel coordinates (not truncated).
+   are passed as continuous pixel coordinates (not truncated). Steps 6 and 7
+   decide whether the mask replaces the input polygon.
 6. **Overlaps** (``engine_params["sam_overlaps"]``, default ``"trim"``). A
    mask may grow over a neighbouring polygon, and both would be kept. With
    ``"trim"`` a refined polygon never takes area that another input polygon
@@ -72,9 +73,10 @@ Algorithm (:func:`refine_boundaries`)
    score keeps it. The overlap between the refined polygons and the others is
    therefore never larger than between the input polygons, so SAM adds no
    overlap to an engine output without overlaps (Delineate-Anything resolves
-   them). The trimmed mask keeps its largest part; a mask with nothing left
-   keeps the input geometry and counts as failed. ``"keep"`` keeps the masks
-   as SAM drew them (the behaviour before 1.0.0), so outputs may overlap.
+   them). The trimmed mask keeps its largest part (step 7 then tests it); a
+   mask with nothing left keeps the input geometry and counts as failed.
+   ``"keep"`` keeps the masks as SAM drew them (with ``sam_min_coverage=0``,
+   the behaviour before 1.0.0), so outputs may overlap.
    Trade-off, measured on 2026-09-28 with Delineate-Anything (``large_v2``) +
    SAM 2 (``sam2-hiera-large``, MPS) on the Namoi test area (Sentinel-2,
    2023; 16 of 230 polygons refined): the post-processed output had 3.59 ha
@@ -86,6 +88,31 @@ Algorithm (:func:`refine_boundaries`)
    unchanged or within 0.02). SAM's growth over an engine boundary can be a
    correction (a field split in two) or a leak into a real neighbour; the
    default keeps the engine's boundaries between polygons.
+7. **Coverage** (``engine_params["sam_min_coverage"]``, default
+   :data:`DEFAULT_MIN_COVERAGE` = 0.5). SAM returns one object per box, so
+   when an input polygon holds several fields (an embedding cluster, or
+   fields an engine merged) the mask can follow one of them, and the rest of
+   the polygon's area would be left without a polygon. A mask that covers
+   less than ``sam_min_coverage`` of its input polygon, ``area(mask & input)
+   / area(input)`` after step 6 (an invalid input is repaired first), is not
+   used: the polygon keeps its input geometry, ``agribound:sam_refined`` is
+   False and ``agribound:sam_score`` NaN, and ``n_low_coverage`` counts it.
+   With ``"trim"`` each mask is tested right after its trim, in step 6's
+   score order, so a rejected mask claims no area from the lower-scoring
+   masks. An input without area is never rejected; 0 turns the test off (the
+   1.0.0 behaviour). Measured on 2026-09-29 (SAM 2 ``sam2-hiera-large``,
+   MPS, outputs after the area filter, smoothing and simplification), no
+   test -> 0.5: example 15's Sentinel-2 refinement of the TESSERA (Google)
+   crop polygons left 8 -> 1 (14 -> 2) of 29 checked centre pivots less than
+   half covered and lost 15.7 -> 7.4 % (24.1 -> 8.1 %) of the input area
+   (48 of 510, 95 of 439 masks rejected); example 13's input
+   (Delineate-Anything, Sentinel-2, 67 masks, each covering >= 92 % of its
+   polygon) did not change. On example 14's DINOv3 NAIP (SPOT) polygons of
+   Lea County the reference fields less than half covered went from 35 (67)
+   without SAM to 80 (105) with SAM and 53 (85) with 0.5, and F1 from 0.604
+   (0.423) to 0.609 (0.479) and 0.590 (0.445): a rejected mask often
+   matched one of the several fields its polygon held. 0.7 restored more
+   coverage (no pivot missing; 40 (77) fields) at an F1 of 0.595 (0.418).
 
 Backends (``config.sam_backend``)
 ---------------------------------
@@ -117,6 +144,7 @@ from __future__ import annotations
 
 import logging
 import math
+import numbers
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -553,9 +581,9 @@ def _require_meta_sam3_runtime(device: str) -> None:
         )
 
 
-#: Logged whenever a SAM 3 backend is loaded (agribound 1.0.0 has not run either end to end).
+#: Logged whenever a SAM 3 backend is loaded (agribound 1.0.1 has not run either end to end).
 SAM3_UNTESTED_WARNING = (
-    "sam_backend=%r: the SAM 3 backends (sam3, sam3-hf) are untested in agribound 1.0.0. They "
+    "sam_backend=%r: the SAM 3 backends (sam3, sam3-hf) are untested in agribound 1.0.1. They "
     "have not been run end to end, because the facebook/sam3 weights are gated; only their "
     "imports and argument handling are covered by tests. Check the refined polygons before "
     "relying on them, or use sam_backend='sam2' (tested)."
@@ -971,6 +999,39 @@ def _plan_windows(
 #: Values of ``engine_params["sam_overlaps"]`` (module docstring, step 6).
 SAM_OVERLAP_MODES = ("trim", "keep")
 
+#: Default of ``engine_params["sam_min_coverage"]`` (module docstring, step 7).
+DEFAULT_MIN_COVERAGE = 0.5
+
+
+def _min_coverage(value: Any) -> float:
+    """Validate ``engine_params["sam_min_coverage"]``: a number in [0, 1]."""
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise ValueError(f"sam_min_coverage must be a number in [0, 1], got {value!r}")
+    if not 0.0 <= float(value) <= 1.0:  # also rejects NaN
+        raise ValueError(f"sam_min_coverage must be in [0, 1], got {value!r}")
+    return float(value)
+
+
+def _repaired(originals: list[Any]) -> list[Any]:
+    """*originals* with every invalid geometry made valid (its polygonal parts)."""
+    from agribound.postprocess.simplify import make_polygonal
+
+    return [
+        make_polygonal(g) if g is not None and not g.is_empty and not g.is_valid else g
+        for g in originals
+    ]
+
+
+def _covers_too_little(geom: Any, own: Any, min_coverage: float) -> bool:
+    """Whether mask *geom* covers less than *min_coverage* of its valid input *own* (step 7).
+
+    Coverage is ``area(geom & own) / area(own)``. An input without area never
+    counts, and no mask does when *min_coverage* is 0.
+    """
+    if min_coverage <= 0 or own is None or own.is_empty or not own.area > 0:
+        return False
+    return geom.intersection(own).area / own.area < min_coverage
+
 
 def _largest_polygon(geom: Any) -> Any:
     """The largest polygon of a (repaired) polygonal geometry, or None if none is left."""
@@ -1013,14 +1074,27 @@ def trim_refinement_overlaps(
         omitted), the positions whose mask was trimmed or dropped, and the
         total area removed (in CRS units squared).
     """
+    kept, trimmed, removed, _ = _trim_overlaps(originals, refined, scores, 0.0)
+    return kept, trimmed, removed
+
+
+def _trim_overlaps(
+    originals: list[Any],
+    refined: dict[int, Any],
+    scores: np.ndarray,
+    min_coverage: float,
+) -> tuple[dict[int, Any], list[int], float, list[int]]:
+    """:func:`trim_refinement_overlaps` plus the coverage test (module docstring, step 7).
+
+    A trimmed mask that covers less than *min_coverage* of its input polygon
+    is left out of the result like a dropped one, but it claims no area, so
+    the lower-scoring masks are trimmed as if it had never been refined, and
+    it is not counted as trimmed. Returns ``(kept, trimmed, removed, low)``,
+    with *low* the positions of those masks in ascending order.
+    """
     import shapely
 
-    from agribound.postprocess.simplify import make_polygonal
-
-    work = [
-        make_polygonal(g) if g is not None and not g.is_empty and not g.is_valid else g
-        for g in originals
-    ]
+    work = _repaired(originals)
     idx = [i for i, g in enumerate(work) if g is not None and not g.is_empty]
     tree = shapely.STRtree([work[i] for i in idx]) if idx else None
 
@@ -1031,6 +1105,7 @@ def trim_refinement_overlaps(
     kept: dict[int, Any] = {}
     claimed: list[Any] = []
     trimmed: list[int] = []
+    low: list[int] = []
     removed = 0.0
     for pos in sorted(refined, key=rank):
         geom = refined[pos]
@@ -1047,6 +1122,9 @@ def trim_refinement_overlaps(
                 forbidden = forbidden.difference(own)
             if not forbidden.is_empty and forbidden.intersection(geom).area > 0:
                 new = _largest_polygon(geom.difference(forbidden))
+        if new is not None and _covers_too_little(new, own, min_coverage):
+            low.append(pos)  # the input geometry stays, so this mask claims nothing
+            continue
         if new is not geom:
             trimmed.append(pos)
             removed += geom.area - (new.area if new is not None else 0.0)
@@ -1054,7 +1132,7 @@ def trim_refinement_overlaps(
             continue
         kept[pos] = new
         claimed.append(new)
-    return kept, trimmed, float(removed)
+    return kept, trimmed, float(removed), sorted(low)
 
 
 def refine_boundaries(
@@ -1077,9 +1155,10 @@ def refine_boundaries(
         ``sam_min_crop_px``, ``sam_crop_padding`` and ``device``, plus
         ``engine_params`` ``"sam_rgb_bands"`` (three 1-based band indices,
         required for embedding rasters), ``"sam_window_px"`` (default 1024),
-        ``"sam_batch_size"`` (boxes per decoder call, default 32) and
+        ``"sam_batch_size"`` (boxes per decoder call, default 32),
         ``"sam_overlaps"`` (``"trim"``, default, or ``"keep"``; step 6 of the
-        module docstring).
+        module docstring) and ``"sam_min_coverage"`` (number in [0, 1],
+        default :data:`DEFAULT_MIN_COVERAGE`; 0 disables it; step 7).
     **kwargs
         ``rgb_bands``, ``window_px`` and ``batch_size`` override the
         corresponding ``engine_params``; ``predictor`` supplies an already
@@ -1098,10 +1177,10 @@ def refine_boundaries(
         n_skipped_outside, n_failed, min_crop_px, padding, window_px,
         max_window_px, batch_size, n_windows, n_windows_decimated,
         rgb_bands, rgb_source, stretch, errors, overlaps, n_overlap_trimmed,
-        overlap_trimmed_fraction`` (plus ``multimask_output``,
-        ``mask_selection`` and, for SAM 2/2.1, ``apply_postprocessing`` when
-        SAM ran), with
-        ``n_total == n_refined + n_skipped_small + n_skipped_outside + n_failed``.
+        overlap_trimmed_fraction, min_coverage, n_low_coverage`` (plus
+        ``multimask_output``, ``mask_selection`` and, for SAM 2/2.1,
+        ``apply_postprocessing`` when SAM ran), with ``n_total == n_refined +
+        n_skipped_small + n_skipped_outside + n_failed + n_low_coverage``.
         ``model`` and ``device`` are the configured ones when no polygon is
         prompted (no model is loaded then). ``n_skipped_outside`` counts
         missing/empty geometries and polygons whose bounding box is not
@@ -1111,13 +1190,17 @@ def refine_boundaries(
         docstring) and fields in windows where SAM raised.
         ``n_overlap_trimmed`` counts the masks trimmed so as not to overlap
         other polygons, and ``overlap_trimmed_fraction`` is the share of the
-        refined mask area removed by that trimming.
+        refined mask area removed by that trimming (masks counted in
+        ``n_low_coverage`` excluded). ``n_low_coverage`` counts the polygons
+        that keep their input geometry because their mask covered less than
+        ``min_coverage`` of it (step 7).
 
     Raises
     ------
     ValueError
-        For a rotated raster, bad band indices or an embedding raster without
-        ``sam_rgb_bands``.
+        For a rotated raster, bad band indices, an embedding raster without
+        ``sam_rgb_bands``, or an invalid ``sam_window_px``, ``sam_batch_size``,
+        ``sam_overlaps`` or ``sam_min_coverage``.
     RuntimeError
         If SAM raised for every window that had prompts.
 
@@ -1147,6 +1230,7 @@ def refine_boundaries(
     overlaps = str(params.get("sam_overlaps", "trim"))
     if overlaps not in SAM_OVERLAP_MODES:
         raise ValueError(f"sam_overlaps must be one of {SAM_OVERLAP_MODES}, got {overlaps!r}")
+    min_coverage = _min_coverage(params.get("sam_min_coverage", DEFAULT_MIN_COVERAGE))
 
     result = gdf.copy()
     result.attrs = dict(gdf.attrs)
@@ -1175,6 +1259,8 @@ def refine_boundaries(
         "overlaps": overlaps,
         "n_overlap_trimmed": 0,
         "overlap_trimmed_fraction": 0.0,
+        "min_coverage": min_coverage,
+        "n_low_coverage": 0,
     }
     predictor = kwargs.get("predictor")
     device = config.resolve_device()
@@ -1356,11 +1442,16 @@ def refine_boundaries(
                 f"{stats['errors'][0] if stats['errors'] else 'unknown'}"
             )
 
+    low_coverage: list[int] = []
     if refined_geoms and overlaps == "trim":
-        # Step 6: no refined mask takes area of another polygon.
-        total_area = float(sum(g.area for g in refined_geoms.values()))
-        kept, trimmed, removed = trim_refinement_overlaps(geoms, refined_geoms, scores_out)
-        dropped = sorted(set(refined_geoms) - set(kept))
+        # Steps 6 and 7: no refined mask takes area of another polygon, and a trimmed
+        # mask covering too little of its input polygon is not used.
+        kept, trimmed, removed, low_coverage = _trim_overlaps(
+            geoms, refined_geoms, scores_out, min_coverage
+        )
+        used = set(refined_geoms) - set(low_coverage)
+        total_area = float(sum(refined_geoms[p].area for p in used))
+        dropped = sorted(used - set(kept))
         for pos in dropped:  # nothing left: keep the input geometry
             scores_out[pos] = np.nan
         n_failed += len(dropped)
@@ -1375,6 +1466,22 @@ def refine_boundaries(
                 100.0 * stats["overlap_trimmed_fraction"],
                 len(dropped),
             )
+    elif refined_geoms and min_coverage > 0:  # "keep": step 7 on the masks as SAM drew them
+        work = _repaired(geoms)
+        for pos in sorted(refined_geoms):
+            if _covers_too_little(refined_geoms[pos], work[pos], min_coverage):
+                low_coverage.append(pos)
+                del refined_geoms[pos]
+    scores_out[low_coverage] = np.nan  # these rows keep their input geometry
+    stats["n_low_coverage"] = len(low_coverage)
+    if low_coverage:
+        logger.info(
+            "SAM refinement: %d masks covered less than %g %% of their input polygon; those "
+            "polygons keep their input geometry (sam_min_coverage=%g)",
+            len(low_coverage),
+            100.0 * min_coverage,
+            min_coverage,
+        )
 
     if refined_geoms:
         positions = sorted(refined_geoms)
@@ -1401,8 +1508,8 @@ def refine_boundaries(
             f" (first error: {stats['errors'][0]})" if stats["errors"] else " (empty masks)",
         )
     logger.info(
-        "SAM refinement (%s, %s): %d refined, %d below %d px, %d missing/outside, %d failed "
-        "of %d polygons",
+        "SAM refinement (%s, %s): %d refined, %d below %d px, %d missing/outside, %d failed, "
+        "%d below sam_min_coverage=%g, of %d polygons",
         stats["backend"],
         stats["model"],
         stats["n_refined"],
@@ -1410,6 +1517,8 @@ def refine_boundaries(
         min_crop_px,
         stats["n_skipped_outside"],
         stats["n_failed"],
+        stats["n_low_coverage"],
+        min_coverage,
         n_total,
     )
     return result

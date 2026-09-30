@@ -8,7 +8,7 @@ drafts numbered this release 2.0.0): "agribound 2.0.0", "agribound v2",
 "agribound==2.0.0", "Changed in (version) 2.0", "In 2.0, ...", "since 2.0",
 "the 2.0 release", "the v2.0 release notes", "the 2.x line", and a bare "v2" or
 "v2.0" such as "not measured for v2", "In v2, ..." or "(v2 layout)". The
-current release is written "1.0" or "1.0.0".
+current release line is written "1.0" (this release "1.0.1", the first "1.0.0").
 
 Other projects' versions are legitimate. A bare "v2" or "v2.0" passes when a
 product name stands just before it (TESSERA, Delineate Anything, DA, FTW, HLS,
@@ -288,7 +288,7 @@ def test_no_agribound_1x_or_v1_release_wording():
 
 def test_no_agribound_2_release_wording_in_package():
     offenders = _v2_release_offenders(_package_files())
-    assert not offenders, "this release is 1.0 / 1.0.0:\n" + "\n".join(offenders)
+    assert not offenders, "this release is 1.0 / 1.0.1:\n" + "\n".join(offenders)
 
 
 def test_no_agribound_2_release_wording_in_docs():
@@ -296,7 +296,7 @@ def test_no_agribound_2_release_wording_in_docs():
     if not files:
         pytest.skip("the source checkout (docs/, examples/) is not available")
     offenders = _v2_release_offenders(files)
-    assert not offenders, "this release is 1.0 / 1.0.0:\n" + "\n".join(offenders)
+    assert not offenders, "this release is 1.0 / 1.0.1:\n" + "\n".join(offenders)
 
 
 @pytest.mark.parametrize(

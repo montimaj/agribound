@@ -161,9 +161,11 @@ python tools/sync_notebooks.py --check   # what CI runs; exit 1 if a notebook di
 
 The gallery images in `assets/gallery_1.0/` (and the facts their captions
 quote, `gallery_stats.json`) are rendered from the example outputs by
-`tools/make_gallery.py`, and the workflow diagram
-`assets/agribound_workflow_1.0.{png,svg}` by `tools/make_workflow_diagram.py`;
-`assets/README.md` lists the files.
+`tools/make_gallery.py`, except the comparison with the 0.1.x Pampas image
+(`Pampas_0.1x_comparison_example.png`, by `tools/make_gallery_pampas_0.1x.py`,
+with no `gallery_stats.json` entry). The workflow diagram
+`assets/agribound_workflow_1.0.{png,svg}` is rendered by
+`tools/make_workflow_diagram.py`; `assets/README.md` lists the files.
 
 ## Packaging
 

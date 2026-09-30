@@ -3,7 +3,9 @@
 With `sam_refine=True` (CLI `--sam-refine`) the pipeline refines the
 engine's polygons with a Segment Anything model: every polygon's bounding box
 is given to SAM as a single-object box prompt, and the polygon is replaced by
-the mask SAM returns. It is a post-processing stage
+the mask SAM returns, unless the mask covers too little of it (see
+[Masks that cover too little of the polygon](#masks-that-cover-too-little-of-the-polygon)).
+It is a post-processing stage
 (`agribound.engines.samgeo_engine.refine_boundaries`), not an engine. It runs
 after delineation and before the study-area selection and post-processing, for
 every engine except `embedding`, which refines its own polygons (see
@@ -34,20 +36,96 @@ A polygon is refined only if
    (default 0.15), so with the defaults a field's unpadded bounding box must
    be at least 64 / 1.3 ≈ 49.2 pixels on both sides.
 
-Skipped polygons keep their geometry. The boolean column
+Skipped polygons keep their geometry, and so do prompted polygons whose mask
+failed or [covered too little of them](#masks-that-cover-too-little-of-the-polygon).
+The boolean column
 `agribound:sam_refined` marks refined polygons, the column
 `agribound:sam_score` holds SAM's predicted IoU of each refined mask (NaN for
 the other polygons), and `gdf.attrs["sam_stats"]`
 (also in the provenance record) holds the backend, model, device, the
-counts `n_total`, `n_refined`, `n_skipped_small`, `n_skipped_outside` and
-`n_failed`, and the overlap mode with `n_overlap_trimmed` and
-`overlap_trimmed_fraction` (see [Overlapping masks](#overlapping-masks)).
+counts `n_total`, `n_refined`, `n_skipped_small`, `n_skipped_outside`,
+`n_failed` and `n_low_coverage` (the last five add up to `n_total`), the
+overlap mode with `n_overlap_trimmed` and `overlap_trimmed_fraction` (see
+[Overlapping masks](#overlapping-masks)), and the coverage threshold
+`min_coverage`.
 `crop_window_px` and `is_refinable` reproduce the gating test
 exactly (the agent's `estimate_resolvability` tool uses them).
 
 The size gate matters at coarse resolution: a 49 px side is 490 m at 10 m
 and about 1.5 km at 30 m. In a Kenya Sentinel-2 smoke run of the pipeline,
 631 of 634 fields were skipped as too small.
+
+## Polygons that cover several fields
+
+SAM returns one object for each box prompt. When one input polygon covers
+several fields, the mask usually follows one of them. In agribound 1.0.0 the
+mask replaced the whole input polygon whatever share of it the mask covered,
+so the rest of the input's area was left with no polygon. Embedding clusters
+produce such polygons (neighbouring fields of the same land-cover class form
+one connected region), and so can other engines where field edges are faint.
+Since 1.0.1, by default, a polygon keeps its input geometry when its mask
+covers less than half of it (see
+[Masks that cover too little of the polygon](#masks-that-cover-too-little-of-the-polygon)).
+This limits the area left uncovered, but it does not separate the fields:
+they stay in the one input polygon.
+
+In example 15 (Pampas, Argentina) as run with agribound 1.0.0 on 2026-09-29,
+29 centre pivots inside the study area were located in the Sentinel-2
+composite and checked by eye. Before SAM, 10 of them (TESSERA clusters) were
+part of a cluster polygon more than twice their area. After SAM 2 on
+Sentinel-2, 8 of the 29 were at most 7 % covered by any polygon, all of them
+among those 10, and SAM removed 16 % of the area of the TESSERA crop-filter
+polygons (24 % for the Google Satellite Embedding polygons, where 14 of the
+29 pivots were left less than half covered, 10 of them because they had been
+part of a larger polygon).
+
+The example therefore also writes a split variant, which is the one the
+[gallery](../gallery.md) shows: parts over 50 ha are kept unrefined
+(multi-part polygons are split into parts first; the 1.0.0 and 1.0.1 crop
+layers had none), and because `"trim"` sees only the polygons given to
+`refine_boundaries`, the example trims the refined masks where they overlap
+the kept parts. In the 1.0.0 run, this variant left no TESSERA pivot and 1
+Google pivot (which the clustering had broken into smaller pieces; 49 %
+covered) less than half covered, and the refined layers covered about the
+crop-filter area (0.6 % and 1.7 % less); 10 and 13 of the pivots stayed
+inside unrefined polygons more than twice their area. The rule is a
+heuristic of the example, not a pipeline option: it also leaves large single
+fields unrefined, and fields close to 50 ha (such as these pivots) fall on
+either side of it. In 1.0.1 the example still writes both variants, with the
+default `sam_min_coverage` in both; the coverage test runs inside
+`refine_boundaries`, before the example's own trim.
+
+In the 1.0.1 run of example 15 on 2026-09-29 (default `sam_min_coverage` of
+0.5), 6 of the 29 pivots were part of a TESSERA cluster polygon more than
+twice their area before SAM (10 with 1.0.0; the 1.0.1 k-means solution puts
+18.2 % of the crop-filter area in polygons over 200 ha, against 38.4 %, see
+[Engines](engines.md#embedding-clustering-embedding)). SAM 2 on
+Sentinel-2 over every polygon refined 546 of the 2,170 TESSERA crop-filter
+polygons; 37 masks covered less than half of their polygon and were not used,
+and 1 failed. It left 2 of the 29 pivots less than half covered (2.4 % and
+45.7 %; the first had been part of a polygon 2.7 times its area) and removed
+6.6 % of the crop-filter area (48,186.2 to 45,013.6 ha). The 568.6 ha TESSERA
+polygon that holds 4 pivots keeps its input geometry, so these stay 94-98 %
+covered; with 1.0.0, SAM had left them at most 7.4 % covered. For the Google
+Satellite Embedding polygons, SAM 2 refined 367 of 1,986 (70 masks covered
+too little, 1 failed), left 4 of the 29 pivots less than half covered and
+removed 4.9 % of the area (54,206.0 to 51,540.4 ha). Three of those 4 pivots
+had been part of a polygon more than twice their area. The fourth had almost
+no polygon already before SAM, because the crop filter had removed the
+11,105 ha cluster polygon that held it.
+
+In the 1.0.1 run of 2026-09-29, the split variant kept 283 TESSERA and 205
+Google polygons over 50 ha unrefined. Of the other 1,887 and 1,781, SAM 2
+refined 289 and 208; 13 and 28 masks covered too little, and none failed. It
+left no TESSERA pivot and 1 Google pivot less than half covered: the Google
+one (0.2 % covered) is the pivot that already had almost no polygon after the
+crop filter. The refined layers covered 0.1 % (TESSERA) and 0.8 % (Google)
+less than the crop-filter polygons, and 6 and 9 of the pivots stayed inside
+unrefined polygons more than twice their area. On the example's other SAM
+input, three TESSERA dimensions, SAM 2 refined 550 of the 2,170 TESSERA
+polygons when given every polygon (33 masks covered too little, 1 failed) and
+293 of the 1,887 parts of 50 ha or less in the split variant (9 covered too
+little, none failed).
 
 ## How refinement works
 
@@ -66,6 +144,10 @@ and about 1.5 km at 30 m. In a Kenya Sentinel-2 smoke run of the pipeline,
 - **Overlaps.** With the default `engine_params["sam_overlaps"]="trim"`, a
   refined mask may not take area from another polygon; see
   [Overlapping masks](#overlapping-masks).
+- **Coverage.** A mask that covers less than
+  `engine_params["sam_min_coverage"]` (default 0.5) of its input polygon is
+  not used; see
+  [Masks that cover too little of the polygon](#masks-that-cover-too-little-of-the-polygon).
 
 !!! note "Changed in 1.0.0"
     agribound 0.1.x encoded every field's padded crop on its own, so SAM
@@ -88,24 +170,28 @@ decides what happens then:
 - `"trim"` (default): a refined polygon never takes area that another input
   polygon covered and its own input polygon did not. Where two refined masks
   grew over the same new area, the mask with the higher SAM score keeps it.
-  A trimmed mask keeps its largest part. A mask with nothing left keeps the
-  input geometry and counts in `n_failed`. So the refined output never
-  overlaps more than the input polygons did, and SAM adds no overlap to an
-  engine output that had none.
-- `"keep"`: the masks are kept as SAM returned them, as in agribound 0.1.x,
-  so refined polygons can overlap their neighbours.
+  A trimmed mask keeps its largest part, which then goes through the
+  [coverage test](#masks-that-cover-too-little-of-the-polygon). A mask with
+  nothing left keeps the input geometry and counts in `n_failed`. So the
+  refined output never overlaps more than the input polygons did, and SAM
+  adds no overlap to an engine output that had none.
+- `"keep"`: the masks are kept as SAM returned them (with
+  `sam_min_coverage=0`, as in agribound 0.1.x), so refined polygons can
+  overlap their neighbours.
 
 Any other value raises `ValueError` when the refinement starts.
 `sam_stats["overlaps"]` records the mode. `n_overlap_trimmed` counts the
 trimmed masks, and `overlap_trimmed_fraction` is the share of the refined
-mask area that was removed. The same parameter applies to the `embedding`
+mask area that was removed (masks rejected by the coverage test are left out
+of both). The same parameter applies to the `embedding`
 engine's own refinement and to `refine_boundaries` called directly (pass it
 in `config.engine_params`).
 
 !!! warning "Trade-off, measured once on a small area"
     Delineate-Anything (`large_v2`) + SAM 2 (`sam2-hiera-large`, Apple MPS),
     Sentinel-2 2023, Namoi test area (4 reference fields), 16 of 230 polygons
-    refined, measured on 2026-09-28:
+    refined, measured on 2026-09-28 with agribound 1.0.0 (before the coverage
+    test):
 
     | | no SAM | `"keep"` | `"trim"` (default) |
     |---|---|---|---|
@@ -121,6 +207,67 @@ in `config.engine_params`).
     polygons. Use `engine_params={"sam_overlaps": "keep"}` if SAM should be
     allowed to override them. One small area does not show which setting is
     more accurate in general. Check both on your own reference data.
+
+## Masks that cover too little of the polygon
+
+`engine_params["sam_min_coverage"]` (default 0.5, added in 1.0.1) is the
+smallest share of its input polygon that a mask must cover to replace it.
+Coverage is `area(mask ∩ input) / area(input)`, measured on the mask after
+the overlap trim; an invalid input polygon is repaired first. A polygon whose
+mask covers less keeps its input geometry: `agribound:sam_refined` is False,
+`agribound:sam_score` is NaN, and it counts in `n_low_coverage`. Input
+polygons without area are never rejected.
+
+- With `"trim"`, each mask is tested right after its trim, in the trim's
+  score order. A rejected mask takes no area, so the masks with lower scores
+  are trimmed as if its polygon had not been refined. A mask with nothing
+  left after the trim counts in `n_failed`, not in `n_low_coverage`.
+- With `"keep"`, each mask is tested as SAM returned it.
+
+The value must be a number from 0 to 1 (both included); 0 turns the test off
+(the 1.0.0 behaviour). Any other value, including `None`, `True` and NaN,
+raises `ValueError` when the refinement starts. `sam_stats["min_coverage"]`
+records the value used. Set it with
+`engine_params={"sam_min_coverage": 0.7}` (CLI
+`--engine-param sam_min_coverage=0.7`). As with `sam_overlaps`, it applies to
+the `embedding` engine's own refinement and to `refine_boundaries` called
+directly, and the `ensemble` engine accepts it in its `engine_params`.
+
+!!! warning "Trade-off, measured on 2026-09-29"
+    SAM 2 (`sam2-hiera-large`, Apple MPS). SAM ran once per input; its masks
+    were then tested at each threshold, and the results area-filtered,
+    smoothed and simplified as in the examples. The example 15 inputs are its
+    1.0.0 crop polygons, refined on the Sentinel-2 composite. The example 14
+    inputs are its 1.0.0 DINOv3 outputs without SAM, refined afterwards as
+    example 13 does; example 14's own SAM runs refine before post-processing
+    and are not shown. Example 13's input is example 20's Delineate-Anything
+    output, as in the [gallery](../gallery.md).
+
+    | Input | Measure | no SAM | 0 (1.0.0) | 0.5 (default) | 0.7 |
+    |---|---|---|---|---|---|
+    | Example 15, TESSERA / Google crop polygons (510 / 439 masks) | `n_low_coverage` | - | 0 / 0 | 48 / 95 | 93 / 167 |
+    | | pivots less than half covered (of 29) | 0 / 0 | 8 / 14 | 1 / 2 | 0 / 0 |
+    | | area lost against the input polygons | - | 15.7 % / 24.1 % | 7.4 % / 8.1 % | 2.9 % / 0.9 % |
+    | Example 13, Delineate-Anything, Sentinel-2 2019 (67 masks) | `n_low_coverage` | - | 0 | 0 | 0 |
+    | Example 14, DINOv3 NAIP / SPOT 2022, Lea County | F1 (in-sample, 227 reference fields) | 0.604 / 0.423 | 0.609 / 0.479 | 0.590 / 0.445 | 0.595 / 0.418 |
+    | | reference fields less than half covered | 35 / 67 | 80 / 105 | 53 / 85 | 40 / 77 |
+
+    Every example 13 mask covered at least 92 % of its polygon, so no
+    threshold up to 0.9 changed that output. The polygons of examples 15 and
+    14 often hold several fields. There the default mostly returns the input
+    polygon where SAM would have left fields uncovered: 9 (TESSERA) and 12
+    (Google) of the 29 pivots were still part of a polygon more than twice
+    their area at 0.5, against 10 and 13 before SAM. In Lea County a rejected
+    mask often matched one of its polygon's fields well, so the test also
+    lowers F1 against 0; at 0.5 the NAIP F1 is below the value without SAM.
+
+On inputs whose polygons often hold several fields, such as embedding
+clusters, 0.7 left fewer fields uncovered than the default in these runs,
+but its Lea County SPOT F1 is below the value without SAM. Check the effect
+on your own reference data. Because the default changes the results, 1.0.1
+does not reuse a 1.0.0 output of a run with `sam_refine`: it raises
+`FileExistsError` until the output is recomputed with `overwrite=True` (see
+[Output reuse](reproducibility.md#output-reuse)).
 
 ## Backends
 
@@ -140,13 +287,13 @@ Only single-object box prompts are used; SAM 3's concept-exemplar prompts
 ### SAM 3 is untested
 
 !!! warning "The SAM 3 backends are currently untested"
-    Neither `sam3` nor `sam3-hf` has been run end to end with agribound 1.0.0:
+    Neither `sam3` nor `sam3-hf` has been run end to end with agribound 1.0.1:
     the `facebook/sam3` weights are gated, and no approved Hugging Face token
-    was available when 1.0.0 was prepared. The tests cover their imports,
+    was available when 1.0.0 and 1.0.1 were prepared. The tests cover their imports,
     platform checks and argument handling only. agribound logs a WARNING (also
     recorded in the provenance) whenever a SAM 3 backend is loaded. Check the
     refined polygons before relying on them, or use `sam2` (the default), which
-    was run in the 1.0.0 examples.
+    was run in the 1.0.0 and 1.0.1 examples.
 
 ### SAM 3 platform support
 

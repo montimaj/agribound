@@ -5,7 +5,7 @@
 If you use agribound in your research, please cite the software (the DOI
 below is the Zenodo concept DOI, which resolves to the latest version):
 
-> Majumdar, S., Rapp, J., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* (Version 1.0.0) [Software]. Zenodo. <https://doi.org/10.5281/zenodo.19229665>
+> Majumdar, S., Rapp, J., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* (Version 1.0.1) [Software]. Zenodo. <https://doi.org/10.5281/zenodo.19229665>
 
 The accompanying manuscript is in preparation:
 

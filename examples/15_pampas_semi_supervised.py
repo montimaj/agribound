@@ -10,14 +10,24 @@ training, near Pergamino (Buenos Aires Province):
        (``agribound.postprocess.lulc_filter.filter_by_lulc``; Dynamic World,
        the mean ``crops`` probability of the 2024 annual median, >= 0.3).
     3. Build an October 2024 Sentinel-2 composite (``agribound.build_composite``).
-    4. Refine the crop polygons of each embedding with SAM 2 on that composite.
+    4. Refine the crop polygons of each embedding with SAM 2 on that composite,
+       twice: every polygon as it is, and a "split" variant in which
+       multi-part polygons are split into parts, so each part gets its own box
+       prompt, and parts larger than 50 ha are kept unrefined. The split is a
+       heuristic for polygons that cover several fields: SAM returns one
+       object per box prompt, and a refined polygon replaces the whole input
+       polygon, so the rest of its area (for example a centre pivot that the
+       clustering merged with a neighbouring field) is left with no polygon.
+       Since agribound 1.0.1 a mask covering less than half of its polygon
+       (``engine_params["sam_min_coverage"]``, default 0.5) is not used, which
+       limits this loss without removing it.
+       The overlap trim of ``refine_boundaries`` sees only the polygons it is
+       given, so the refined masks are also trimmed where they overlap the
+       kept parts (each keeps its largest part).
     5. Refine the TESSERA crop polygons with SAM 2 on three TESSERA embedding
        dimensions used as a pseudo-RGB image (``engine_params["sam_rgb_bands"]``;
        experimental: embedding dimensions are not colours).
-    6. A variant of 5: multi-part polygons are split into parts, so each part
-       gets its own box prompt, and polygons larger than 50 ha are kept
-       unrefined (a heuristic: one box prompt around several fields asks SAM
-       for one object).
+    6. The split variant of 5.
     7. For comparison, the label-free Delineate-Anything v2 engine
        (``large_v2``) on the Sentinel-2 composite of step 3 and on SPOT 6/7
        (6 m, 2023), with the same minimum area and LULC crop filter as the
@@ -39,12 +49,14 @@ for 2024; every tile of this study area exists for 2024 (v1 manifest,
 October only. AIRBUS/SPOT6_7 ends on 2023-11-15, so the SPOT run uses 2023
 (6 scenes cover the whole study area; queried 2026-09-28).
 
-Study area: a pentagon with a bounding box of about 29 x 32 km. The TESSERA
-builder assembles the 128-band float32 mosaic of that box in memory (~4.8 GB).
+Study area: a pentagon with a bounding box of about 28 x 31 km. The TESSERA
+builder assembles the 128-band float32 mosaic of that box in memory (~4.4 GB).
 
-Estimated runtime: steps 1-6 took 22 minutes on an Apple M2 Max (MPS; SAM 2
-on the CPU) on 2026-09-28; step 7 adds the SPOT download and two
-Delineate-Anything runs.
+Estimated runtime: steps 1-6 took 22 minutes on an Apple M2 Max on 2026-09-28
+(1.0.0 script, without the Sentinel-2 split variants); with the step-1 clusters
+and the step-3 composite cached, steps 2-6 of this script took 13 minutes on
+2026-09-29. SAM 2 runs on MPS for the Sentinel-2 steps and on the CPU for the
+TESSERA steps; step 7 adds the SPOT download and two Delineate-Anything runs.
 
 Prerequisites:
     pip install "agribound[gee,samgeo,tessera,delineate-anything]"
@@ -132,8 +144,11 @@ def area_ha(gdf):
     return float(gdf.geometry.to_crs(get_equal_area_crs()).area.sum() / 10000)
 
 
-def refine(gdf, raster_path, config):
-    """SAM 2 refinement plus the pipeline's area filter, smoothing and simplification."""
+def refine(gdf, raster_path, config, keep_out=None):
+    """SAM 2 refinement plus the pipeline's area filter, smoothing and simplification.
+
+    *keep_out*: polygons not given to SAM whose area the refined masks may not take.
+    """
     from agribound.engines.samgeo_engine import refine_boundaries
     from agribound.postprocess import filter_polygons
     from agribound.postprocess.simplify import simplify_polygons, smooth_polygons
@@ -142,11 +157,63 @@ def refine(gdf, raster_path, config):
     stats = refined.attrs.get("sam_stats", {})
     print(
         f"    SAM 2: refined {stats.get('n_refined')} of {stats.get('n_total')} "
-        f"(too small: {stats.get('n_skipped_small')}, failed: {stats.get('n_failed')})"
+        f"(too small: {stats.get('n_skipped_small')}, failed: {stats.get('n_failed')}, "
+        f"covering too little: {stats.get('n_low_coverage')})"
     )
+    if keep_out is not None and len(keep_out):
+        refined = trim_to_outside(refined, gdf, keep_out)
     refined = filter_polygons(refined, min_area_m2=MIN_AREA)
     refined = smooth_polygons(refined, iterations=3)
     return simplify_polygons(refined, tolerance=2.0)
+
+
+def trim_to_outside(refined, inputs, keep_out):
+    """Remove *keep_out*'s area from the refined masks, as the "trim" overlap rule does.
+
+    ``refine_boundaries`` trims only against the polygons it was given (it returns them in
+    the same rows and order as *inputs*). A trimmed mask keeps its largest part; a mask with
+    nothing left gets its input geometry back and no longer counts as refined.
+    """
+    import shapely
+
+    blocker = keep_out.to_crs(refined.crs).geometry.union_all()
+    inputs = inputs.to_crs(refined.crs).geometry
+    refined = refined.copy()
+    n_trimmed = n_reverted = 0
+    for idx in refined.index[refined["agribound:sam_refined"].astype(bool)]:
+        geom = refined.at[idx, "geometry"]
+        if not geom.intersects(blocker):
+            continue
+        left = [p for p in shapely.get_parts(geom.difference(blocker)) if p.geom_type == "Polygon"]
+        left = [p for p in left if not p.is_empty]
+        if left:
+            refined.at[idx, "geometry"] = max(left, key=lambda p: p.area)
+            n_trimmed += 1
+        else:
+            refined.at[idx, "geometry"] = inputs.at[idx]
+            refined.at[idx, "agribound:sam_refined"] = False
+            refined.at[idx, "agribound:sam_score"] = float("nan")
+            n_reverted += 1
+    print(f"    trimmed {n_trimmed} refined masks against the kept parts ({n_reverted} reverted)")
+    return refined
+
+
+def refine_split(gdf, raster_path, config):
+    """Split multi-part polygons, refine the parts up to MAX_REFINE_AREA_HA, keep larger ones."""
+    from agribound.io.crs import get_equal_area_crs
+
+    parts = gdf.explode(index_parts=False).reset_index(drop=True)
+    parts = parts[parts.geometry.geom_type == "Polygon"]
+    large = parts.geometry.to_crs(get_equal_area_crs()).area / 10000 > MAX_REFINE_AREA_HA
+    print(f"    {len(parts)} parts; {int(large.sum())} larger than {MAX_REFINE_AREA_HA:g} ha kept")
+    refined_small = refine(parts[~large], raster_path, config, keep_out=parts[large])
+    kept = parts[large].to_crs(refined_small.crs)
+    kept["agribound:sam_refined"] = False  # keeps the column boolean in the GeoPackage
+    return gpd.GeoDataFrame(
+        pd.concat([refined_small, kept], ignore_index=True),
+        geometry="geometry",
+        crs=refined_small.crs,
+    )
 
 
 def parse_args(argv=None):
@@ -251,6 +318,12 @@ def main():
         refined = refine(crop_gdf, s2_raster, s2_config)
         refined.to_file(OUTPUT_DIR / f"fields_{name}_crop_sam2-s2_{YEAR}.gpkg", layer="fields")
         results.append((f"{name} + SAM 2 (S2)", refined))
+        print(f"  {name}, split variant:")
+        variant = refine_split(crop_gdf, s2_raster, s2_config)
+        variant.to_file(
+            OUTPUT_DIR / f"fields_{name}_crop_sam2-s2-split_{YEAR}.gpkg", layer="fields"
+        )
+        results.append((f"{name} + SAM 2 (S2, split)", variant))
 
     # --- 5 and 6. SAM 2 on TESSERA pseudo-RGB -----------------------------------------------------
     if "tessera" in crops:
@@ -268,22 +341,11 @@ def main():
         results.append(("tessera + SAM 2 (TESSERA)", refined))
 
         print(f"\n{'=' * 70}\n6. Variant: split multi-part polygons, skip > 50 ha\n{'=' * 70}")
-        from agribound.io.crs import get_equal_area_crs
-
-        parts = crops["tessera"].explode(index_parts=False).reset_index(drop=True)
-        parts = parts[parts.geometry.geom_type == "Polygon"]
-        large = parts.geometry.to_crs(get_equal_area_crs()).area / 10000 > MAX_REFINE_AREA_HA
-        print(f"  {len(parts)} parts; {int(large.sum())} larger than {MAX_REFINE_AREA_HA} ha")
-        refined_small = refine(parts[~large], tessera_raster, tessera_config)
-        variant = gpd.GeoDataFrame(
-            pd.concat([refined_small, parts[large].to_crs(refined_small.crs)], ignore_index=True),
-            geometry="geometry",
-            crs=refined_small.crs,
-        )
+        variant = refine_split(crops["tessera"], tessera_raster, tessera_config)
         variant.to_file(
             OUTPUT_DIR / f"fields_tessera_crop_sam2-tessera-split_{YEAR}.gpkg", layer="fields"
         )
-        results.append(("tessera + SAM 2 (split)", variant))
+        results.append(("tessera + SAM 2 (TESSERA, split)", variant))
 
     # --- 7. Delineate-Anything v2 on Sentinel-2 and on SPOT -------------------------------------
     print(f"\n{'=' * 70}\n7. Delineate-Anything v2 on Sentinel-2 and SPOT 6/7\n{'=' * 70}")
@@ -319,9 +381,9 @@ def main():
 
     # --- Comparison (counts and areas only; no reference data) --------------------------------
     print(f"\n{'=' * 70}\nComparison\n{'=' * 70}")
-    print(f"  {'Method':<30} {'Polygons':>9} {'Area (ha)':>12}")
+    print(f"  {'Method':<36} {'Polygons':>9} {'Area (ha)':>12}")
     for label, gdf in results:
-        print(f"  {label:<30} {len(gdf):>9} {area_ha(gdf):>12,.1f}")
+        print(f"  {label:<36} {len(gdf):>9} {area_ha(gdf):>12,.1f}")
 
     if results:
         from agribound.visualize import show_comparison

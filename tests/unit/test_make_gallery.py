@@ -126,6 +126,209 @@ def test_render_uses_the_recorded_composite(tool, tmp_path):
     assert stats["zoom_window_m"] == 400
 
 
+def test_an_explicit_window_crops_every_panel_and_marked_windows_are_recorded(
+    tool, tmp_path, monkeypatch
+):
+    root = _run_root(tmp_path)
+    marks = [("1", 500250.0, 3999250.0, 300.0), ("2", 500700.0, 3999700.0, 400.0)]
+    overview = tool.Entry(
+        "98",
+        "Demo_overview",
+        "Demo overview",
+        [tool.Layer("outputs/demo/fields.gpkg", "Demo")],
+        mark_windows=marks,
+        inset=False,
+    )
+    stats = tool.render(overview, root, tmp_path / "gallery", "composite")
+    assert [m["label"] for m in stats["marked_windows"]] == ["1", "2"]
+    assert stats["marked_windows"][1] == {
+        "label": "2",
+        "centre": [500700.0, 3999700.0],
+        "side_m": 400.0,
+    }
+    assert "window" not in stats
+
+    captured = {}
+    real = tool._read_background
+
+    def spy(tifs, source, bounds, crs, out_px, stretch=None):
+        captured["bounds"] = bounds
+        return real(tifs, source, bounds, crs, out_px, stretch)
+
+    monkeypatch.setattr(tool, "_read_background", spy)
+    zoomed = tool.Entry(
+        "97",
+        "Demo_zoom",
+        "Demo zoom",
+        [tool.Layer("outputs/demo/fields.gpkg", "Demo")],
+        window=(500250.0, 3999250.0, 300.0),
+        inset=False,
+    )
+    stats = tool.render(zoomed, root, tmp_path / "gallery", "composite")
+    assert captured["bounds"] == pytest.approx((500100.0, 3999100.0, 500400.0, 3999400.0))
+    assert stats["window"] == {
+        "crs": "EPSG:32613",
+        "centre": [500250.0, 3999250.0],
+        "side_m": 300.0,
+    }
+
+
+def test_a_window_outside_the_imagery_is_an_error(tool, tmp_path):
+    root = _run_root(tmp_path)  # the composite covers x 500000-501000, y 3998800-4000000
+    entry = tool.Entry(
+        "96",
+        "Demo_off",
+        "Demo off",
+        [tool.Layer("outputs/demo/fields.gpkg", "Demo")],
+        window=(500950.0, 3999900.0, 400.0),
+        inset=False,
+    )
+    with pytest.raises(ValueError, match="not inside the imagery"):
+        tool.render(entry, root, tmp_path / "gallery", "composite")
+
+
+def test_the_sam2_note_names_the_polygons_that_are_smoothed_again(tool):
+    assert tool._sam2_note({}).endswith("are left unchanged")
+    assert "smooths and simplifies all polygons again" in tool._sam2_note({}, resmoothed=True)
+    note = tool._sam2_note({}, resmoothed="the polygons of 50 ha or less")
+    assert "smooths and simplifies the polygons of 50 ha or less again" in note
+    assert "all polygons" not in note
+
+
+def test_text_flags_from_a_geopackage_are_read_as_booleans(tool, tmp_path):
+    # A boolean flag missing from some of the concatenated frames becomes an object column
+    # (True/False/NaN), which the GeoPackage driver writes as text ("True"/"False");
+    # astype(bool) would make "False" True.
+    import pandas as pd
+
+    a = gpd.GeoDataFrame(
+        {"flag": [True, False]}, geometry=[box(0, 0, 1, 1), box(1, 0, 2, 1)], crs="EPSG:32613"
+    )
+    b = gpd.GeoDataFrame({"x": [1]}, geometry=[box(2, 0, 3, 1)], crs="EPSG:32613")
+    g = gpd.GeoDataFrame(pd.concat([a, b], ignore_index=True), geometry="geometry", crs=a.crs)
+    path = tmp_path / "flags.gpkg"
+    g.to_file(path, driver="GPKG")
+    back = gpd.read_file(path)
+    assert tool._bool_column(back["flag"]).tolist() == [True, False, False]
+    assert tool._bool_column(["True", "False", None, "true", "0"]).tolist() == [
+        True,
+        False,
+        False,
+        True,
+        False,
+    ]
+    assert tool._bool_column([True, False, float("nan"), None]).tolist() == [
+        True,
+        False,
+        False,
+        False,
+    ]
+    assert tool._bool_column(pd.array([True, pd.NA], dtype="boolean")).tolist() == [True, False]
+
+
+def _second_area(root: Path) -> None:
+    """A second study area in another UTM zone (EPSG:32643), for multi-area entries."""
+    out = root / "outputs" / "demo2"
+    out.mkdir(parents=True)
+    rng = np.random.default_rng(1)
+    transform = rasterio.transform.from_origin(300000, 2000000, 10, 10)
+    with rasterio.open(
+        out / "composite.tif",
+        "w",
+        driver="GTiff",
+        width=100,
+        height=100,
+        count=len(S2_BANDS),
+        dtype="float32",
+        crs="EPSG:32643",
+        transform=transform,
+        nodata=float("nan"),
+    ) as dst:
+        dst.write(rng.uniform(200, 3000, size=(len(S2_BANDS), 100, 100)).astype("float32"))
+        dst.descriptions = tuple(S2_BANDS)
+    gpd.GeoDataFrame(
+        geometry=[box(300100 + 150 * i, 1999100, 300200 + 150 * i, 1999200) for i in range(5)],
+        crs="EPSG:32643",
+    ).to_file(out / "fields.gpkg", driver="GPKG")
+    sidecar = {
+        "status": "success",
+        "config": {"source": "sentinel2", "engine": "delineate-anything", "year": 2022},
+        "facts": {"raster_path": "outputs/demo2/composite.tif"},
+    }
+    (out / "fields.gpkg.provenance.json").write_text(json.dumps(sidecar))
+
+
+def test_multi_area_entries_draw_each_area_in_its_own_crs_and_window(tool, tmp_path):
+    root = _run_root(tmp_path)
+    _second_area(root)
+    entry = tool.Entry(
+        "95",
+        "Demo_areas",
+        "Demo areas",
+        [
+            tool.Layer("outputs/demo/fields.gpkg", "Area A"),
+            tool.Layer("outputs/demo2/fields.gpkg", "Area B", crop_m=600),
+        ],
+        multi_area=True,
+        per_layer_background=True,
+        crop_m=400,
+        ncols=2,
+        inset=False,
+    )
+    stats = tool.render_areas(entry, root, tmp_path / "gallery", "composite")
+    assert (tmp_path / "gallery" / "Demo_areas.png").exists()
+    a, b = stats["layers"]
+    assert (a["panel"], a["n_polygons"], a["window"]["crs"]) == ("1", 2, "EPSG:32613")
+    assert (b["panel"], b["n_polygons"], b["window"]["crs"]) == ("2", 5, "EPSG:32643")
+    x0, y0, x1, y1 = b["window"]["bounds"]
+    assert (x1 - x0, y1 - y0) == (600.0, 600.0)  # the layer's own window side
+    assert x0 >= 300000 and x1 <= 301000 and y0 >= 1999000 and y1 <= 2000000
+    assert "Background: 1: " in stats["background_note"] and "2: " in stats["background_note"]
+
+
+def test_the_background_note_of_areas_with_one_source_is_one_line(tool):
+    def panel(n, start, end, k):
+        comp = {
+            "AGRIBOUND_RESOLUTION_M": "1.5",
+            "AGRIBOUND_COMPOSITE_METHOD": "median",
+            "AGRIBOUND_N_IMAGES": str(k),
+            "AGRIBOUND_DATE_START": start,
+            "AGRIBOUND_DATE_END_EXCLUSIVE": end,
+        }
+        prov = {"facts": {"composite": comp}}  # as in real sidecars; no raster needed
+        return {"n": n, "bg": ([], "spot-pan", prov, "the engine's input")}
+
+    note = tool._areas_bg_note(
+        [panel("1", "2018-01-01", "2019-01-01", 7), panel("2", "2021-01-01", "2022-01-01", 2)]
+    )
+    assert note.startswith("Background: SPOT 6/7 panchromatic 1.5 m median composites")
+    assert "1: 2018-01-01 to 2019-01-01, 7 images; 2: 2021-01-01 to 2022-01-01, 2 images" in note
+
+
+def test_multi_area_entries_refuse_options_only_render_implements(tool, tmp_path):
+    root = _run_root(tmp_path)
+    entry = tool.Entry(
+        "94",
+        "Demo_bad",
+        "Demo bad",
+        [tool.Layer("outputs/demo/fields.gpkg", "Area A", highlight="agribound:sam_refined")],
+        multi_area=True,
+        crop_m=400,
+        sam2_note=True,
+        inset=False,
+    )
+    with pytest.raises(ValueError, match="do not support sam2_note, layers.0..highlight"):
+        tool.render_areas(entry, root, tmp_path / "gallery", "composite")
+
+
+def test_the_world_view_pads_the_study_area_dots(tool):
+    view = tool._world_view([("1", 80.0, 10.0), ("2", -50.0, -20.0)])
+    px, py = tool.WORLD_INSET_PAD_DEG
+    assert view.bounds == pytest.approx((-50.0 - px, -20.0 - py, 80.0 + px, 10.0 + py))
+    clipped = tool._world_view([("1", 175.0, 75.0)])
+    assert clipped.bounds[2] == 180.0 and clipped.bounds[3] == 80.0
+
+
 def test_rgb_bands_come_from_the_band_descriptions(tool, tmp_path):
     root = _run_root(tmp_path)
     with rasterio.open(root / "outputs" / "demo" / "composite.tif") as src:
@@ -310,6 +513,27 @@ def _country(parts):
     from shapely.geometry import MultiPolygon
 
     return {"lon": 5.0, "lat": 5.0, "country_a3": "XXX", "_country_geom": MultiPolygon(parts)}
+
+
+def test_the_world_locator_draws_india_from_the_survey_of_india_outline(tool, monkeypatch):
+    import matplotlib.pyplot as plt
+
+    soi = _fake_boundaries(tool, monkeypatch)
+    pts = [("1", 79.07, 10.78), ("2", 107.33, 40.83)]  # Tamil Nadu and Inner Mongolia
+    view = tool._world_view(pts)
+    fig = plt.figure(figsize=(4, 3))
+    try:
+        iax, india_drawn = tool._draw_world_inset(fig, [0.1, 0.1, 0.8, 0.8], pts, view)
+        colls = list(iax.collections)
+        zorders = [c.get_zorder() for c in colls]
+        india_top = colls[1].get_datalim(iax.transData).y1
+        n_neighbours = len(colls[0].get_paths())
+    finally:
+        plt.close(fig)
+    assert india_drawn
+    assert zorders == [tool.Z_NEIGHBOURS, tool.Z_INDIA, tool.Z_LAKES]
+    assert india_top == pytest.approx(soi.bounds[3])  # the Survey of India stand-in, not NE's
+    assert n_neighbours == 1  # China (Mongolia is north of the view); NE India never drawn
 
 
 def test_inset_view_keeps_small_near_parts_of_the_country(tool):

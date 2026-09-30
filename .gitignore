@@ -213,7 +213,7 @@ outputs/
 .agribound_cache/
 weights/
 *.geojson
-global_*
+/global_0.1_degree_*/
 *.pdf
 test_nm_semi_supervised.py
 

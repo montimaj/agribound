@@ -32,8 +32,8 @@ The pipeline:
 
 1. seeds Python, NumPy and torch from `seed` (default 42);
 2. returns the existing `fields.gpkg` without recomputing if its provenance
-   record matches this configuration, or raises `FileExistsError` if it does
-   not (see [Reproducibility](reproducibility.md#output-reuse));
+   record matches this configuration, study-area file and results versions,
+   or raises `FileExistsError` if it does not (see [Reproducibility](reproducibility.md#output-reuse));
 3. builds a Sentinel-2 median composite for 2024 on Earth Engine over the
    study area's bounding box, in the UTM zone of its centroid, as reflectance ×
    10000 (cached in `.agribound_cache/` next to the output);

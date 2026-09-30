@@ -70,7 +70,7 @@ overview.
 
 !!! warning "SAM 3 backends are untested"
     `sam_backend="sam3"` and `"sam3-hf"` have not been run end to end with
-    agribound 1.0.0 (the `facebook/sam3` weights are gated); a WARNING is
+    agribound 1.0.1 (the `facebook/sam3` weights are gated); a WARNING is
     logged when one is loaded. See
     [SAM refinement](../user-guide/sam-refinement.md#sam-3-is-untested).
 

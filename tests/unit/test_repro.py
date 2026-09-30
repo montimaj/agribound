@@ -105,7 +105,7 @@ class TestGetRng:
 class TestCollectVersions:
     def test_core_entries(self):
         versions = collect_versions()
-        assert versions["agribound"] == __version__ == "1.0.0"
+        assert versions["agribound"] == __version__ == "1.0.1"
         assert versions["python"] == sys.version.split()[0]
         assert "numpy" in versions
         assert "gdal" in versions

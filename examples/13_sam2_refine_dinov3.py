@@ -6,7 +6,9 @@ each polygon's bounding box is given to SAM as a single-object box prompt,
 and the polygon is replaced by SAM's mask, of which only the part inside the
 box padded by ``sam_crop_padding`` is kept. Polygons whose padded box is
 smaller than ``sam_min_crop_px`` pixels on either side are not prompted and
-keep their geometry (``gdf.attrs["sam_stats"]`` counts them).
+keep their geometry, and so does a polygon whose mask covers less than
+``engine_params["sam_min_coverage"]`` (default 0.5, since agribound 1.0.1) of
+it (``gdf.attrs["sam_stats"]`` counts both).
 
 Input: the Sentinel-2 DINOv3 output of example 12
 (``outputs/lea_county_ensemble/fields_sentinel2_dinov3_2022.gpkg``; run
@@ -125,6 +127,8 @@ def main():
 
     if output_path.exists() and not args.overwrite:
         refined = gpd.read_file(output_path)
+        # Reused by file name only: an output written by agribound 1.0.0 (no coverage test)
+        # is loaded too, so pass --overwrite after upgrading.
         print(f"Loaded existing refined output {output_path} (use --overwrite to recompute)")
     else:
         from agribound.config import AgriboundConfig
@@ -145,7 +149,8 @@ def main():
             f"\nSAM ({stats.get('backend')}, {stats.get('model')}, {stats.get('device')}) in "
             f"{time.time() - tic:.1f} s: refined {stats.get('n_refined')} of "
             f"{stats.get('n_total')}; too small {stats.get('n_skipped_small')}, outside the "
-            f"raster {stats.get('n_skipped_outside')}, failed {stats.get('n_failed')}"
+            f"raster {stats.get('n_skipped_outside')}, failed {stats.get('n_failed')}, "
+            f"covering too little {stats.get('n_low_coverage')}"
         )
         # Area filter, smoothing and simplification, as in the pipeline's post-processing.
         refined = filter_polygons(

@@ -72,6 +72,15 @@ def test_sam_page_documents_every_overlap_mode():
         assert f'`"{mode}"`' in page, f"sam-refinement.md does not describe sam_overlaps={mode!r}"
 
 
+def test_sam_page_documents_the_coverage_test_and_its_default():
+    from agribound.engines.samgeo_engine import DEFAULT_MIN_COVERAGE
+
+    page = _page("sam-refinement.md")
+    assert 'engine_params["sam_min_coverage"]' in page
+    assert f"(default {DEFAULT_MIN_COVERAGE:g}" in page, "sam-refinement.md: wrong default"
+    assert "n_low_coverage" in page
+
+
 def _gee_project_help(script: Path) -> str | None:
     """The help text of the script's ``--gee-project`` argparse option, if any."""
     tree = ast.parse(script.read_text(encoding="utf-8"))

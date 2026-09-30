@@ -374,7 +374,8 @@ def main():
         ensembles[f"{source} ensemble + SAM 2"] = refined
         print(
             f"    SAM 2 ({stats.get('model')}): refined {stats.get('n_refined')} of "
-            f"{stats.get('n_total')} (too small: {stats.get('n_skipped_small')})"
+            f"{stats.get('n_total')} (too small: {stats.get('n_skipped_small')}, "
+            f"covering too little: {stats.get('n_low_coverage')})"
         )
 
     # ================================================================

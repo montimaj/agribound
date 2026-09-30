@@ -237,7 +237,8 @@ def main():
                 if stats:
                     print(
                         f"  SAM 2: refined {stats['n_refined']} of {stats['n_total']} "
-                        f"(too small: {stats['n_skipped_small']})"
+                        f"(too small: {stats['n_skipped_small']}, "
+                        f"covering too little: {stats.get('n_low_coverage', 0)})"
                     )
                 print(f"  {len(gdf)} fields")
 

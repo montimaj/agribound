@@ -517,7 +517,8 @@ def status_cmd(
 ) -> None:
     """Show per-tile progress.
 
-    States: done, failed, pending, stale (output from another configuration),
+    States: done, failed, pending, stale (output from another configuration or
+    from a release whose results for it differ),
     no-data (the source has no data for the tile: water, or outside its
     coverage; final, merged as empty) and error (unreadable tile configuration).
     """

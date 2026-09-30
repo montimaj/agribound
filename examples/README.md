@@ -1,7 +1,7 @@
 # Agribound Examples
 
 Example scripts (`NN_*.py`) and notebook copies (`notebooks/NN_*.ipynb`, same
-code) for agribound 1.0.0, plus the HPC scripts in [`hpc/`](hpc/) and the
+code) for agribound 1.0.1, plus the HPC scripts in [`hpc/`](hpc/) and the
 region definitions in [`regions/`](regions/). Each script's docstring states
 its data, assumptions, caveats and prerequisites; read it before running.
 
@@ -37,8 +37,10 @@ its data, assumptions, caveats and prerequisites; read it before running.
 3. Run from the repository root, for example
    `python examples/04_france_beauce_sentinel2.py`. Outputs go to
    `outputs/<example>/`. An existing output made with the same settings is
-   loaded instead of recomputed; one made with other settings gives a
-   `FileExistsError`. Examples 01, 05, 10 and 13 take `--overwrite` to recompute;
+   loaded instead of recomputed; one made with other settings, from a changed
+   study-area file, or by a release whose results for those settings differ
+   (1.0.0 outputs of the embedding engine or of SAM refinement) gives a
+   `FileExistsError`. Examples 01, 05, 10, 13 and 22 take `--overwrite` to recompute;
    for the other examples, delete the output (or its `outputs/<example>/`
    directory) first.
 
@@ -68,13 +70,14 @@ guard (ftw-tools' data-loader workers use the `spawn` start method).
 | 12 | [12_new_mexico_ensemble_timeseries.py](12_new_mexico_ensemble_timeseries.py) | Eastern Lea County, New Mexico, USA | S2, Landsat, HLS, NAIP, SPOT (restricted), embeddings | all engines | Per-source multi-model vote ensembles with SAM 2, evaluated against NMOSE (2022; both environments) |
 | 13 | [13_sam2_refine_dinov3.py](13_sam2_refine_dinov3.py) | Eastern Lea County | (example 12 output) | SAM refinement | Stand-alone `refine_boundaries` on a finished layer; SAM backends (`--sam-backend`; the SAM 3 backends are untested) |
 | 14 | [14_dinov3_sam2_ensemble.py](14_dinov3_sam2_ensemble.py) | Eastern Lea County | S2, Landsat, HLS, NAIP, SPOT (restricted) | DINOv3 (fine-tuned) ± SAM 2 | The pipeline's SAM stage and its size gate on five sources |
-| 15 | [15_pampas_semi_supervised.py](15_pampas_semi_supervised.py) | Pergamino, Argentina | embeddings, Sentinel-2, SPOT 6/7 (restricted) | embedding, LULC filter, SAM 2, Delineate-Anything | A label-free chain by hand: cluster → crop filter → SAM on S2 or embedding pseudo-RGB, compared with Delineate-Anything v2 on S2 and SPOT |
+| 15 | [15_pampas_semi_supervised.py](15_pampas_semi_supervised.py) | Pergamino, Argentina | embeddings, Sentinel-2, SPOT 6/7 (restricted) | embedding, LULC filter, SAM 2, Delineate-Anything | A label-free chain by hand: cluster → crop filter → SAM on S2 or embedding pseudo-RGB (each on every polygon, and in a variant that keeps parts over 50 ha unrefined), compared with Delineate-Anything v2 on S2 and SPOT |
 | 16 | [16_usa_usgs_naip_plus.py](16_usa_usgs_naip_plus.py) | Fresno County, California, USA | USGS NAIP Plus | Delineate-Anything | The source that needs no Earth Engine (LULC filter off) |
 | 17 | [17_query_published_ftw_polygons.py](17_query_published_ftw_polygons.py) | synthetic | local tile store | - | `query_ftw` with the manifest backend, offline |
 | 18 | [18_agent_orchestration.py](18_agent_orchestration.py) | Beauce, France | - | agent tools | Read-only tools and `propose_run` without an LLM; `--llm` for a dry-run agent session; MCP configuration |
 | 19 | [19_hpc_tiling.py](19_hpc_tiling.py) | Beauce, France | Sentinel-2 | Delineate-Anything | `agribound.hpc` make → stage → delineate → merge locally |
 | 20 | [20_stratified_evaluation.py](20_stratified_evaluation.py) | San Juan Basin, New Mexico, USA | Sentinel-2 (or `--predicted`); Landsat, SPOT 6/7 (restricted), NAIP | Delineate-Anything, FTW | Stratified (sub-basin), size-class and boundary evaluation with bootstrap intervals for Delineate-Anything on Sentinel-2 2019; overall object and boundary metrics (no strata, size classes or intervals) for the same engine on Landsat, Sentinel-2, SPOT and NAIP of 2018, and for FTW and Delineate-Anything on Sentinel-2 2019 with and without the crop filter (`--resolution-year`, `--no-resolution`, `--no-lulc-comparison`; `--predicted` skips both comparisons) |
 | 21 | [21_published_ftw_audit.py](21_published_ftw_audit.py) | Belen, New Mexico, USA | published FTW polygons | - | `query_ftw` (confidence coverage) and evaluation against NMOSE |
+| 22 | [22_global_south_spot_pan.py](22_global_south_spot_pan.py) | India, China, Argentina, Kenya, Egypt, Brazil | SPOT 6/7 panchromatic (restricted) | Delineate-Anything | Six study areas at 1.5 m (3 km squares; 6 km for the centre pivots), from smallholder paddies to centre pivots; crop filter as a separate step |
 
 Estimated runtimes are given in each docstring; most were not measured
 for 1.0 (the docstrings say which were).
@@ -104,6 +107,7 @@ for 1.0 (the docstrings say which were).
 | 19 | [19_hpc_tiling.ipynb](notebooks/19_hpc_tiling.ipynb) |
 | 20 | [20_stratified_evaluation.ipynb](notebooks/20_stratified_evaluation.ipynb) |
 | 21 | [21_published_ftw_audit.ipynb](notebooks/21_published_ftw_audit.ipynb) |
+| 22 | [22_global_south_spot_pan.ipynb](notebooks/22_global_south_spot_pan.ipynb) |
 
 ## HPC and regions
 

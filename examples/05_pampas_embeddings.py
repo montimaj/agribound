@@ -28,7 +28,8 @@ assembles the 128-band float32 mosaic in memory (~2.2 GB for this box).
 Outputs: ``fields_google-embedding-<backend>_embedding_<sub|full>_2024.gpkg``
 and ``fields_tessera-embedding-v1_embedding_<sub|full>_2024.gpkg``. An
 existing output made with the same settings is loaded instead of
-recomputed; ``--overwrite`` recomputes it.
+recomputed (a 1.0.0 output, whose clusters 1.0.1 no longer reproduces,
+raises ``FileExistsError``); ``--overwrite`` recomputes it.
 
 Estimated runtime (not measured for 1.0): ~5-15 minutes for the default box
 (download-bound, CPU).

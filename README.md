@@ -2,7 +2,7 @@
 
 **Agricultural field boundary delineation from satellite imagery**
 
-[![Release](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/montimaj/agribound/releases)
+[![Release](https://img.shields.io/badge/release-v1.0.1-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)
 [![Downloads](https://static.pepy.tech/badge/agribound/month)](https://pepy.tech/projects/agribound)
 [![CI](https://github.com/montimaj/agribound/actions/workflows/ci.yml/badge.svg)](https://github.com/montimaj/agribound/actions/workflows/ci.yml)
@@ -64,7 +64,8 @@ Around the pipeline:
 
 ## Results
 
-From the agribound 1.0.0 example runs. Each map is drawn on a composite from
+From the agribound 1.0.1 example runs (the San Juan County map shows 1.0.0
+outputs, which 1.0.1 reuses unchanged). Each map is drawn on a composite from
 the run, named under the map with the model and its version: usually the
 engine's input; for FTW, its window A; for the SAM-refined embedding panels
 (Pampas, top), the Sentinel-2 composite SAM 2 read. Select an image for the
@@ -86,7 +87,7 @@ recall rises from 0.08 to 0.44.
 
 Example 14: DINOv3 (SAT-493M weights) fine-tuned on the NMOSE polygons for
 each source and refined with SAM 2. In-sample F1 (the polygons are also the
-training labels): 0.09 on Landsat, 0.39 on Sentinel-2, 0.48 on SPOT and 0.60
+training labels): 0.06 on Landsat, 0.38 on Sentinel-2, 0.45 on SPOT and 0.59
 on NAIP; at 30 m the box also holds only 4 training chips, against 2,014 at
 1 m.
 
@@ -96,9 +97,13 @@ on NAIP; at 30 m the box also holds only 4 training chips, against 2,014 at
 
 Example 15, no reference data or training: Google Satellite Embedding and
 TESSERA v1 clusters of 2024, crop-filtered and refined with SAM 2 on
-Sentinel-2 (top), against Delineate Anything v2 on the same Sentinel-2
-composite and on SPOT 6/7 2023 (bottom); centre pivots near Pergamino.
-Orange = refined by SAM 2.
+Sentinel-2 (top; parts over 50 ha kept unrefined), against Delineate Anything
+v2 on the same Sentinel-2 composite and on SPOT 6/7 2023 (bottom); centre
+pivots near Pergamino. Orange = refined by SAM 2. The embedding panels come
+from the agribound 1.0.1 run of 2026-09-29; the Delineate-Anything panels are
+the 1.0.0 outputs, which that run reused. The
+[gallery](https://montimaj.github.io/agribound/gallery/) adds the whole study
+area and three zoomed windows.
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_example.webp" alt="Embeddings with SAM 2 vs Delineate-Anything v2 on Sentinel-2 and SPOT — Pampas, Argentina" width="800"></a>
 
@@ -274,8 +279,11 @@ Reference: [Configuration](https://montimaj.github.io/agribound/user-guide/confi
   hash, versions, platform, device, step timings, peak memory, engine metadata
   (for example weight revisions and SHA-256), stage counts and warnings.
 - **Output reuse**: an existing output is returned only if its provenance
-  record reports success with the same configuration hash; otherwise
-  `delineate()` raises `FileExistsError` (`overwrite=True` re-runs).
+  record reports success with the same configuration hash, study-area
+  fingerprint and results versions; otherwise `delineate()` raises
+  `FileExistsError` (`overwrite=True` re-runs). A record of agribound 1.0.0
+  or earlier has no study-area fingerprint; when nothing else differs, its
+  output is still reused.
 
 See [Reproducibility](https://montimaj.github.io/agribound/user-guide/reproducibility/).
 
@@ -416,14 +424,14 @@ agribound/
 │   ├── io/                     # Raster, vector and CRS helpers
 │   └── postprocess/            # Polygonize, merge, filter, simplify/smooth, regularize, LULC filter
 ├── assets/                     # Figures linked by URL from the README and docs (see assets/README.md):
-│   ├── gallery_1.0/            #   rendered from the 1.0.0 example runs (tools/make_gallery.py); WebP previews in preview/
+│   ├── gallery_1.0/            #   rendered from the 1.0.0 and 1.0.1 example runs (tools/make_gallery*.py); WebP previews in preview/
 │   ├── gallery_0.1x/           #   archived 0.1.x screenshots
 │   └── agribound_workflow_1.0.*  # workflow diagram (tools/make_workflow_diagram.py)
 ├── docs/                       # MkDocs documentation (user guide, API reference, gallery, blog)
-├── examples/                   # Example scripts 01-21, notebooks/ (generated from the scripts), hpc/, regions/
+├── examples/                   # Example scripts 01-22, notebooks/ (generated from the scripts), hpc/, regions/
 ├── paper/                      # Manuscript materials (not included in the PyPI distribution)
 ├── tests/                      # Pytest suite (unit/, integration/)
-├── tools/                      # Maintainer scripts: make_gallery.py, make_workflow_diagram.py, sync_notebooks.py
+├── tools/                      # Maintainer scripts: make_gallery.py, make_gallery_pampas_0.1x.py, make_workflow_diagram.py, sync_notebooks.py
 ├── CHANGELOG.md
 ├── CITATION.cff                # Citation metadata
 ├── CONTRIBUTING.md             # Developer guide
@@ -465,6 +473,7 @@ Example scripts and notebooks are in [`examples/`](https://github.com/montimaj/a
 | [19_hpc_tiling.py](https://github.com/montimaj/agribound/blob/main/examples/19_hpc_tiling.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/19_hpc_tiling.ipynb) | Tiling, two-phase runs and merging with `agribound.hpc` |
 | [20_stratified_evaluation.py](https://github.com/montimaj/agribound/blob/main/examples/20_stratified_evaluation.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/20_stratified_evaluation.ipynb) | Stratified, size-class and boundary evaluation against NMOSE with bootstrap intervals; overall object and boundary metrics on Landsat, Sentinel-2, SPOT and NAIP of 2018 and with and without the crop filter |
 | [21_published_ftw_audit.py](https://github.com/montimaj/agribound/blob/main/examples/21_published_ftw_audit.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/21_published_ftw_audit.ipynb) | Published FTW polygons evaluated against NMOSE |
+| [22_global_south_spot_pan.py](https://github.com/montimaj/agribound/blob/main/examples/22_global_south_spot_pan.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/22_global_south_spot_pan.ipynb) | Delineate-Anything v2 on SPOT 6/7 panchromatic (1.5 m, restricted) in six farming landscapes of the Global South |
 
 ## Google Earth Engine Authentication
 

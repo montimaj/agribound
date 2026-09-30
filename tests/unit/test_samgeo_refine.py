@@ -1068,3 +1068,137 @@ class TestRefinementOverlaps:
         bad = _config(tmp_path, source="naip", year=2020, engine_params={"sam_overlaps": "x"})
         with pytest.raises(ValueError, match="sam_overlaps must be one of"):
             refine_boundaries(gdf, raster, bad, predictor=Flood())
+
+
+# ---------------------------------------------------------------------------
+# Masks that cover too little of their input polygon (module docstring, step 7)
+# ---------------------------------------------------------------------------
+
+
+class Partial(FakePredictor):
+    """Masks the left *fraction* of the boxes whose x0 is in *partial_for* (None: all boxes).
+
+    The other boxes get the FakePredictor mask (the box inset by 1 px).
+    """
+
+    def __init__(self, fraction=0.2, partial_for=None, **kw):
+        super().__init__(**kw)
+        self.fraction = fraction
+        self.partial_for = partial_for
+
+    def predict_boxes(self, boxes):
+        masks, scores = super().predict_boxes(boxes)
+        for k, (x0, y0, x1, y1) in enumerate(boxes):
+            if self.partial_for is None or round(x0) in self.partial_for:
+                masks[k] = False
+                x_end = round(x0 + self.fraction * (x1 - x0))
+                masks[k, round(y0) : round(y1), round(x0) : x_end] = True
+        return masks, scores
+
+
+def _counts_add_up(stats):
+    return stats["n_total"] == (
+        stats["n_refined"]
+        + stats["n_skipped_small"]
+        + stats["n_skipped_outside"]
+        + stats["n_failed"]
+        + stats["n_low_coverage"]
+    )
+
+
+class TestMinCoverage:
+    def _refine(self, tmp_path, geoms, predictor, **engine_params):
+        raster = _raster(tmp_path, count=3, dtype="uint8", size=300)
+        cfg = _config(tmp_path, source="naip", year=2020, engine_params=engine_params)
+        gdf = gpd.GeoDataFrame({"k": list(range(len(geoms)))}, geometry=geoms, crs=UTM)
+        return refine_boundaries(gdf, raster, cfg, predictor=predictor)
+
+    @pytest.mark.parametrize("overlaps", ["trim", "keep"])
+    def test_mask_covering_a_fifth_is_reverted_at_half(self, tmp_path, caplog, overlaps):
+        field = _field(10, 10, 80, 70)
+        with caplog.at_level("INFO", logger="agribound.engines.samgeo_engine"):
+            out = self._refine(
+                tmp_path, [field], Partial(), sam_min_coverage=0.5, sam_overlaps=overlaps
+            )
+        assert out.geometry.iloc[0].equals(field)
+        assert out["agribound:sam_refined"].tolist() == [False]
+        assert np.isnan(out["agribound:sam_score"].iloc[0])
+        stats = out.attrs["sam_stats"]
+        assert (stats["min_coverage"], stats["n_low_coverage"]) == (0.5, 1)
+        assert (stats["n_refined"], stats["n_failed"]) == (0, 0)
+        assert _counts_add_up(stats)
+        assert "1 masks covered less than 50 % of their input polygon" in caplog.text
+
+    def test_mask_covering_a_fifth_is_kept_at_zero(self, tmp_path):
+        field = _field(10, 10, 80, 70)
+        out = self._refine(tmp_path, [field], Partial(), sam_min_coverage=0)
+        refined = out.geometry.iloc[0]
+        assert out["agribound:sam_refined"].tolist() == [True]
+        assert refined.intersection(field).area / field.area == pytest.approx(0.2)
+        assert refined.bounds == pytest.approx((X0 + 100, Y1 - 800, X0 + 260, Y1 - 100))
+        stats = out.attrs["sam_stats"]
+        assert (stats["min_coverage"], stats["n_low_coverage"], stats["n_refined"]) == (0.0, 0, 1)
+        assert _counts_add_up(stats)
+
+    def test_default_threshold_and_counts(self, tmp_path):
+        """Only the field whose mask covers a fifth of it keeps its input geometry."""
+        low, ok = _field(10, 10, 80, 70), _field(120, 10, 80, 70)
+        out = self._refine(tmp_path, [low, ok], Partial(partial_for={10}))
+        stats = out.attrs["sam_stats"]
+        assert stats["min_coverage"] == se.DEFAULT_MIN_COVERAGE
+        assert 0.2 < se.DEFAULT_MIN_COVERAGE < 0.9  # the inset-box mask covers 95 %
+        assert out["agribound:sam_refined"].tolist() == [False, True]
+        assert out["agribound:sam_score"].isna().tolist() == [True, False]
+        assert out.geometry.iloc[0].equals(low)
+        assert out.geometry.iloc[1].bounds == pytest.approx(
+            (X0 + 1210, Y1 - 790, X0 + 1990, Y1 - 110)  # the inset-box mask
+        )
+        assert (stats["n_refined"], stats["n_low_coverage"], stats["n_failed"]) == (1, 1, 0)
+        assert _counts_add_up(stats)
+        assert out["k"].tolist() == [0, 1]
+
+    def test_reverted_mask_claims_no_area(self):
+        """A reverted higher-scoring mask does not trim a lower-scoring one."""
+        a, b = box(0, 0, 10, 10), box(20, 0, 30, 10)
+        refined = {0: box(9, 0, 18, 10), 1: box(15, 0, 30, 10)}  # a's mask covers 10 % of a
+        scores = np.array([0.9, 0.5])
+        kept, trimmed, removed, low = se._trim_overlaps([a, b], refined, scores, 0.5)
+        assert low == [0] and list(kept) == [1]
+        assert kept[1].equals(refined[1]) and trimmed == [] and removed == 0.0
+        # Without the test a's mask is kept and takes 15-18 from b's mask.
+        kept, trimmed, removed, low = se._trim_overlaps([a, b], refined, scores, 0.0)
+        assert low == [] and kept[0].equals(refined[0])
+        assert kept[1].equals(box(18, 0, 30, 10)) and trimmed == [1]
+        assert removed == pytest.approx(30.0)
+        # The public function keeps its three return values and tests no coverage.
+        kept, trimmed, removed = se.trim_refinement_overlaps([a, b], refined, scores)
+        assert set(kept) == {0, 1} and trimmed == [1]
+
+    def test_coverage_is_measured_after_the_trim(self):
+        """A trim that keeps only the part outside the input polygon makes the mask low."""
+        own, strip = box(0, 0, 10, 10), box(10, 0, 12, 10)
+        mask = box(4, 0, 30, 10)  # covers 60 % of own before the trim, 0 % after
+        scores = np.array([0.9, np.nan])
+        kept, trimmed, removed, low = se._trim_overlaps([own, strip], {0: mask}, scores, 0.5)
+        assert low == [0] and kept == {} and trimmed == [] and removed == 0.0
+        kept, _, _, low = se._trim_overlaps([own, strip], {0: mask}, scores, 0.0)
+        assert low == [] and kept[0].equals(box(12, 0, 30, 10))
+
+    def test_input_without_area_is_never_low(self):
+        mask = box(0, 0, 1, 1)
+        assert not se._covers_too_little(mask, box(5, 5, 5, 6), 0.5)  # zero area
+        assert not se._covers_too_little(mask, None, 0.5)
+        assert not se._covers_too_little(mask, box(5, 5, 6, 6), 0.0)
+        assert se._covers_too_little(mask, box(5, 5, 6, 6), 0.5)
+
+    @pytest.mark.parametrize("value", [0, 1, 0.25, np.float32(0.3)])
+    def test_valid_values_are_recorded(self, tmp_path, value):
+        field = _field(10, 10, 80, 70)
+        out = self._refine(tmp_path, [field], FakePredictor(), sam_min_coverage=value)
+        assert out.attrs["sam_stats"]["min_coverage"] == float(value)
+
+    @pytest.mark.parametrize("value", [-0.1, 1.5, float("nan"), "0.5", True, None, [0.5]])
+    def test_invalid_values_raise(self, tmp_path, value):
+        field = _field(10, 10, 80, 70)
+        with pytest.raises(ValueError, match="sam_min_coverage must be"):
+            self._refine(tmp_path, [field], FakePredictor(), sam_min_coverage=value)

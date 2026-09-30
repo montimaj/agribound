@@ -81,7 +81,7 @@ feature that needs it is used.
 ## Verifying the installation
 
 ```bash
-agribound --version            # 1.0.0
+agribound --version            # 1.0.1
 agribound list-engines
 agribound list-sources
 agribound list-ftw-models      # needs the ftw extra
@@ -101,7 +101,7 @@ Measured with torch 2.10 on Apple MPS during the 1.0.0 checks:
 - SAM masks differ between MPS and CPU (IoU 0.59-0.97 on a Sentinel-2 test
   crop).
 - The Meta SAM 3 backend needs CUDA and is not available on macOS; use
-  `sam_backend="sam3-hf"`. Both SAM 3 backends are **untested** in 1.0.0 (see
+  `sam_backend="sam3-hf"`. Both SAM 3 backends are **untested** in 1.0.1 (see
   [SAM refinement](user-guide/sam-refinement.md#sam-3-is-untested)).
 - Scripts that run FTW must use an `if __name__ == "__main__":` guard (the
   data-loader workers use the `spawn` start method).

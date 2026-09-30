@@ -2,8 +2,8 @@
 
 Every `delineate()` run is seeded, caches its intermediates under
 content-addressed names, and writes a provenance record next to its output.
-The record's configuration hash also decides whether an existing output can be
-reused.
+The record (its configuration hash, study-area fingerprint and results
+versions) also decides whether an existing output can be reused.
 
 ## Seeds
 
@@ -29,9 +29,17 @@ kernels, library versions and devices differ. For example, SAM 2 masks
 computed on Apple MPS and on CPU overlapped with IoU between 0.59 and 0.97 on a
 Sentinel-2 test crop, while repeated CPU runs were identical. Evaluation
 bootstrap intervals can differ in the last digit between platforms, because the
-resample sums are matrix products computed by the platform's BLAS. The provenance
-record captures the device and the package versions so such differences can be
-traced.
+resample sums are matrix products computed by the platform's BLAS. The embedding
+engine's k-means can depend on the number of CPU (OpenMP) threads, because
+scikit-learn adds up the per-thread cluster sums in no fixed order. Measured on
+2026-09-29 on the Pampas TESSERA fit samples (k = 5, seeds 42, 7 and 0), runs
+limited to between 1 and 12 threads put up to 0.23 % of the sampled pixels in
+different clusters, while repeated runs at 12 threads gave identical labels.
+Only `OMP_NUM_THREADS=1` guarantees a fixed summation order. Without
+`OMP_NUM_THREADS`, scikit-learn uses one thread per CPU core available to the
+process, so results can differ between machines. The provenance record
+captures the device and the package versions so such differences can be
+traced; it does not record the thread count.
 
 ## Cache keys
 
@@ -87,7 +95,7 @@ of an older output is never overwritten). The record holds:
 | `platform`, `machine`, `hostname`, `python`, `device` | where the run happened |
 | `started_utc`, `finished_utc`, `wall_s`, `steps` | timings, with one entry per pipeline step (`composite`, `fine_tune`, `delineate`, `sam_refine`, `aoi_selection`, `postprocess`, `lulc_filter`, `metadata`, `evaluate`, `write`) |
 | `peak_rss_mb`, `torch_max_memory_mb` | peak memory (process RSS; CUDA memory when used) |
-| `facts` | counts after each stage (`n_detected`, `n_postprocessed`, `n_after_lulc`, `n_output`), `aoi_selection`, `postprocess`, `lulc_status`, `lulc_stats`, `sam_stats`, `raster_path`, `composite` (the composite's `AGRIBOUND_*`/`TESSERA_*` tags, such as the image count and dates, kept after the cached GeoTIFF is deleted), `fine_tuned_checkpoint`, `evaluation`, `evaluation_reference`, ... |
+| `facts` | counts after each stage (`n_detected`, `n_postprocessed`, `n_after_lulc`, `n_output`), `aoi_selection`, `postprocess`, `lulc_status`, `lulc_stats`, `sam_stats`, `raster_path`, `composite` (the composite's `AGRIBOUND_*`/`TESSERA_*` tags, such as the image count and dates, kept after the cached GeoTIFF is deleted), `fine_tuned_checkpoint`, `evaluation`, `evaluation_reference`, `aoi_fingerprint` and `results_versions` (checked by [output reuse](#output-reuse)), ... |
 | `engine_meta` | the engine's metadata (backend, model, weights repository, revision and SHA-256, thresholds, window dates, flags such as `gsd_outside_training_range` or `out_of_distribution_source`, counts such as GeoAI's `n_instances_merged_at_seams`) |
 | `warnings`, `warnings_not_recorded` | every WARNING (or higher) message logged by an `agribound` logger during the run, such as an engine's note that the input resolution is outside its training range; identical messages are kept once, at most 200 are stored, and `warnings_not_recorded` counts the rest |
 | `gee_workload_tag`, `git`, `environment` | workload tag, commit and dirty flag of an agribound git checkout, scheduler variables (`SLURM_JOB_ID`, `SLURM_ARRAY_TASK_ID`, `CUDA_VISIBLE_DEVICES`, ...) |
@@ -122,18 +130,54 @@ When `output_path` already exists (and is not empty), `delineate()`:
 | Situation | Result |
 |---|---|
 | `overwrite=True` | re-runs and replaces the output |
-| provenance record with `status: "success"` and the same `config_hash` | loads and returns the existing output (`gdf.attrs["reused"] = True`) without recomputing |
-| record missing, failed, or with a different hash | raises `FileExistsError` explaining why; pass `overwrite=True` (CLI `--overwrite`) or choose another `output_path` |
+| provenance record with `status: "success"`, the same `config_hash`, the same study-area fingerprint (a study-area file, or the local raster when there is no study area) and the same results versions (`agribound._results`) | loads and returns the existing output (`gdf.attrs["reused"] = True`) without recomputing |
+| record missing, failed, or with a different hash, study-area fingerprint or results versions | raises `FileExistsError` explaining why (for a mismatch, what changed); pass `overwrite=True` (CLI `--overwrite`) or choose another `output_path` |
 
 Because `device` and `n_workers` are excluded from the hash, an output computed
 on one device is reused on another without recomputing; pass `overwrite=True`
 to recompute it on the new device. With `provenance=False` no record is
 written, so a later run on the same path needs `overwrite=True`.
 
+The study-area fingerprint (`facts["aoi_fingerprint"]`, the `aoi_fingerprint`
+of the [cache keys](#cache-keys)) is compared when the study area is a file, so
+an output made from a file whose geometry has changed at the same path is not
+reused; a file rewritten with the same geometry (new attributes or a new
+modification time) is. Without a study area it is compared for the local
+raster, by resolved path, size and modification time, so a new modification
+time alone also prevents reuse. A `bbox:`, WKT or GEE-asset study area is
+already covered by the hash. A record written by agribound 1.0.0 or earlier
+has no fingerprint. When nothing else differs, its output is still reused; for
+a study-area file or a local raster, a WARNING says that this cannot be
+verified and to pass `overwrite=True` if the file has changed since that run.
+The output is also reused, with a WARNING, when the record has a fingerprint
+but the study-area file (or local raster) cannot be read now.
+
 The hash covers the configuration, not the agribound version or the code.
-After an upgrade that changes what a stage does for the same configuration,
-an existing output with a matching record is still reused as it is. Such
-changes in 1.0.0 include the second `min_field_area_m2` pass after
+Since 1.0.1, a release that changes a component's results for the same
+configuration raises that component's number in
+`agribound._results.RESULTS_VERSIONS`. The pipeline records the numbers that
+apply to a run in `facts["results_versions"]`, and an output whose recorded
+numbers differ from the current ones is not reused; a record without the fact
+(agribound 1.0.0 and earlier) counts as version 1. 1.0.1 raises `embedding`
+(the embedding engine's k-means, see
+[Engines](engines.md#embedding-clustering-embedding)) and `sam_refine` (the
+coverage check of
+[SAM refinement](sam-refinement.md#masks-that-cover-too-little-of-the-polygon))
+to 2, so a 1.0.0 output of the embedding engine or of a run with `sam_refine`
+raises `FileExistsError` until it is recomputed with `overwrite=True`.
+
+`overwrite=True` does not bypass the caches, but 1.0.1 also changed the cache
+key of the embedding engine's cluster rasters, so they are recomputed too.
+`engine_params` is part of the hash, so setting
+`engine_params["sam_min_coverage"]` (new in 1.0.1, default 0.5) changes the
+hash like any other engine parameter. Left unset, the default applies without
+changing the hash, so the new default is caught by the `sam_refine` results
+version.
+
+Changes that are not versioned in `RESULTS_VERSIONS` are not detected: after
+an upgrade that makes such a change for the same configuration, an existing
+output with a matching record is still reused as it is. Such changes in 1.0.0
+include the second `min_field_area_m2` pass after
 smoothing, the trimming of overlapping SAM masks when
 `engine_params["sam_overlaps"]` is not set, and two GeoAI changes: instances
 split at the inference-window edges are joined unless
@@ -143,6 +187,26 @@ chips from the reference fields unless `engine_params["chip_size"]` is set
 without retraining). The record's `agribound_version`
 (and `git` for a git checkout) shows what wrote an output; pass
 `overwrite=True` to recompute it with the installed version.
+
+!!! note "Limits of the reuse check"
+    These changes are not detected, so the existing output is reused:
+
+    - The contents of `reference_boundaries` (only the path is hashed): a
+      reused output is not fine-tuned or evaluated again, and returns the
+      evaluation recorded for it.
+    - The features of a GEE-asset study area (only the asset ID is compared).
+    - The local raster's contents when a study area is set (only its path is
+      hashed).
+    - A study-area file rewritten in the same Python process with the same size
+      and modification time (possible on a file system with a coarse clock):
+      fingerprints are memoised per path, size and modification time, so the
+      old one is used.
+
+    An unchanged file can also prevent reuse. A study-area file that is not in
+    EPSG:4326 is reprojected before it is fingerprinted, so its fingerprint can
+    differ between machines with other PROJ grids or GEOS versions (for
+    example for a NAD83 file); the run then raises `FileExistsError`. HPC
+    tiles use `bbox:` study areas and are not affected.
 
 ## Output columns
 

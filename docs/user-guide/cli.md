@@ -61,7 +61,7 @@ Configuration fields without a flag (for example `google_embedding_backend`,
 are set in the YAML.
 
 The `sam3` and `sam3-hf` choices of `--sam-backend` (also offered by
-`prefetch`) are untested in 1.0.0: they have not been run end to end, and a
+`prefetch`) are untested in 1.0.1: they have not been run end to end, and a
 WARNING is logged when one is loaded for refinement. See
 [SAM refinement](sam-refinement.md#sam-3-is-untested).
 

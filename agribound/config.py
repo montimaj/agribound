@@ -225,7 +225,7 @@ class AgriboundConfig:
         *False*). ``engine_params["sam_refine"]`` is still honoured.
     sam_backend : str
         ``"sam2"`` (default), ``"sam2.1"``, ``"sam3"`` or ``"sam3-hf"``. The two SAM 3
-        backends are untested in 1.0.0: they have not been run end to end (the
+        backends are untested in 1.0.1: they have not been run end to end (the
         ``facebook/sam3`` weights are gated), and a WARNING is logged when one is loaded.
     sam_model : str or None
         SAM model id or size (*None* = backend default).

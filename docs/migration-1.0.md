@@ -159,8 +159,13 @@ runs at one shared directory. Old cache directories are not read.
   (it was a logging interval); fields are encoded at about native scale.
   Refined masks no longer grow over neighbouring polygons
   (`engine_params["sam_overlaps"]="trim"`, default); `"keep"` keeps the
-  masks as SAM returned them, as 0.1.x did. See
+  masks as SAM returned them (with `engine_params["sam_min_coverage"]=0`, as
+  0.1.x did). See
   [SAM refinement](user-guide/sam-refinement.md#overlapping-masks).
+  1.0.1 adds `engine_params["sam_min_coverage"]` (default 0.5): a polygon
+  whose mask covers less than that share of it keeps its input geometry; 0
+  turns the test off. See
+  [SAM refinement](user-guide/sam-refinement.md#masks-that-cover-too-little-of-the-polygon).
 
 ## Fine-tuning
 
