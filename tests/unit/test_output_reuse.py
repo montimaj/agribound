@@ -305,11 +305,15 @@ class TestReuseMismatch:
     def test_string_study_areas_are_not_fingerprinted_again(self):
         # bbox, WKT and GEE asset study areas are part of the configuration hash.
         for study_area in (BBOX, "POLYGON ((0 0, 1 0, 1 1, 0 0))", "projects/p/assets/a"):
-            config = AgriboundConfig(source="sentinel2", study_area=study_area)
+            config = AgriboundConfig(
+                source="sentinel2", study_area=study_area, gee_project="test-project"
+            )
             record = self._record(config, aoi_fingerprint="000000000000", results_versions={})
             assert reuse_mismatch(record, config) is None
 
     def test_malformed_results_versions_count_as_version_1(self):
-        config = AgriboundConfig(source="sentinel2", study_area=BBOX, sam_refine=True)
+        config = AgriboundConfig(
+            source="sentinel2", study_area=BBOX, sam_refine=True, gee_project="test-project"
+        )
         record = self._record(config, results_versions="bad")
         assert "sam_refine 1 ->" in reuse_mismatch(record, config)
