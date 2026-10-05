@@ -91,7 +91,7 @@ class AgriboundConfig:
     ----------
     source : str
         Satellite source: ``"landsat"``, ``"sentinel2"``, ``"hls"``,
-        ``"naip"``, ``"usgs-naip-plus"``, ``"spot"``, ``"spot-pan"``,
+        ``"landsat-pan"``, ``"naip"``, ``"usgs-naip-plus"``, ``"spot"``, ``"spot-pan"``,
         ``"local"``, ``"google-embedding"`` or ``"tessera-embedding"``
         (see :func:`agribound.list_sources`).
     engine : str

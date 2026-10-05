@@ -884,13 +884,13 @@ def draw_inputs(d: Diagram) -> Rect:
     d.lines(
         r.cx,
         r.y0 + 70,
-        [("10 sources · 0.3–30 m", CAPTION_ST), ("1984–present", CAPTION_ST)],
+        [("11 sources · 0.3–30 m", CAPTION_ST), ("1984–present", CAPTION_ST)],
         19,
         within=r,
     )
     y = r.y0 + 126
     rows = [
-        ("Sentinel-2 · Landsat", BODY_DARK),
+        ("Sentinel-2 · Landsat MS/pan", BODY_DARK),
         ("HLS · NAIP", BODY_DARK),
         ("USGS NAIP Plus", BODY_DARK),
         ("SPOT 6/7 MS · pan", BODY_DARK),
@@ -1329,7 +1329,8 @@ def verify_facts() -> list[str]:
             bad.append(what)
 
     src = reg.SOURCE_REGISTRY
-    expect(len(src) == 10, f"10 sources (found {len(src)})")
+    expect(len(src) == 11, f"11 sources (found {len(src)})")
+    expect(src["landsat-pan"]["resolution_m"] == 15, "Landsat PAN 15 m")
     expect(src["landsat"]["year_range"] == (1984, None), "Landsat 1984-present")
     expect(
         min(r[0] for r in (s["year_range"] for s in src.values()) if r) == 1984, "first year 1984"
@@ -1553,6 +1554,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     d = build()
     print(d.check_layout())
     for path in d.save(args.out_dir, args.stem):
+        if path.suffix == ".svg":
+            # Matplotlib path serialization leaves trailing spaces; retain the
+            # same vector geometry while keeping generated diffs whitespace-clean.
+            lines = path.read_text(encoding="utf-8").splitlines()
+            path.write_text("\n".join(line.rstrip() for line in lines) + "\n", encoding="utf-8")
         print(f"wrote {path}")
     plt.close(d.fig)
     return 0

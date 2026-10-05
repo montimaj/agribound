@@ -735,17 +735,35 @@ def test_hf_cached_file_info_reads_snapshot_and_lfs_blob(tmp_path, monkeypatch):
     (repo / "blobs" / ("a" * 40)).write_bytes(b"{}")  # non-LFS blob: git SHA-1 name
     snap = repo / "snapshots" / commit
     (snap / "sub").mkdir(parents=True)
-    (snap / "sub" / "w.pt").symlink_to(repo / "blobs" / sha)
-    (snap / "config.json").symlink_to(repo / "blobs" / ("a" * 40))
     files = {"sub/w.pt": snap / "sub" / "w.pt", "config.json": snap / "config.json"}
+    resolved = {
+        str(files["sub/w.pt"]): str(repo / "blobs" / sha),
+        str(files["config.json"]): str(repo / "blobs" / ("a" * 40)),
+    }
+    cache_calls = []
+    resolution_calls = []
+
+    def cached_file(repo_id, filename, revision=None):
+        cache_calls.append((repo_id, filename, revision))
+        return str(files[filename]) if filename in files else None
+
+    realpath = _data.os.path.realpath
+
+    def resolve_cache_path(path, *args, **kwargs):
+        # Exercise the resolved LFS/non-LFS paths without requiring Windows
+        # symlink privileges. Filesystem link traversal belongs to os.path.
+        if path in resolved:
+            resolution_calls.append(path)
+            return resolved[path]
+        return realpath(path, *args, **kwargs)
+
     monkeypatch.setattr(
         huggingface_hub,
         "try_to_load_from_cache",
-        lambda repo_id, filename, revision=None: (
-            str(files[filename]) if filename in files else None
-        ),
+        cached_file,
     )
-    info = _data.hf_cached_file_info("org/model", "sub/w.pt")
+    monkeypatch.setattr(_data.os.path, "realpath", resolve_cache_path)
+    info = _data.hf_cached_file_info("org/model", "sub/w.pt", revision="release")
     assert info == {
         "repo_id": "org/model",
         "filename": "sub/w.pt",
@@ -755,6 +773,35 @@ def test_hf_cached_file_info_reads_snapshot_and_lfs_blob(tmp_path, monkeypatch):
     assert _data.hf_cached_file_info("org/model", "config.json")["sha256"] is None
     missing = _data.hf_cached_file_info("org/model", "absent.pt")
     assert missing["revision"] is None and missing["sha256"] is None
+    assert cache_calls == [
+        ("org/model", "sub/w.pt", "release"),
+        ("org/model", "config.json", None),
+        ("org/model", "absent.pt", None),
+    ]
+    assert resolution_calls == [str(files["sub/w.pt"]), str(files["config.json"])]
+
+
+def test_hf_cached_file_info_reads_symlink_free_snapshot(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    # Hugging Face can copy files into snapshots where symlinks are unavailable.
+    # The snapshot still identifies its revision, but its ordinary filename does
+    # not establish a content SHA-256, so do not manufacture one from the bytes.
+    commit = "63adbd39c271da4c42f447e69b1a7c91a338cdc9"
+    cached = tmp_path / "hub" / "models--org--model" / "snapshots" / commit / "w.pt"
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"weights")
+    monkeypatch.setattr(
+        huggingface_hub,
+        "try_to_load_from_cache",
+        lambda repo_id, filename, revision=None: str(cached),
+    )
+    assert _data.hf_cached_file_info("org/model", "w.pt") == {
+        "repo_id": "org/model",
+        "filename": "w.pt",
+        "revision": commit,
+        "sha256": None,
+    }
 
 
 def test_training_meta_round_trip(tmp_path):

@@ -2,6 +2,13 @@
 
 All notable changes to agribound will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `landsat-pan`: native 15 m Landsat 7/8/9 B8 TOA imagery through the existing
+  source interfaces, with sensor QA masks, scene cloud filtering and RGB replication.
+
 ## [1.0.1] - 2026-09-30
 
 A bug-fix release. It changes the results of the `embedding` engine and of

@@ -2,7 +2,7 @@
 Google Earth Engine composite builder and Earth Engine download helpers.
 
 :class:`GEECompositeBuilder` builds a composite for ``landsat``,
-``sentinel2``, ``hls``, ``naip``, ``spot`` and ``spot-pan`` on Google Earth
+``landsat-pan``, ``sentinel2``, ``hls``, ``naip``, ``spot`` and ``spot-pan`` on Google Earth
 Engine and downloads it as one local GeoTIFF with geedim 2 (the
 ``ee.Image.gd`` accessor).
 
@@ -19,6 +19,8 @@ Radiometry of the written composites (``value_scale`` in
   multiplied by 10000. HLSS30 bands ``B1, B2, B3, B4, B8A, B11, B12`` are
   renamed to the HLSL30 names ``B1`` ... ``B7`` (so ``B5`` is NIR narrow and
   ``B6``/``B7`` are SWIR1/SWIR2 for both sensors).
+- **Landsat PAN**: native 15 m B8 TOA reflectance from Landsat 7/8/9,
+  exported as float32 without scaling (``unit``).
 - **NAIP** (``USDA/NAIP/DOQQ``): 8-bit digital numbers (``R, G, B, N``),
   mosaicked (not composited), exported as uint8 with nodata 0 at
   ``config.naip_resolution_m``. Only 4-band images are used (some early years
@@ -1157,6 +1159,68 @@ def _build_landsat(config: AgriboundConfig, region: Any) -> CollectionSpec:
     )
 
 
+LANDSAT_PAN_COLLECTIONS = {
+    mission: (cid.replace("T1_L2", "T1_TOA"), first, last)
+    for mission, (cid, first, last) in LANDSAT_COLLECTIONS.items()
+    if mission != "LT05"
+}
+
+
+def prepare_landsat_pan_image(image: Any, mission: str) -> Any:
+    """Select native B8 TOA reflectance and mask fill, clouds and shadows.
+
+    Cirrus (bit 2) is used only on Landsat 8/9; it is unused on Landsat 7.
+    No radiometric scaling or SLC-off gap filling is applied.
+    """
+    qa_mask = 0b11011 if mission == "LE07" else LANDSAT_QA_MASK
+    clear = image.select("QA_PIXEL").bitwiseAnd(qa_mask).eq(0)
+    return image.select(["B8"]).updateMask(clear)
+
+
+def _build_landsat_pan(config: AgriboundConfig, region: Any) -> CollectionSpec:
+    """Merge the date-overlapping Landsat 7/8/9 native PAN collections."""
+    import ee
+
+    window = date_window(config)
+    raw_parts, prepared_parts, history_parts, ids, missions = [], [], [], [], []
+    for mission, (cid, first, last) in LANDSAT_PAN_COLLECTIONS.items():
+        base = (
+            ee.ImageCollection(cid)
+            .filterBounds(region)
+            .filter(ee.Filter.lte("CLOUD_COVER", config.cloud_cover_max))
+        )
+        history_parts.append(base)
+        if not _overlaps(window, first, last):
+            continue
+        raw = base.filterDate(*window)
+        raw_parts.append(raw)
+        prepared_parts.append(
+            raw.map(lambda img, mission=mission: prepare_landsat_pan_image(img, mission))
+        )
+        ids.append(cid)
+        missions.append(mission)
+    if not raw_parts:
+        raise NoDataError(
+            "No Landsat PAN mission overlaps the date window; available from 1999-05-28."
+        )
+    return CollectionSpec(
+        raw=_merge(raw_parts),
+        prepared=_merge(prepared_parts),
+        history=_merge(history_parts),
+        bands=["B8"],
+        resolution_m=export_resolution_m(config),
+        dtype="float32",
+        collections=ids,
+        notes={
+            "sensors": ",".join(missions),
+            "cloud_mask": "QA_PIXEL bits 0,1,3,4; bit 2 (cirrus) on Landsat 8/9",
+            "scaling": "as stored (unit TOA reflectance)",
+            "spectral_response": "L7 PAN 0.52-0.90 um; L8/9 PAN 0.50-0.68 um",
+            "slc_off": "Landsat 7 gaps after 2003 retained; no special gap filling",
+        },
+    )
+
+
 def _merge(parts: list[Any]) -> Any:
     merged = parts[0]
     for part in parts[1:]:
@@ -1288,6 +1352,7 @@ def _build_spot(config: AgriboundConfig, region: Any) -> CollectionSpec:
 
 _COLLECTION_BUILDERS = {
     "landsat": _build_landsat,
+    "landsat-pan": _build_landsat_pan,
     "sentinel2": _build_sentinel2,
     "hls": _build_hls,
     "naip": _build_naip,
@@ -1370,7 +1435,7 @@ def _warn_low_coverage(fraction: float, what: str, advice: str) -> None:
 
 def _years_error(config: AgriboundConfig, years: list[int], window: tuple[str, str]) -> NoDataError:
     filters = []
-    if config.source in ("landsat", "sentinel2", "hls", "spot", "spot-pan"):
+    if config.source in ("landsat", "landsat-pan", "sentinel2", "hls", "spot", "spot-pan"):
         filters.append(f"scene cloud cover <= {config.cloud_cover_max}%")
     if config.source == "naip":
         filters.append("4-band (R, G, B, N) images")

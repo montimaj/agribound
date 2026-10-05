@@ -2,7 +2,7 @@
 
 Earth Engine is used for:
 
-- the imagery composites of `landsat`, `sentinel2`, `hls`, `naip`, `spot` and
+- the imagery composites of `landsat`, `landsat-pan`, `sentinel2`, `hls`, `naip`, `spot` and
   `spot-pan`;
 - `google-embedding` with the default `google_embedding_backend="gee"`;
 - the **LULC crop filter**, which is on by default and reads its datasets

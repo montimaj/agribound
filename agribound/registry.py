@@ -28,6 +28,7 @@ are still acquiring; *None* for local files), ``coverage`` (free text),
 - ``"reflectance_x10000"`` -- float32 surface reflectance multiplied by 10000
   (Sentinel-2, Landsat and HLS composites after the 1.0 harmonisation).
 - ``"uint8"`` -- 8-bit digital numbers 0-255 (NAIP, USGS NAIP Plus).
+- ``"unit"`` -- float32 TOA reflectance as stored (Landsat PAN), without x10000 scaling.
 - ``"dn"`` -- per-band medians (or greenest-pixel selections) of the scenes' raw
   integer digital numbers, exported as float32 (a median of an even number of
   scenes can be a half-integer); radiometry unverified (SPOT 6/7).
@@ -54,7 +55,14 @@ from typing import Any
 CANONICAL_BAND_NAMES: tuple[str, ...] = ("R", "G", "B", "NIR", "NIR_NARROW", "SWIR1", "SWIR2")
 """Canonical band names understood by :func:`agribound.engines.base.get_canonical_band_indices`."""
 
-VALUE_SCALES: tuple[str, ...] = ("reflectance_x10000", "uint8", "dn", "embedding", "unknown")
+VALUE_SCALES: tuple[str, ...] = (
+    "reflectance_x10000",
+    "unit",
+    "uint8",
+    "dn",
+    "embedding",
+    "unknown",
+)
 """Allowed values of ``SOURCE_REGISTRY[...]["value_scale"]``."""
 
 SAM_REFINE_BACKENDS: tuple[str, ...] = ("sam2", "sam2.1", "sam3", "sam3-hf")
@@ -73,9 +81,10 @@ TESSERA_YEAR_RANGES: dict[str, tuple[int, int]] = {
 }
 """Years with any published TESSERA tiles, per dataset version (geotessera 0.10.2 manifests)."""
 
-_OPTICAL_GEE_SOURCES = ["landsat", "sentinel2", "hls", "naip", "spot", "spot-pan"]
+_OPTICAL_GEE_SOURCES = ["landsat", "landsat-pan", "sentinel2", "hls", "naip", "spot", "spot-pan"]
 _ALL_IMAGERY_SOURCES = [
     "landsat",
+    "landsat-pan",
     "sentinel2",
     "hls",
     "naip",
@@ -90,6 +99,25 @@ _ALL_IMAGERY_SOURCES = [
 # ---------------------------------------------------------------------------
 
 SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
+    "landsat-pan": {
+        "name": "Landsat 7/8/9 Collection 2 Tier 1 TOA panchromatic",
+        "collection": (
+            "LANDSAT/LE07/C02/T1_TOA + LANDSAT/LC08/C02/T1_TOA + LANDSAT/LC09/C02/T1_TOA"
+        ),
+        "resolution_m": 15,
+        "native_resolution_m": 15,
+        "all_bands": ["B8"],
+        "canonical_bands": {"R": "B8", "G": "B8", "B": "B8"},
+        "value_scale": "unit",
+        "year_range": (1999, None),
+        "coverage": (
+            "Global. Landsat 7 ETM+ 1999-05-28 to 2024-01-19 (SLC-off gaps after 2003), "
+            "Landsat 8 OLI from 2013-03-18, Landsat 9 OLI-2 from 2021-10-31. "
+            "Landsat 7 and 8/9 PAN spectral responses differ"
+        ),
+        "requires_gee": True,
+        "restricted": False,
+    },
     "landsat": {
         "name": "Landsat 5/7/8/9 Collection 2 Level-2",
         "collection": (

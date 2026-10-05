@@ -22,7 +22,7 @@ downloaded.
 | Embedding clustering | `embedding` | K-means (or spectral) clustering of pre-computed embeddings | yes | no | no (CPU) | `google-embedding`, `tessera-embedding` | `embedding` |
 | Ensemble | `ensemble` | intersection, union or pixel vote of several engines/models | depends on the members | no | yes | depends on the members | members' extras |
 
-"All imagery sources" = `landsat`, `sentinel2`, `hls`, `naip`,
+"All imagery sources" = `landsat`, `landsat-pan`, `sentinel2`, `hls`, `naip`,
 `usgs-naip-plus`, `spot`, `spot-pan`, `local`.
 
 Every engine attaches `gdf.attrs["engine_meta"]` (backend, model key, weights

@@ -410,6 +410,11 @@ class TestYearValidation:
     def test_landsat_1984_ok(self):
         assert AgriboundConfig(source="landsat", gee_project="p", year=1984).year == 1984
 
+    def test_landsat_pan_year(self):
+        assert AgriboundConfig(source="landsat-pan", gee_project="p", year=1999).year == 1999
+        with pytest.raises(ValueError, match="1999-present"):
+            AgriboundConfig(source="landsat-pan", gee_project="p", year=1998)
+
     def test_google_embedding_range(self):
         with pytest.raises(ValueError, match="2017-2025"):
             AgriboundConfig(source="google-embedding", engine="embedding", year=2016)
