@@ -18,6 +18,16 @@ from agribound.engines.base import (
     list_engines,
 )
 
+
+def test_landsat_pan_rgb_and_scale():
+    assert get_canonical_band_indices("landsat-pan", ["R", "G", "B"]) == [1, 1, 1]
+    assert registry.source_value_scale("landsat-pan") == "unit"
+    assert registry.source_year_range("landsat-pan") == (1999, None)
+    assert registry.engine_supports_source("delineate-anything", "landsat-pan")
+    assert not registry.engine_supports_source("ftw", "landsat-pan")
+    assert not registry.engine_supports_source("prithvi", "landsat-pan")
+
+
 EXPECTED_ENGINES = {
     "delineate-anything",
     "ftw",
@@ -29,6 +39,7 @@ EXPECTED_ENGINES = {
 }
 EXPECTED_SOURCES = {
     "landsat",
+    "landsat-pan",
     "sentinel2",
     "hls",
     "naip",

@@ -1,7 +1,7 @@
 # Satellite Sources
 
 Agribound builds one input raster per run (the "composite", stage A of the
-pipeline) from one of ten sources. The source metadata below is the content
+pipeline) from one of eleven sources. The source metadata below is the content
 of `agribound.registry.SOURCE_REGISTRY` (`agribound list-sources`,
 `agribound.list_sources()`); the facts in it were checked against the Earth
 Engine catalogue and the upstream packages on 2026-09-26 to 2026-09-28.
@@ -17,6 +17,7 @@ Engine catalogue and the upstream packages on 2026-09-26 to 2026-09-28.
 | USGS NAIP Plus ImageServer | `usgs-naip-plus` | finest resolution of the selected footprints (0.3-0.6 m) | R, G, B, N | uint8 | 2012-2023 | Latest NAIP/HRO vintage per state only (see below) | no |
 | SPOT 6/7 multispectral | `spot` | 6 m | R, G, B, N | `dn` (uncalibrated) | 2012-2023 | Global, **restricted** | yes |
 | SPOT 6/7 panchromatic | `spot-pan` | 1.5 m | P | `dn` (uncalibrated) | 2012-2023 | Global, **restricted** | yes |
+| Landsat 7/8/9 panchromatic | `landsat-pan` | 15 m | B8 | `unit` TOA reflectance | 1999-present | Global | yes |
 | Local GeoTIFF | `local` | the file's | the file's | unknown | any | user-provided | no |
 | Google Satellite Embedding V1 (AlphaEarth Foundations) | `google-embedding` | 10 m | 64-D embedding `A00`-`A63` | embedding | 2017-2025 | Global land | yes with the default `google_embedding_backend="gee"`; no with `"source_coop"` |
 | TESSERA embeddings | `tessera-embedding` | 10 m | 128-D embedding `T000`-`T127` | embedding | depends on `tessera_version` (below) | depends on version | no |
@@ -36,6 +37,7 @@ Engine for **every** source, including `local`, `usgs-naip-plus` and
   before compositing; HLS (stored as 0-1 reflectance in Earth Engine) is
   multiplied by 10000.
 - `uint8`: 8-bit digital numbers 0-255 (NAIP, USGS NAIP Plus).
+- `unit`: Landsat PAN calibrated TOA reflectance, exported as float32 as stored.
 - `dn`: SPOT 6/7 per-band medians (or greenest-pixel selections) of the
   scenes' raw digital numbers, written as float32 (a median of an even number
   of scenes can be a half-integer). Their radiometry has not been verified, so
@@ -60,6 +62,7 @@ positions of the composite:
 | `naip`, `usgs-naip-plus` | R | G | B | N | - | - | - |
 | `spot` | R | G | B | N | - | - | - |
 | `spot-pan` | P | P | P | - | - | - | - |
+| `landsat-pan` | B8 | B8 | B8 | - | - | - | - |
 
 HLSS30 bands `B1, B2, B3, B4, B8A, B11, B12` are renamed to the HLSL30 names
 `B1`-`B7`, so `B5` is the narrow NIR and `B6`/`B7` are SWIR 1/SWIR 2 for both
@@ -161,6 +164,26 @@ for `naip` (it is ignored).
 - A WARNING is logged when the selected footprints cover less than 99 % of the
   grid outline or less than 99 % of the study-area pixels have imagery
   (GeoTIFF tags `AGRIBOUND_FOOTPRINT_COVERAGE`, `AGRIBOUND_VALID_FRACTION`).
+
+### Landsat panchromatic (`landsat-pan`)
+
+Use `source="landsat-pan"` with `year` or `date_range` to merge native 15 m B8
+observations from `LANDSAT/LE07/C02/T1_TOA`, `LANDSAT/LC08/C02/T1_TOA` and
+`LANDSAT/LC09/C02/T1_TOA`. Scene filtering uses `cloud_cover_max`; QA_PIXEL
+masks fill, dilated cloud, cloud and cloud shadow, plus cirrus on Landsat 8/9.
+Only median compositing is available because PAN has no separate NIR/red bands.
+RGB engines read B8 three times, as with `spot-pan`; FTW and Prithvi require
+multispectral inputs and do not support this source.
+
+Values remain calibrated TOA reflectance (`unit`), separate from the `landsat`
+Level-2 surface-reflectance stack. This source performs no pansharpening or
+special gap filling for Landsat 7 SLC-off observations after 2003. Landsat 7
+PAN covers 0.52-0.90 micrometres; Landsat 8/9 PAN covers 0.50-0.68 micrometres.
+Collection IDs, sensors, masking, spectral response and radiometry are recorded
+in composite tags and pipeline provenance. See the Earth Engine catalogues for
+[Landsat 7](https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C02_T1_TOA),
+[Landsat 8](https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LC08_C02_T1_TOA)
+and [Landsat 9](https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LC09_C02_T1_TOA).
 
 ### SPOT 6/7 (`spot`, `spot-pan`)
 

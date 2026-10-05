@@ -546,6 +546,26 @@ def _patch_task_status(monkeypatch, fn):
 
 
 class TestBuilder:
+    def test_landsat_pan_export_and_provenance(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch
+    ):
+        cfg = _cfg("landsat-pan", year=2023).merged(
+            study_area=sample_aoi_geojson, output_path=str(tmp_path / "out.gpkg")
+        )
+        spec = gee._build_landsat_pan(cfg, "REGION")
+        spec.prepared = FakeCollection([FakeImage({"B8": [[0.25]]})])
+        monkeypatch.setitem(gee._COLLECTION_BUILDERS, "landsat-pan", lambda cfg, region: spec)
+        path = gee.GEECompositeBuilder().build(cfg)
+        with rasterio.open(path) as src:
+            assert src.count == 1
+            assert src.res == (15, 15)
+            tags = src.tags()
+        assert tags["AGRIBOUND_SOURCE"] == "landsat-pan"
+        assert tags["AGRIBOUND_VALUE_SCALE"] == "unit"
+        assert tags["AGRIBOUND_SENSORS"] == "LE07,LC08,LC09"
+        assert tags["AGRIBOUND_COLLECTIONS"] == ",".join(spec.collections)
+        assert "no special gap filling" in tags["AGRIBOUND_SLC_OFF"]
+
     def test_build_exports_utm_grid_and_tags(self, tmp_path, sample_aoi_geojson, stub_builder):
         path = gee.GEECompositeBuilder().build(_s2_config(tmp_path, sample_aoi_geojson))
         (call,) = stub_builder["export"]
@@ -833,7 +853,54 @@ def _cfg(source, year=2022, **kwargs):
     )
 
 
+@pytest.mark.parametrize("mission", ["LE07", "LC08", "LC09"])
+def test_landsat_pan_mask_and_radiometry(mission):
+    qa = np.array([[0, 1, 2, 4, 8, 16, 32, 128]])
+    values = np.array([[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 1.1]])
+    image = FakeImage({"B8": values, "QA_PIXEL": qa}, props={"system:time_start": 123})
+    out = gee.prepare_landsat_pan_image(image, mission)
+    np.testing.assert_array_equal(out.bands["B8"], values)
+    np.testing.assert_array_equal(
+        out.masks["B8"], [[True, False, False, mission == "LE07", False, False, True, True]]
+    )
+    assert out.props["system:time_start"] == 123
+
+
+@pytest.mark.parametrize("method", ["greenest", "max_ndvi"])
+def test_landsat_pan_rejects_ndvi_composites(method):
+    with pytest.raises(ValueError, match="NIR and red"):
+        gee.apply_composite_method(None, method, "landsat-pan")
+
+
 class TestCollectionSpecs:
+    @pytest.mark.parametrize(
+        ("year", "missions"),
+        [
+            (1999, ["LE07"]),
+            (2015, ["LE07", "LC08"]),
+            (2023, ["LE07", "LC08", "LC09"]),
+            (2025, ["LC08", "LC09"]),
+        ],
+    )
+    def test_landsat_pan_missions(self, recording_ee, year, missions):
+        spec = gee._build_landsat_pan(_cfg("landsat-pan", year=year), "REGION")
+        assert spec.collections == [gee.LANDSAT_PAN_COLLECTIONS[m][0] for m in missions]
+        assert spec.bands == ["B8"]
+        assert spec.resolution_m == 15 and spec.dtype == "float32"
+        assert spec.notes["sensors"] == ",".join(missions)
+        filters = _calls(recording_ee, "IC(LANDSAT", "filter")
+        assert len(filters) == 3
+        assert all(args == (("lte", "CLOUD_COVER", 20),) for _, args in filters)
+
+    def test_landsat_pan_date_range(self, recording_ee):
+        cfg = _cfg("landsat-pan", date_range=("2012-12-01", "2013-04-01"))
+        spec = gee._build_landsat_pan(cfg, "REGION")
+        assert len(spec.collections) == 2
+        assert all(
+            args == ("2012-12-01", "2013-04-02")
+            for _, args in _calls(recording_ee, "IC(LANDSAT", "filterDate")
+        )
+
     def test_naip_band_filter_year_window_and_order(self, recording_ee):
         spec = gee._build_naip(_cfg("naip", naip_resolution_m=0.6), "REGION")
         naip = f"IC({gee.NAIP_COLLECTION})"
