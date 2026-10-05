@@ -1,0 +1,77 @@
+{
+  "existing_rgb": {
+    "method": "visible RGB zero-mean block high-pass injection",
+    "strength": 1.0,
+    "gain_sr_per_toa": 0.8780578392092037,
+    "coarse_pan_rgb_correlation": 0.8874138658018368,
+    "valid_30m_cells": 23100,
+    "attenuated_cell_fraction": 0.0,
+    "coarse_band_rmse": [
+      8.276585318494059e-10,
+      1.0436995342447712e-09,
+      6.017280037119566e-10
+    ],
+    "coarse_max_abs_error": 3.725290298461914e-09,
+    "detail_rms": 0.003600632720754711,
+    "interpretation": "experimental fused RGB; not calibrated 15 m surface reflectance",
+    "reduced_resolution": {
+      "reference_resolution_m": 30,
+      "input_sr_resolution_m": 60,
+      "input_pan_resolution_m": 30,
+      "valid_pixels": 23100,
+      "resampled_sr": {
+        "band_rmse": [
+          0.006893679243109601,
+          0.004643988564240988,
+          0.00371157027466788
+        ],
+        "spectral_angle_median_deg": 0.6720633229272921
+      },
+      "fused": {
+        "band_rmse": [
+          0.0038072948590004707,
+          0.002611202501711139,
+          0.002647265198509511
+        ],
+        "spectral_angle_median_deg": 0.7191081771237995
+      },
+      "gain": 0.8855174789893018,
+      "limitation": "box degradation, not MTF-matched; cannot validate true 15 m SR radiometry"
+    },
+    "sr_valid_fraction": 1.0,
+    "pan_valid_fraction": 1.0
+  },
+  "hybrid_visible": {
+    "valid_pixels": 23100,
+    "resampled_visible": {
+      "red_green_rmse": [
+        0.006893679243109601,
+        0.004643988564240988
+      ],
+      "red_green_spectral_angle_median_deg": 0.46759117403636835
+    },
+    "fused_visible": {
+      "red_green_rmse": [
+        0.0038072848692536354,
+        0.002611190313473344
+      ],
+      "red_green_spectral_angle_median_deg": 0.470222145318985
+    },
+    "limitation": "60 m SR + 30 m PAN against 30 m truth; box, not sensor MTF degradation",
+    "nir": "unchanged nearest-neighbour SR; no NIR sharpening claim"
+  },
+  "integrity": {
+    "valid_30m_cells": 23100,
+    "valid_fraction": 1.0,
+    "sr_all_six_bands_required": true,
+    "pan_four_subpixels_required": true,
+    "baseline_sr_support_identical": true,
+    "baseline_pan_support_identical": true,
+    "baseline_fused_support_identical": true,
+    "nir_max_abs_change_after_resampling": 0.0,
+    "hybrid_visible_max_abs_change": 0.0,
+    "coarse_pan_mean_max_abs_error": 0.0,
+    "resampling": "aligned nearest-neighbour 2x replication; no added SR detail",
+    "channel_radiometry": "PAN unit TOA; SR unit surface reflectance; fused experimental"
+  }
+}

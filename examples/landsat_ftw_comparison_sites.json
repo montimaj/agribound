@@ -1,0 +1,1216 @@
+{
+  "schema_version": 1,
+  "selection_date": "2026-10-02",
+  "selection_protocol": "Geography, documented reference availability, crop attributes and climate before any new scores; no replacements",
+  "inherited_config": {
+    "path": "examples/landsat_multispectral_sites.json",
+    "sha256": "8fe71c1bb801ba1c21bb299aeb80fd3cf40baae8270b73bd3d05799bcf6a1e76"
+  },
+  "comparison": {
+    "cloud_cover_max": 20,
+    "engine": "delineate-anything",
+    "checkpoint": "large_v2",
+    "checkpoint_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a",
+    "postprocessing": "Same as example 23: 1000 m2 minimum, 2 m simplification, no smoothing/SAM/LULC",
+    "boundary_tolerances_m": [
+      10,
+      15,
+      30
+    ],
+    "size_bins_ha": [
+      0,
+      1,
+      5,
+      20,
+      100,
+      100000
+    ]
+  },
+  "methods": [
+    {
+      "id": "pan",
+      "name": "A PAN",
+      "channels": [
+        "PAN_B8_TOA",
+        "PAN_B8_TOA",
+        "PAN_B8_TOA"
+      ],
+      "resolution_m": 15,
+      "baseline": true
+    },
+    {
+      "id": "sr",
+      "name": "B SR RGB",
+      "channels": [
+        "SR_B4",
+        "SR_B3",
+        "SR_B2"
+      ],
+      "resolution_m": 30,
+      "baseline": true
+    },
+    {
+      "id": "combined",
+      "name": "C Fused RGB",
+      "channels": [
+        "R_fused",
+        "G_fused",
+        "B_fused"
+      ],
+      "resolution_m": 15,
+      "baseline": true
+    },
+    {
+      "id": "false_color",
+      "name": "D SR false color",
+      "channels": [
+        "SR_B5",
+        "SR_B4",
+        "SR_B3"
+      ],
+      "resolution_m": 30,
+      "baseline": false
+    },
+    {
+      "id": "false_color_15m",
+      "name": "E Resampled false color",
+      "channels": [
+        "SR_B5_resampled",
+        "SR_B4_resampled",
+        "SR_B3_resampled"
+      ],
+      "resolution_m": 15,
+      "baseline": false
+    },
+    {
+      "id": "pan_nir_red",
+      "name": "F PAN/NIR/Red",
+      "channels": [
+        "PAN_B8_TOA",
+        "SR_B5_resampled",
+        "SR_B4_resampled"
+      ],
+      "resolution_m": 15,
+      "baseline": false
+    },
+    {
+      "id": "coarse_pan_nir_red",
+      "name": "G Coarse-PAN/NIR/Red",
+      "channels": [
+        "PAN_B8_30m_resampled",
+        "SR_B5_resampled",
+        "SR_B4_resampled"
+      ],
+      "resolution_m": 15,
+      "baseline": false
+    },
+    {
+      "id": "hybrid",
+      "name": "H Hybrid",
+      "channels": [
+        "SR_B5_resampled",
+        "R_fused",
+        "G_fused"
+      ],
+      "resolution_m": 15,
+      "baseline": false
+    }
+  ],
+  "sites": [
+    {
+      "id": "beauce",
+      "country": "France",
+      "region": "Centre-Val de Loire",
+      "bbox": [
+        1.62,
+        48.13,
+        1.68,
+        48.17
+      ],
+      "date_start": "2023-05-01",
+      "date_end": "2023-08-31",
+      "existing_dir": "outputs/landsat_pan_sr_comparison",
+      "cohort": "france",
+      "reference_kind": "declaration_parcel",
+      "climate": "Temperate regional climate; no formal zone classification assigned",
+      "climate_evidence": "https://meteofrance.com/climat/normales/france/centre-val-de-loire",
+      "crop_context": "Provider RPG declarations; leading crop codes JAC: 60, MIS: 37, SNE: 34, BDH: 31",
+      "crop_evidence": "https://draaf.grand-est.agriculture.gouv.fr/rpg-et-codes-cultures-a4314.html",
+      "selection_rationale": "Original Beauce example; preserve selection",
+      "redistribution": "Licence Ouverte 2.0",
+      "reference_year": 2023,
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "FR",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/beauce",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "brittany",
+      "country": "France",
+      "region": "Bretagne",
+      "bbox": [
+        -2.88,
+        48.16,
+        -2.82,
+        48.2
+      ],
+      "date_start": "2023-05-01",
+      "date_end": "2023-08-31",
+      "existing_dir": "outputs/landsat_landscapes/brittany",
+      "cohort": "france",
+      "reference_kind": "declaration_parcel",
+      "climate": "Temperate regional climate; no formal zone classification assigned",
+      "climate_evidence": "https://meteofrance.com/climat/normales/france/bretagne",
+      "crop_context": "Provider RPG declarations; leading crop codes PPH: 119, MIS: 118, BTH: 93, PTR: 66",
+      "crop_evidence": "https://draaf.grand-est.agriculture.gouv.fr/rpg-et-codes-cultures-a4314.html",
+      "selection_rationale": "Near Saint-Caradec: candidate bocage/irregular-field landscape",
+      "redistribution": "Licence Ouverte 2.0",
+      "reference_year": 2023,
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "FR",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/brittany",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "landes",
+      "country": "France",
+      "region": "Nouvelle-Aquitaine",
+      "bbox": [
+        -0.96,
+        44.3,
+        -0.9,
+        44.34
+      ],
+      "date_start": "2023-05-01",
+      "date_end": "2023-08-31",
+      "existing_dir": "outputs/landsat_landscapes/landes",
+      "cohort": "france",
+      "reference_kind": "declaration_parcel",
+      "climate": "Temperate regional climate; no formal zone classification assigned",
+      "climate_evidence": "https://meteofrance.com/climat/normales/france/nouvelle-aquitaine",
+      "crop_context": "Provider RPG declarations; leading crop codes JAC: 10, PPH: 4, MID: 4, BTA: 2",
+      "crop_evidence": "https://draaf.grand-est.agriculture.gouv.fr/rpg-et-codes-cultures-a4314.html",
+      "selection_rationale": "Near Ychoux: candidate large-field/forest-edge landscape",
+      "redistribution": "Licence Ouverte 2.0",
+      "reference_year": 2023,
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "FR",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/landes",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "alsace",
+      "country": "France",
+      "region": "Grand Est",
+      "bbox": [
+        7.49,
+        48.35,
+        7.55,
+        48.39
+      ],
+      "date_start": "2023-05-01",
+      "date_end": "2023-08-31",
+      "existing_dir": "outputs/landsat_landscapes/alsace",
+      "cohort": "france",
+      "reference_kind": "declaration_parcel",
+      "climate": "Temperate regional climate; no formal zone classification assigned",
+      "climate_evidence": "https://meteofrance.com/climat/normales/france/grand-est",
+      "crop_context": "Provider RPG declarations; leading crop codes MIS: 267, BTH: 113, JAC: 71, PPH: 46",
+      "crop_evidence": "https://draaf.grand-est.agriculture.gouv.fr/rpg-et-codes-cultures-a4314.html",
+      "selection_rationale": "West of Benfeld: candidate elongated-parcel landscape",
+      "redistribution": "Licence Ouverte 2.0",
+      "reference_year": 2023,
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "FR",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/alsace",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "nl_meierij",
+      "country": "Netherlands",
+      "region": "Noord-Brabant, near Veghel/Meierijstad",
+      "bbox": [
+        5.54,
+        51.55,
+        5.6,
+        51.59
+      ],
+      "reference_source": "netherlands",
+      "date_start": "2022-05-01",
+      "date_end": "2022-08-31",
+      "climate": "Temperate maritime",
+      "crop_context": "Reference declarations dominated by silage maize, with consumption potatoes and sugar beet; no species inferred from imagery",
+      "rationale": "Temperate summer arable comparison with several labeled crop species and medium-sized fields",
+      "climate_evidence": "https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub102-87.pdf",
+      "calendar_basis": "Summer growing window for the crop declarations, consistent with the French baseline window",
+      "cohort": "international",
+      "existing_dir": "outputs/landsat_international/nl_meierij",
+      "reference_kind": "Annual BRP crop declarations based on the agricultural reference register; not cadastral ownership boundaries",
+      "reference_year": 2022,
+      "redistribution": "CC0-1.0",
+      "crop_evidence": [
+        "https://source.coop/kerner-lab/fields-of-the-world-netherlands",
+        "https://www.pdok.nl/ogc-apis/-/article/gewaspercelen-inspire-geharmoniseerd-"
+      ],
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "NL",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/nl_meierij",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "es_valtierra",
+      "country": "Spain",
+      "region": "Navarra, Ribera del Ebro near Valtierra",
+      "bbox": [
+        -1.68,
+        42.15,
+        -1.64,
+        42.18
+      ],
+      "reference_source": "spain",
+      "date_start": "2020-05-01",
+      "date_end": "2020-08-31",
+      "climate": "Dry Mediterranean continental / semi-arid regional context",
+      "crop_context": "Arable and vegetable-use enclosures in a documented irrigation region; neither species nor irrigation is confirmed for every field",
+      "rationale": "Summer crops in a dry regional climate, contrasting with temperate and tropical sites",
+      "climate_evidence": "https://www.navarra.es/mapacultivos/climatologia.html",
+      "crop_evidence": "https://www.lexnavarra.navarra.es/detalle.asp?r=29769",
+      "calendar_basis": "Summer window; regional crop map and irrigation documentation, not field-specific planting dates",
+      "cohort": "international",
+      "existing_dir": "outputs/landsat_international/es_valtierra",
+      "reference_kind": "SIGPAC agricultural land-use enclosures, including arable and perennial classes; not exhaustive physical field truth",
+      "reference_year": 2020,
+      "redistribution": "CC-BY-4.0",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "ES",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/es_valtierra",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "es_olite",
+      "country": "Spain",
+      "region": "Navarra, Zona Media near Olite",
+      "bbox": [
+        -1.69,
+        42.455,
+        -1.65,
+        42.485
+      ],
+      "reference_source": "spain",
+      "date_start": "2020-04-01",
+      "date_end": "2020-07-31",
+      "climate": "Mediterranean with dry summers",
+      "crop_context": "Reference arable-use enclosures, vineyards and olive plots; arable crop species unknown",
+      "rationale": "Small mixed annual/perennial enclosures; a spring-to-harvest window contrasting with the Ribera summer window",
+      "climate_evidence": "https://www.navarra.es/mapacultivos/climatologia.html",
+      "crop_evidence": "https://www.navarra.es/mapacultivos/navarra.html",
+      "calendar_basis": "Spring and early summer cover annual crop growth/harvest alongside perennial cultivation",
+      "cohort": "international",
+      "existing_dir": "outputs/landsat_international/es_olite",
+      "reference_kind": "SIGPAC agricultural land-use enclosures, including arable and perennial classes; not exhaustive physical field truth",
+      "reference_year": 2020,
+      "redistribution": "CC-BY-4.0",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "ES",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/es_olite",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "za_hessequa",
+      "country": "South Africa",
+      "region": "Western Cape, Hessequa near Heidelberg",
+      "bbox": [
+        20.9,
+        -34.2,
+        20.95,
+        -34.16
+      ],
+      "reference_source": "southafrica",
+      "date_start": "2018-07-01",
+      "date_end": "2018-10-31",
+      "climate": "Southern Cape winter-growing grain region; Mediterranean-to-coastal rainfall transition",
+      "crop_context": "Labeled wheat, barley, canola, small-grain grazing and lucerne/medics; large parcels relative to other selected sites",
+      "rationale": "Southern Hemisphere winter/spring commercial grain and forage reference case",
+      "climate_evidence": "https://d7.westerncape.gov.za/assets/departments/treasury/Documents/Socio-economic-profiles/2016/municipality/Eden-District/wc042_hessequa_2015_sep-lg_profile.pdf",
+      "crop_evidence": "https://www.westerncape.gov.za/provincial-treasury/sites/provincial-treasury.westerncape.gov.za/files/atoms/files/2023-24%20MERO%20Garden%20Route%20District.pdf",
+      "calendar_basis": "Winter/spring grain development, July through October; no Northern Hemisphere summer assumption",
+      "cohort": "international",
+      "existing_dir": "outputs/landsat_international/za_hessequa",
+      "reference_kind": "Crop-labeled field/cadastral reference from the ESA classification challenge; physical edge equivalence is not guaranteed",
+      "reference_year": 2018,
+      "redistribution": "Keep local: additional provider restrictions",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "ZA",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/za_hessequa",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "vn_redriver",
+      "country": "Vietnam",
+      "region": "Thai Binh province, Red River Delta (2021 administrative names)",
+      "bbox": [
+        106.38,
+        20.615,
+        106.405,
+        20.64
+      ],
+      "reference_source": "vietnam",
+      "date_start": "2021-02-01",
+      "date_end": "2021-05-31",
+      "climate": "Northern monsoonal climate with cooler winters",
+      "crop_context": "Smallholder fields in a documented rice-based delta; species unmeasured at field level",
+      "rationale": "Very small fields within one fully digitized tile; winter/spring rice regional calendar",
+      "climate_evidence": "https://climateknowledgeportal.worldbank.org/sites/default/files/2021-04/15077-Vietnam%20Country%20Profile-WEB.pdf",
+      "crop_evidence": "https://www.fao.org/4/Y4347E/y4347e1u.htm",
+      "calendar_basis": "https://www.fao.org/fileadmin/templates/rap/files/meetings/2016/161109_AMIS_4.7-AMIS_Stock_Seminar_Vietnam_rev.pdf",
+      "vintage_note": "Same reference year, but imagery February-May precedes August digitization; field rearrangements cannot be ruled out",
+      "cohort": "international",
+      "existing_dir": "outputs/landsat_international/vn_redriver",
+      "reference_kind": "All visible agricultural fields manually digitized within surveyed tiles using Sentinel-2 and very-high-resolution imagery",
+      "reference_year": 2021,
+      "redistribution": "CC-BY-4.0",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "VN",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/vn_redriver",
+      "coverage_policy": "aoi",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "vn_mekong",
+      "country": "Vietnam",
+      "region": "Dong Thap province, Mekong Delta near Cao Lanh (2021 administrative names)",
+      "bbox": [
+        105.69,
+        10.582,
+        105.715,
+        10.607
+      ],
+      "reference_source": "vietnam",
+      "date_start": "2021-01-01",
+      "date_end": "2021-04-30",
+      "climate": "Humid tropical monsoonal; dry-season observation window",
+      "crop_context": "Fields in a documented multiple-rice-cropping delta; species unmeasured at field level",
+      "rationale": "Tropical rice regional context and less fragmented reference fields than the northern tile",
+      "climate_evidence": "https://climateknowledgeportal.worldbank.org/sites/default/files/2021-04/15077-Vietnam%20Country%20Profile-WEB.pdf",
+      "crop_evidence": "https://www.fao.org/4/Y4347E/y4347e1u.htm",
+      "calendar_basis": "https://www.fao.org/fileadmin/templates/rap/files/meetings/2016/161109_AMIS_4.7-AMIS_Stock_Seminar_Vietnam_rev.pdf",
+      "vintage_note": "Same reference year, but imagery January-April precedes August digitization; field rearrangements cannot be ruled out",
+      "cohort": "international",
+      "existing_dir": "outputs/landsat_international/vn_mekong",
+      "reference_kind": "All visible agricultural fields manually digitized within surveyed tiles using Sentinel-2 and very-high-resolution imagery",
+      "reference_year": 2021,
+      "redistribution": "CC-BY-4.0",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "VN",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/vn_mekong",
+      "coverage_policy": "aoi",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "ca_colusa",
+      "country": "United States",
+      "region": "Colusa County, California",
+      "bbox": [
+        -122.04,
+        39.08,
+        -121.99,
+        39.12
+      ],
+      "reference_source": "ca2022",
+      "date_start": "2022-06-01",
+      "date_end": "2022-09-30",
+      "filters": [
+        {
+          "column": "MAIN_CROP",
+          "op": "in",
+          "value": [
+            "R1"
+          ]
+        }
+      ],
+      "crop_context": "Rice: R1 code verified in DWR legend",
+      "climate_context": "Central Valley Mediterranean seasonality; dry warm summers",
+      "climate_evidence": "https://statesummaries.ncics.org/chapter/ca/",
+      "selection_rationale": "Known rice parcels with visible bunds; small reference count is retained rather than selecting on performance",
+      "aerial_audit": {
+        "reference_year": 2022,
+        "bbox": [
+          -122.04,
+          39.08,
+          -121.99,
+          39.12
+        ],
+        "n_reference": 14,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_3912157_nw_10_060_20220709",
+          "USDA/NAIP/DOQQ/m_3912264_ne_10_060_20220709"
+        ],
+        "naip_dates_ms": [
+          1657324800000,
+          1657324800000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Visible bunds and cultivated-area edges align in overview and two reference-selected zooms. Only R1 parcels evaluated; nearby other crop and idle units are unknown coverage.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard",
+      "cohort": "north_america",
+      "existing_dir": "outputs/landsat_north_america/ca_colusa",
+      "reference_kind": "mapped_crop_unit",
+      "reference_year": 2022,
+      "redistribution": "Public domain",
+      "crop_evidence": "https://data.cnra.ca.gov/dataset/6c3d65e3-35bb-49e1-a51e-49d5a2cf09a9/resource/9a00d123-7d5f-46a0-8e89-b6b0591a01f0/download/2022-dwr-standard-land-use-legend-remote-sensing-version.pdf",
+      "climate": "Central Valley Mediterranean seasonality; dry warm summers",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "US",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/ca_colusa",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "ca_orchards",
+      "country": "United States",
+      "region": "Tulare County, California",
+      "bbox": [
+        -119.49,
+        36.46,
+        -119.44,
+        36.5
+      ],
+      "reference_source": "ca2022",
+      "date_start": "2022-05-01",
+      "date_end": "2022-08-31",
+      "filters": [
+        {
+          "column": "MAIN_CROP",
+          "op": "in",
+          "value": [
+            "D2",
+            "D3",
+            "D5",
+            "D7",
+            "D12",
+            "D13",
+            "V",
+            "C",
+            "YP"
+          ]
+        }
+      ],
+      "crop_context": "Orchards/vineyards including peaches and nectarines D5, almonds D12, plums D7",
+      "climate_context": "Central Valley Mediterranean seasonality; dry warm summers",
+      "climate_evidence": "https://statesummaries.ncics.org/chapter/ca/",
+      "selection_rationale": "Many small perennial blocks with shared edges; provider crop codes, not appearance, define crop inclusion",
+      "aerial_audit": {
+        "reference_year": 2022,
+        "bbox": [
+          -119.49,
+          36.46,
+          -119.44,
+          36.5
+        ],
+        "n_reference": 333,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_3611929_sw_11_060_20220624",
+          "USDA/NAIP/DOQQ/m_3611937_ne_11_060_20220624",
+          "USDA/NAIP/DOQQ/m_3611937_nw_11_060_20220624"
+        ],
+        "naip_dates_ms": [
+          1656028800000,
+          1656028800000,
+          1656028800000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Orchard-block edges generally align with tree-row breaks and access lanes in the inspected zooms. Some internal orchard blocks may reflect age/crop differences rather than hard physical divisions.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard",
+      "cohort": "north_america",
+      "existing_dir": "outputs/landsat_north_america/ca_orchards",
+      "reference_kind": "mapped_crop_unit",
+      "reference_year": 2022,
+      "redistribution": "Public domain",
+      "crop_evidence": "https://data.cnra.ca.gov/dataset/6c3d65e3-35bb-49e1-a51e-49d5a2cf09a9/resource/9a00d123-7d5f-46a0-8e89-b6b0591a01f0/download/2022-dwr-standard-land-use-legend-remote-sensing-version.pdf",
+      "climate": "Central Valley Mediterranean seasonality; dry warm summers",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "US",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/ca_orchards",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "wa_grant",
+      "country": "United States",
+      "region": "Grant County, Washington",
+      "bbox": [
+        -119.4,
+        46.85,
+        -119.34,
+        46.89
+      ],
+      "reference_source": "wa2025",
+      "date_start": "2023-05-01",
+      "date_end": "2023-08-31",
+      "filters": [
+        {
+          "column": "LastSurveyDate",
+          "op": "year",
+          "value": 2023
+        },
+        {
+          "column": "DataSource",
+          "op": "in",
+          "value": [
+            "WSDA"
+          ]
+        },
+        {
+          "column": "County",
+          "op": "in",
+          "value": [
+            "Grant"
+          ]
+        }
+      ],
+      "crop_context": "Provider groups: cereal grain, hay/silage, herbs and vegetables; irrigation attributes include pivots",
+      "climate_context": "Dry inland climate east of Cascades, greater seasonal temperature range than coast",
+      "climate_evidence": "https://statesummaries.ncics.org/chapter/wa/",
+      "selection_rationale": "Pivot and rectangular units with 2023 WSDA observations; exclude NASS source and mismatched survey years before inference",
+      "aerial_audit": {
+        "reference_year": 2023,
+        "bbox": [
+          -119.4,
+          46.85,
+          -119.34,
+          46.89
+        ],
+        "n_reference": 29,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_4611905_se_11_060_20230622_20230912",
+          "USDA/NAIP/DOQQ/m_4611906_sw_11_060_20230622_20230911",
+          "USDA/NAIP/DOQQ/m_4611913_ne_11_060_20230622_20230912",
+          "USDA/NAIP/DOQQ/m_4611914_nw_11_060_20230622_20230911"
+        ],
+        "naip_dates_ms": [
+          1687392000000,
+          1687392000000,
+          1687392000000,
+          1687392000000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Inspected pivot rims and rectangular shared edges align visibly; narrow irrigated corners can be separate units. Survey dates and source filters are applied before scores.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard",
+      "cohort": "north_america",
+      "existing_dir": "outputs/landsat_north_america/wa_grant",
+      "reference_kind": "mapped_crop_unit",
+      "reference_year": 2023,
+      "redistribution": "Keep extracted vectors and reference-overlay maps local pending permission",
+      "crop_evidence": "https://agr.wa.gov/departments/land-and-water/natural-resources/agricultural-land-use",
+      "climate": "Dry inland climate east of Cascades, greater seasonal temperature range than coast",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "US",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/wa_grant",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "mt_beaverhead",
+      "country": "United States",
+      "region": "Beaverhead County, Montana",
+      "bbox": [
+        -112.62,
+        45.2,
+        -112.56,
+        45.24
+      ],
+      "reference_source": "mt2020",
+      "date_start": "2020-06-01",
+      "date_end": "2020-09-30",
+      "filters": [],
+      "crop_context": "Irrigation-equipped agricultural fields: pivot, flood and sprinkler types; crop species unknown",
+      "climate_context": "Interior mountain-valley continental climate; seasonal temperature extremes",
+      "climate_evidence": "https://statesummaries.ncics.org/report_section/mt/1/",
+      "selection_rationale": "Mixed irrigation shapes and field sizes; explicitly a secondary irrigation-unit comparison with 2019 aerial audit",
+      "aerial_audit": {
+        "reference_year": 2020,
+        "bbox": [
+          -112.62,
+          45.2,
+          -112.56,
+          45.24
+        ],
+        "n_reference": 42,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_4511252_ne_12_060_20190721",
+          "USDA/NAIP/DOQQ/m_4511252_nw_12_060_20190721"
+        ],
+        "naip_dates_ms": [
+          1563667200000,
+          1563667200000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Pivot outlines align, but corner/irrigation-system splits can cross visually continuous cropped ground. Retained solely as irrigation-unit agreement; July 2019 audit is not 2020 verification.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard",
+      "cohort": "north_america",
+      "existing_dir": "outputs/landsat_north_america/mt_beaverhead",
+      "reference_kind": "irrigation_mapping_unit",
+      "reference_year": 2020,
+      "redistribution": "Keep extracted vectors and reference-overlay maps local pending permission",
+      "crop_evidence": "https://gis.dnrc.mt.gov/arcgis/rest/services/WRD/MontanaStatewideIrrigation/FeatureServer/0",
+      "climate": "Interior mountain-valley continental climate; seasonal temperature extremes",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "US",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/mt_beaverhead",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "ut_cache",
+      "country": "United States",
+      "region": "Cache County, Utah",
+      "bbox": [
+        -111.91,
+        41.73,
+        -111.86,
+        41.77
+      ],
+      "reference_source": "ut2018",
+      "date_start": "2018-05-01",
+      "date_end": "2018-08-31",
+      "filters": [
+        {
+          "column": "Landuse",
+          "op": "in",
+          "value": [
+            "Agricultural"
+          ]
+        },
+        {
+          "column": "Description",
+          "op": "in",
+          "value": [
+            "Grass Hay",
+            "Alfalfa",
+            "Winter Wheat",
+            "Barley",
+            "Safflower",
+            "Vegetables",
+            "Idle"
+          ]
+        },
+        {
+          "column": "SURV_YEAR",
+          "op": "in",
+          "value": [
+            "2018"
+          ]
+        }
+      ],
+      "crop_context": "Grass hay, alfalfa, winter wheat, barley and minor crops from provider Description",
+      "climate_context": "Interior mountain-valley climate, cool winters and dry warm summers",
+      "climate_evidence": "https://statesummaries.ncics.org/chapter/ut/",
+      "selection_rationale": "Small irregular hay/crop units near riparian land; pasture, urban, water and wetland classes excluded by reference attributes",
+      "aerial_audit": {
+        "reference_year": 2018,
+        "bbox": [
+          -111.91,
+          41.73,
+          -111.86,
+          41.77
+        ],
+        "n_reference": 132,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_4111109_se_12_060_20180829",
+          "USDA/NAIP/DOQQ/m_4111110_sw_12_060_20180829",
+          "USDA/NAIP/DOQQ/m_4111117_ne_12_060_20180829",
+          "USDA/NAIP/DOQQ/m_4111118_nw_12_060_20180829"
+        ],
+        "naip_dates_ms": [
+          1535500800000,
+          1535500800000,
+          1535500800000,
+          1535500800000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Clear hay-block edges coexist with uncertain wet/riparian interfaces and subdivisions lacking visible separation. Retained solely as irrigation land-use unit agreement.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard",
+      "cohort": "north_america",
+      "existing_dir": "outputs/landsat_north_america/ut_cache",
+      "reference_kind": "irrigation_mapping_unit",
+      "reference_year": 2018,
+      "redistribution": "Attribute Utah DWRe; CC BY-SA provider terms",
+      "crop_evidence": "https://gis.utah.gov/products/sgid/planning/water-related-land-use/",
+      "climate": "Interior mountain-valley climate, cool winters and dry warm summers",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "US",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/ut_cache",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "qc2023",
+      "country": "Canada",
+      "region": "Les Maskoutains / Saint-Hyacinthe area, Monteregie, Quebec",
+      "bbox": [
+        -72.96,
+        45.74,
+        -72.91,
+        45.78
+      ],
+      "reference_source": "qc2023",
+      "date_start": "2023-06-01",
+      "date_end": "2023-09-30",
+      "filters": [
+        {
+          "column": "NBPRO",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "column": "TYPPAR",
+          "op": "in",
+          "value": [
+            "PAC"
+          ]
+        },
+        {
+          "column": "DESCODPR1",
+          "op": "not-in",
+          "value": [
+            "Partie non cultivÃ©e",
+            "Terre en friche"
+          ]
+        }
+      ],
+      "crop_context": "Maize, soybeans, hay and other current declarations from FADQ; species are declarations",
+      "climate_context": "Temperate Saint Lawrence lowlands agricultural context; seasonal growing period",
+      "climate_evidence": "https://cdn-contenu.quebec.ca/cdn-contenu/adm/min/agriculture-pecheries-alimentation/consultation-publique/RA_Ruiz_Lavoie_evolution-spatiale-activites-agricoles_MAPAQ.pdf",
+      "selection_rationale": "Active 2023 declarations in smaller elongated parcels; retain invisible declaration splits as secondary parcel agreement, not physical truth",
+      "aerial_audit": {
+        "reference_year": 2023,
+        "bbox": [
+          -72.96,
+          45.74,
+          -72.91,
+          45.78
+        ],
+        "n_reference": 166,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "imagery_year": 2023,
+        "imagery_season": "spring",
+        "url": "https://orthophotos2023.geomont.qc.ca/WMS/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GeoMont_Orthophotos_2023&STYLES=&SRS=EPSG%3A4326&BBOX=-72.96%2C45.74%2C-72.91%2C45.78&WIDTH=2000&HEIGHT=1600&FORMAT=image%2Fjpeg",
+        "license": "CC BY 4.0; GeoMont/MRNF"
+      },
+      "audit_notes": "Outer crop edges broadly align; many narrow declaration strips have faint or no visible shared boundary in spring imagery. Retained solely as declaration-parcel agreement.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard",
+      "cohort": "north_america",
+      "existing_dir": "outputs/landsat_north_america/qc2023",
+      "reference_kind": "declaration_parcel",
+      "reference_year": 2023,
+      "redistribution": "CC BY 4.0; attribute FADQ",
+      "crop_evidence": "https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees/",
+      "climate": "Temperate Saint Lawrence lowlands agricultural context; seasonal growing period",
+      "historical": true,
+      "ftw_year": 2024,
+      "country_code": "CA",
+      "reference_mode": "existing",
+      "landsat_run_dir": "outputs/landsat_multispectral/qc2023",
+      "coverage_policy": "known_footprints",
+      "temporal_category": "historical_cross_year",
+      "training_overlap": "Unknown for both models; benchmark-converted references have potential source overlap",
+      "benchmark_split": "Not established for extracted parcels"
+    },
+    {
+      "id": "fr_camargue_2024",
+      "country": "France",
+      "country_code": "FR",
+      "region": "Arles / Camargue, Bouches-du-Rhone",
+      "bbox": [
+        4.55,
+        43.55,
+        4.59,
+        43.58
+      ],
+      "cohort": "ftw_new",
+      "historical": false,
+      "ftw_year": 2024,
+      "date_start": "2024-05-01",
+      "date_end": "2024-09-30",
+      "reference_year": 2024,
+      "reference_mode": "rpg",
+      "reference_kind": "declaration_parcel",
+      "coverage_policy": "known_footprints",
+      "climate": "Mediterranean regional climate",
+      "climate_evidence": "https://meteofrance.com/changement-climatique/le-climat-en-france-hexagonale-et-corse",
+      "crop_context": "Declared rice and other annual crops; exact codes retained",
+      "crop_evidence": "https://www.data.gouv.fr/datasets/rpg",
+      "rationale": "Rice-growing regional setting; acquisition covers summer crops",
+      "existing_dir": "outputs/landsat_ftw_comparison/preparation/fr_camargue_2024",
+      "landsat_run_dir": "outputs/landsat_ftw_comparison/landsat_runs/fr_camargue_2024",
+      "redistribution": "Keep local; attribute original provider",
+      "temporal_category": "same_nominal_year_geometry_uncertain",
+      "training_overlap": "Unknown spatial overlap for both models; no independent holdout claim",
+      "benchmark_split": "Unknown; no verified spatial split membership",
+      "position_uncertainty": "Numerical boundary positional uncertainty not documented"
+    },
+    {
+      "id": "fr_bordeaux_2024",
+      "country": "France",
+      "country_code": "FR",
+      "region": "Fronsac / Libournais, Gironde",
+      "bbox": [
+        -0.4,
+        44.94,
+        -0.37,
+        44.97
+      ],
+      "cohort": "ftw_new",
+      "historical": false,
+      "ftw_year": 2024,
+      "date_start": "2024-05-01",
+      "date_end": "2024-09-30",
+      "reference_year": 2024,
+      "reference_mode": "rpg",
+      "reference_kind": "declaration_parcel",
+      "coverage_policy": "known_footprints",
+      "climate": "Temperate oceanic regional climate",
+      "climate_evidence": "https://meteofrance.com/changement-climatique/le-climat-en-france-hexagonale-et-corse",
+      "crop_context": "Declared vineyards/perennial and other crops; exact codes retained",
+      "crop_evidence": "https://www.data.gouv.fr/datasets/rpg",
+      "rationale": "Perennial-crop regional setting contrasting with Camargue",
+      "existing_dir": "outputs/landsat_ftw_comparison/preparation/fr_bordeaux_2024",
+      "landsat_run_dir": "outputs/landsat_ftw_comparison/landsat_runs/fr_bordeaux_2024",
+      "redistribution": "Keep local; attribute original provider",
+      "temporal_category": "same_nominal_year_geometry_uncertain",
+      "training_overlap": "Unknown spatial overlap for both models; no independent holdout claim",
+      "benchmark_split": "Unknown; no verified spatial split membership",
+      "position_uncertainty": "Numerical boundary positional uncertainty not documented"
+    },
+    {
+      "id": "nl_flevoland_2025",
+      "country": "Netherlands",
+      "country_code": "NL",
+      "region": "Dronten, Flevoland",
+      "bbox": [
+        5.64,
+        52.52,
+        5.68,
+        52.55
+      ],
+      "cohort": "ftw_new",
+      "historical": false,
+      "ftw_year": 2025,
+      "date_start": "2025-05-01",
+      "date_end": "2025-08-31",
+      "reference_year": 2025,
+      "reference_mode": "nl_wfs",
+      "reference_kind": "declaration_parcel",
+      "coverage_policy": "known_footprints",
+      "climate": "Temperate maritime",
+      "climate_evidence": "https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub102-87.pdf",
+      "crop_context": "BRP crop labels; larger commercial arable fields sought",
+      "crop_evidence": "https://www.pdok.nl/introductie/-/article/gewaspercelen-inspire-geharmoniseerd-",
+      "rationale": "Polder arable landscape selected from geography/reference availability",
+      "existing_dir": "outputs/landsat_ftw_comparison/preparation/nl_flevoland_2025",
+      "landsat_run_dir": "outputs/landsat_ftw_comparison/landsat_runs/nl_flevoland_2025",
+      "redistribution": "Keep local; attribute original provider",
+      "temporal_category": "same_nominal_year_geometry_uncertain",
+      "training_overlap": "Unknown spatial overlap for both models; no independent holdout claim",
+      "benchmark_split": "Unknown; no verified spatial split membership",
+      "position_uncertainty": "Numerical boundary positional uncertainty not documented"
+    },
+    {
+      "id": "nl_bollenstreek_2025",
+      "country": "Netherlands",
+      "country_code": "NL",
+      "region": "Hillegom / Bollenstreek, Zuid-Holland",
+      "bbox": [
+        4.53,
+        52.23,
+        4.57,
+        52.26
+      ],
+      "cohort": "ftw_new",
+      "historical": false,
+      "ftw_year": 2025,
+      "date_start": "2025-03-01",
+      "date_end": "2025-06-30",
+      "reference_year": 2025,
+      "reference_mode": "nl_wfs",
+      "reference_kind": "declaration_parcel",
+      "coverage_policy": "known_footprints",
+      "climate": "Temperate maritime",
+      "climate_evidence": "https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub102-87.pdf",
+      "crop_context": "BRP crop labels; horticultural/flower-bulb regional setting",
+      "crop_evidence": "https://www.pdok.nl/introductie/-/article/gewaspercelen-inspire-geharmoniseerd-",
+      "rationale": "Spring phenology and narrow horticultural parcels sought; retain actual declared labels",
+      "existing_dir": "outputs/landsat_ftw_comparison/preparation/nl_bollenstreek_2025",
+      "landsat_run_dir": "outputs/landsat_ftw_comparison/landsat_runs/nl_bollenstreek_2025",
+      "redistribution": "Keep local; attribute original provider",
+      "temporal_category": "same_nominal_year_geometry_uncertain",
+      "training_overlap": "Unknown spatial overlap for both models; no independent holdout claim",
+      "benchmark_split": "Unknown; no verified spatial split membership",
+      "position_uncertainty": "Numerical boundary positional uncertainty not documented"
+    },
+    {
+      "id": "qc_yamaska_2024",
+      "country": "Canada",
+      "country_code": "CA",
+      "region": "Yamaska / Monteregie, Quebec",
+      "bbox": [
+        -72.92,
+        45.88,
+        -72.88,
+        45.91
+      ],
+      "cohort": "ftw_new",
+      "historical": false,
+      "ftw_year": 2024,
+      "date_start": "2024-06-01",
+      "date_end": "2024-09-30",
+      "reference_year": 2024,
+      "reference_mode": "qc_zip",
+      "reference_kind": "declaration_parcel",
+      "coverage_policy": "known_footprints",
+      "climate": "Temperate Saint Lawrence lowlands",
+      "climate_evidence": "https://cdn-contenu.quebec.ca/cdn-contenu/adm/min/agriculture-pecheries-alimentation/consultation-publique/RA_Ruiz_Lavoie_evolution-spatiale-activites-agricoles_MAPAQ.pdf",
+      "crop_context": "Active FADQ maize/soy/hay and other declared productions",
+      "crop_evidence": "https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees/",
+      "rationale": "Declared cultivated parcels near, but outside, the previous Quebec AOI",
+      "existing_dir": "outputs/landsat_ftw_comparison/preparation/qc_yamaska_2024",
+      "landsat_run_dir": "outputs/landsat_ftw_comparison/landsat_runs/qc_yamaska_2024",
+      "redistribution": "Keep local; attribute original provider",
+      "temporal_category": "same_nominal_year_geometry_uncertain",
+      "training_overlap": "Unknown spatial overlap for both models; no independent holdout claim",
+      "benchmark_split": "Unknown; no verified spatial split membership",
+      "position_uncertainty": "Numerical boundary positional uncertainty not documented"
+    },
+    {
+      "id": "vn_mekong_adjacent_2024",
+      "country": "Vietnam",
+      "country_code": "VN",
+      "region": "Dong Thap, adjacent surveyed Mekong tile",
+      "bbox": [
+        105.72,
+        10.582,
+        105.726,
+        10.604
+      ],
+      "cohort": "ftw_new",
+      "historical": false,
+      "ftw_year": 2024,
+      "date_start": "2024-01-01",
+      "date_end": "2024-04-30",
+      "reference_year": 2021,
+      "reference_mode": "vn_cached",
+      "reference_kind": "physical_digitized_field",
+      "coverage_policy": "known_footprints",
+      "climate": "Tropical monsoonal; dry-season window",
+      "climate_evidence": "https://climateknowledgeportal.worldbank.org/sites/default/files/2021-04/15077-Vietnam%20Country%20Profile-WEB.pdf",
+      "crop_context": "Regional rice system; no per-field crop species attribute",
+      "crop_evidence": "https://www.fao.org/4/Y4347E/y4347e1u.htm",
+      "rationale": "Reference availability verified before inference (155 polygons in broader candidate box); adjacent AOI differs from prior site",
+      "existing_dir": "outputs/landsat_ftw_comparison/preparation/vn_mekong_adjacent_2024",
+      "landsat_run_dir": "outputs/landsat_ftw_comparison/landsat_runs/vn_mekong_adjacent_2024",
+      "redistribution": "Keep local; attribute original provider",
+      "temporal_category": "reference_year_mismatch",
+      "training_overlap": "Unknown spatial overlap for both models; no independent holdout claim",
+      "benchmark_split": "Unknown; no verified spatial split membership",
+      "position_uncertainty": "Numerical boundary positional uncertainty not documented"
+    }
+  ],
+  "ftw": {
+    "layout": "by-admin-conf",
+    "available_years": [
+      2024,
+      2025
+    ],
+    "url": "https://source.coop/ftw/global-data",
+    "license": "CC-BY-4.0",
+    "primary": "unfiltered_as_delivered",
+    "variants": [
+      "ftw",
+      "ftw_conf69",
+      "ftw_conf69_known",
+      "ftw_area1000"
+    ],
+    "confidence_threshold": 69,
+    "query_buffer_m": 600,
+    "source_refresh": "Never within frozen run"
+  },
+  "planned_landsat_contrasts": [
+    [
+      "false_color",
+      "sr"
+    ],
+    [
+      "false_color_15m",
+      "false_color"
+    ],
+    [
+      "pan_nir_red",
+      "coarse_pan_nir_red"
+    ],
+    [
+      "hybrid",
+      "false_color_15m"
+    ],
+    [
+      "pan_nir_red",
+      "pan"
+    ],
+    [
+      "pan_nir_red",
+      "combined"
+    ],
+    [
+      "hybrid",
+      "pan"
+    ],
+    [
+      "hybrid",
+      "combined"
+    ]
+  ],
+  "representative": {
+    "sites": [
+      "fr_camargue_2024",
+      "fr_bordeaux_2024",
+      "nl_flevoland_2025",
+      "nl_bollenstreek_2025",
+      "qc_yamaska_2024",
+      "vn_mekong_adjacent_2024",
+      "za_hessequa",
+      "mt_beaverhead"
+    ],
+    "methods": [
+      "ftw",
+      "pan",
+      "sr",
+      "false_color",
+      "pan_nir_red",
+      "hybrid"
+    ],
+    "window": "small_fields",
+    "width_m": 900,
+    "selection": "Frozen before new inference/FTW agreement; six new reference-driven sites plus Southern Hemisphere commercial fields and arid irrigated US context"
+  },
+  "reference_sources": {
+    "rpg": {
+      "url": "https://data.geopf.fr/wfs/ows",
+      "license": "Licence Ouverte 2.0",
+      "documentation": "https://www.data.gouv.fr/datasets/rpg"
+    },
+    "nl_wfs": {
+      "url": "https://service.pdok.nl/rvo/brpgewaspercelen/wfs/v1_0",
+      "type_name": "brpgewaspercelen:BrpGewas",
+      "crs": 28992,
+      "year": 2025,
+      "license": "CC0-1.0",
+      "documentation": "https://www.pdok.nl/introductie/-/article/gewaspercelen-inspire-geharmoniseerd-"
+    },
+    "qc_zip": {
+      "url": "https://www.fadq.qc.ca/fileadmin/geo4tb/BDPPAD/BDPPAD_V03_2024.zip",
+      "license": "CC-BY-4.0",
+      "documentation": "https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees/"
+    },
+    "vn_cached": {
+      "path": "outputs/landsat_international/references/boundaries_vietnam_2021.parquet",
+      "sha256": "3029152b37a449a8b25d449ab4f9fe37e46000932072e8b4172287cd8a70d94a",
+      "license": "CC-BY-4.0",
+      "documentation": "https://doi.org/10.17026/dans-xy6-ngg6"
+    }
+  },
+  "evidence_links": [
+    "https://source.coop/ftw/global-data",
+    "https://arxiv.org/html/2605.11055",
+    "https://arxiv.org/html/2603.27101",
+    "https://arxiv.org/html/2607.19069v1",
+    "https://github.com/fieldsoftheworld/ftw-datasets-list"
+  ],
+  "limitations": [
+    "No verified independent spatial holdouts for either checkpoint",
+    "Existing historical runs retained; cross-year product differences may reflect land changes",
+    "Nominal declaration year does not establish physical boundary vintage",
+    "No new independent arid/tropical 2024 field survey was identified; tropical reference is 2021"
+  ]
+}

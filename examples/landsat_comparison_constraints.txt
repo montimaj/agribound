@@ -1,0 +1,20 @@
+# Versions used for the live comparisons on Windows, Python 3.12.13
+numpy==2.5.3
+pandas==3.0.6
+scipy==1.18.1
+geopandas==1.2.0
+shapely==2.1.2
+pyproj==3.8.0
+rasterio==1.5.2
+pyogrio==0.13.0
+pyarrow==25.0.1
+earthengine-api==1.7.46
+geedim==2.0.0
+matplotlib==3.11.2
+torch==2.14.1
+torchvision==0.29.1
+ultralytics==8.4.171
+opencv-python==5.0.0.93
+huggingface-hub==1.33.0
+psutil==7.2.2
+requests==2.34.2

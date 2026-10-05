@@ -1,0 +1,412 @@
+{
+  "pairs": [
+    {
+      "scene_id": "LC81960302024130LGN00",
+      "pan": {
+        "scene_id": "LC81960302024130LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_196030_20240509",
+        "product_id": "LC08_L1TP_196030_20240509_20240514_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81960302024130LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_196030_20240509",
+        "product_id": "LC08_L2SP_196030_20240509_20240514_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81960302024178LGN00",
+      "pan": {
+        "scene_id": "LC81960302024178LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_196030_20240626",
+        "product_id": "LC08_L1TP_196030_20240626_20240709_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81960302024178LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_196030_20240626",
+        "product_id": "LC08_L2SP_196030_20240626_20240709_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81960302024210LGN00",
+      "pan": {
+        "scene_id": "LC81960302024210LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_196030_20240728",
+        "product_id": "LC08_L1TP_196030_20240728_20240801_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81960302024210LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_196030_20240728",
+        "product_id": "LC08_L2SP_196030_20240728_20240801_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81960302024226LGN00",
+      "pan": {
+        "scene_id": "LC81960302024226LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_196030_20240813",
+        "product_id": "LC08_L1TP_196030_20240813_20240822_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81960302024226LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_196030_20240813",
+        "product_id": "LC08_L2SP_196030_20240813_20240822_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81960302024242LGN00",
+      "pan": {
+        "scene_id": "LC81960302024242LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_196030_20240829",
+        "product_id": "LC08_L1TP_196030_20240829_20240905_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81960302024242LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_196030_20240829",
+        "product_id": "LC08_L2SP_196030_20240829_20240905_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81960302024258LGN00",
+      "pan": {
+        "scene_id": "LC81960302024258LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_196030_20240914",
+        "product_id": "LC08_L1TP_196030_20240914_20240920_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81960302024258LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_196030_20240914",
+        "product_id": "LC08_L2SP_196030_20240914_20240920_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81970292024217LGN00",
+      "pan": {
+        "scene_id": "LC81970292024217LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_197029_20240804",
+        "product_id": "LC08_L1TP_197029_20240804_20240808_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81970292024217LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_197029_20240804",
+        "product_id": "LC08_L2SP_197029_20240804_20240808_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81970292024233LGN00",
+      "pan": {
+        "scene_id": "LC81970292024233LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_197029_20240820",
+        "product_id": "LC08_L1TP_197029_20240820_20240830_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81970292024233LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_197029_20240820",
+        "product_id": "LC08_L2SP_197029_20240820_20240830_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81970302024185LGN00",
+      "pan": {
+        "scene_id": "LC81970302024185LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_197030_20240703",
+        "product_id": "LC08_L1TP_197030_20240703_20240711_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81970302024185LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_197030_20240703",
+        "product_id": "LC08_L2SP_197030_20240703_20240711_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81970302024217LGN00",
+      "pan": {
+        "scene_id": "LC81970302024217LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_197030_20240804",
+        "product_id": "LC08_L1TP_197030_20240804_20240808_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81970302024217LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_197030_20240804",
+        "product_id": "LC08_L2SP_197030_20240804_20240808_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC81970302024233LGN00",
+      "pan": {
+        "scene_id": "LC81970302024233LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_TOA/LC08_197030_20240820",
+        "product_id": "LC08_L1TP_197030_20240820_20240830_02_T1",
+        "mission": "LC08"
+      },
+      "sr": {
+        "scene_id": "LC81970302024233LGN00",
+        "image_id": "LANDSAT/LC08/C02/T1_L2/LC08_197030_20240820",
+        "product_id": "LC08_L2SP_197030_20240820_20240830_02_T1",
+        "mission": "LC08"
+      }
+    },
+    {
+      "scene_id": "LC91960302024138LGN00",
+      "pan": {
+        "scene_id": "LC91960302024138LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_196030_20240517",
+        "product_id": "LC09_L1TP_196030_20240517_20240517_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91960302024138LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_196030_20240517",
+        "product_id": "LC09_L2SP_196030_20240517_20240518_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91960302024186LGN00",
+      "pan": {
+        "scene_id": "LC91960302024186LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_196030_20240704",
+        "product_id": "LC09_L1TP_196030_20240704_20240704_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91960302024186LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_196030_20240704",
+        "product_id": "LC09_L2SP_196030_20240704_20240705_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91960302024202LGN00",
+      "pan": {
+        "scene_id": "LC91960302024202LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_196030_20240720",
+        "product_id": "LC09_L1TP_196030_20240720_20240720_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91960302024202LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_196030_20240720",
+        "product_id": "LC09_L2SP_196030_20240720_20240721_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91960302024218LGN00",
+      "pan": {
+        "scene_id": "LC91960302024218LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_196030_20240805",
+        "product_id": "LC09_L1TP_196030_20240805_20240805_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91960302024218LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_196030_20240805",
+        "product_id": "LC09_L2SP_196030_20240805_20240806_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91960302024234LGN00",
+      "pan": {
+        "scene_id": "LC91960302024234LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_196030_20240821",
+        "product_id": "LC09_L1TP_196030_20240821_20240822_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91960302024234LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_196030_20240821",
+        "product_id": "LC09_L2SP_196030_20240821_20240822_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970292024193LGN00",
+      "pan": {
+        "scene_id": "LC91970292024193LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197029_20240711",
+        "product_id": "LC09_L1TP_197029_20240711_20240711_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970292024193LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197029_20240711",
+        "product_id": "LC09_L2SP_197029_20240711_20240712_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970292024209LGN00",
+      "pan": {
+        "scene_id": "LC91970292024209LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197029_20240727",
+        "product_id": "LC09_L1TP_197029_20240727_20240727_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970292024209LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197029_20240727",
+        "product_id": "LC09_L2SP_197029_20240727_20240728_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970292024225LGN00",
+      "pan": {
+        "scene_id": "LC91970292024225LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197029_20240812",
+        "product_id": "LC09_L1TP_197029_20240812_20240812_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970292024225LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197029_20240812",
+        "product_id": "LC09_L2SP_197029_20240812_20240813_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970292024241LGN00",
+      "pan": {
+        "scene_id": "LC91970292024241LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197029_20240828",
+        "product_id": "LC09_L1TP_197029_20240828_20240828_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970292024241LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197029_20240828",
+        "product_id": "LC09_L2SP_197029_20240828_20240829_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970292024273LGN00",
+      "pan": {
+        "scene_id": "LC91970292024273LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197029_20240929",
+        "product_id": "LC09_L1TP_197029_20240929_20240929_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970292024273LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197029_20240929",
+        "product_id": "LC09_L2SP_197029_20240929_20241002_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970302024177LGN00",
+      "pan": {
+        "scene_id": "LC91970302024177LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197030_20240625",
+        "product_id": "LC09_L1TP_197030_20240625_20240625_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970302024177LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197030_20240625",
+        "product_id": "LC09_L2SP_197030_20240625_20240626_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970302024193LGN00",
+      "pan": {
+        "scene_id": "LC91970302024193LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197030_20240711",
+        "product_id": "LC09_L1TP_197030_20240711_20240711_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970302024193LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197030_20240711",
+        "product_id": "LC09_L2SP_197030_20240711_20240712_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970302024209LGN00",
+      "pan": {
+        "scene_id": "LC91970302024209LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197030_20240727",
+        "product_id": "LC09_L1TP_197030_20240727_20240727_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970302024209LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197030_20240727",
+        "product_id": "LC09_L2SP_197030_20240727_20240728_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970302024241LGN00",
+      "pan": {
+        "scene_id": "LC91970302024241LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197030_20240828",
+        "product_id": "LC09_L1TP_197030_20240828_20240828_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970302024241LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197030_20240828",
+        "product_id": "LC09_L2SP_197030_20240828_20240829_02_T1",
+        "mission": "LC09"
+      }
+    },
+    {
+      "scene_id": "LC91970302024273LGN00",
+      "pan": {
+        "scene_id": "LC91970302024273LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_TOA/LC09_197030_20240929",
+        "product_id": "LC09_L1TP_197030_20240929_20240929_02_T1",
+        "mission": "LC09"
+      },
+      "sr": {
+        "scene_id": "LC91970302024273LGN00",
+        "image_id": "LANDSAT/LC09/C02/T1_L2/LC09_197030_20240929",
+        "product_id": "LC09_L2SP_197030_20240929_20241002_02_T1",
+        "mission": "LC09"
+      }
+    }
+  ],
+  "unmatched_pan": [],
+  "unmatched_sr": [],
+  "date_window_end_exclusive": [
+    "2024-05-01",
+    "2024-10-01"
+  ],
+  "cloud_cover_max": 20,
+  "crs": "EPSG:32631",
+  "qa_mask": "QA_PIXEL bits 0-4 on both products; all bands and four PAN subpixels valid",
+  "missions": [
+    "LC08",
+    "LC09"
+  ],
+  "composite": "per-band median of identically matched observations with common masks",
+  "sr_value_scale": "reflectance_x10000",
+  "pan_value_scale": "unit TOA reflectance",
+  "regridding": "nearest neighbour to aligned 30 m SR and 15 m PAN export grids",
+  "sha256": "f1aaf24cfa78a16bf2c002d344cfcb9e075a5166270d9e3c5ae1109c2126aa20"
+}

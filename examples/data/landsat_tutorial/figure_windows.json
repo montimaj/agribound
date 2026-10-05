@@ -1,0 +1,27 @@
+{
+  "crs": "EPSG:32631",
+  "overview": [
+    625143.920206412,
+    4823061.306116878,
+    628437.2211931606,
+    4826454.1696683625
+  ],
+  "small_fields": [
+    626717.8367213232,
+    4824329.512530856,
+    627617.8367213232,
+    4825229.512530856
+  ],
+  "shared_edges": [
+    627565.6100210218,
+    4825705.153377183,
+    628465.6100210218,
+    4826605.153377183
+  ],
+  "shared_edge_found": true,
+  "small_field_area_ha": 0.28129637432987264,
+  "selection": "Smallest >=1000 m2 reference; first >30 m shared edge; median-area fallback",
+  "small_field_note": "Smallest model-area-eligible field; smaller references remain evaluated",
+  "shared_edge_note": "Actual reference shared edge",
+  "crs_fixture_is_imagery": false
+}

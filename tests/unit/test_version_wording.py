@@ -214,11 +214,24 @@ def _v2_line_in_context(line: str, match: re.Match, prev: str = "") -> bool:
 
 def _v2_release_wording(line: str, prev: str = "", nxt: str = "") -> bool:
     """Whether *line* names an agribound 2 release (neighbouring lines give context)."""
+    # Python request dictionaries can specify WFS 2.0.0 independently of
+    # Agribound's release. Strip just that protocol value, preserving other
+    # release wording on the same line for the usual checks.
+    if '"SERVICE" "WFS"' in prev:
+        line = line.replace('"VERSION" "2.0.0"', '"VERSION" "WFS protocol"')
+    elif prev.strip().upper() == '"WFS"' and line.strip() == '"2.0.0"':
+        # Tokens from dict(service="WFS", version="2.0.0") omit keyword names.
+        line = "WFS protocol"
     if _V2_NUMBER.search(line):
         return True
     if any(_v2_line_in_context(line, m, prev) for m in _V2_LINE.finditer(line)):
         return True
     return any(not _other_v2(line, m, prev, nxt) for m in _BARE_V2.finditer(line))
+
+
+def test_wfs_protocol_version_is_not_an_agribound_release():
+    assert not _v2_release_wording('"VERSION" "2.0.0"', prev='"SERVICE" "WFS"')
+    assert _v2_release_wording('"VERSION" "2.0.0" agribound 2.0', prev='"SERVICE" "WFS"')
 
 
 def _python_prose(source: str) -> dict[int, str] | None:
@@ -490,6 +503,12 @@ def test_python_sources_are_checked_in_comments_and_strings_only(tmp_path):
     )
     found = _v2_release_offenders([source], root=tmp_path)
     assert [line.split(":")[1] for line in found] == ["2", "3"]
+
+
+def test_wfs_keyword_request_does_not_name_an_agribound_release(tmp_path):
+    source = tmp_path / "wfs.py"
+    source.write_text('request = dict(\n service="WFS",\n version="2.0.0",\n)\n', encoding="utf-8")
+    assert _v2_release_offenders([source], root=tmp_path) == []
 
 
 def test_notebook_cells_are_checked(tmp_path):

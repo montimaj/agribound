@@ -1,0 +1,480 @@
+{
+  "schema_version": 1,
+  "comparison": {
+    "cloud_cover_max": 20,
+    "engine": "delineate-anything",
+    "checkpoint": "large_v2",
+    "checkpoint_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a",
+    "postprocessing": "Same as example 23: 1000 m2 minimum, 2 m simplification, no smoothing/SAM/LULC",
+    "boundary_tolerances_m": [
+      10,
+      15,
+      30
+    ],
+    "size_bins_ha": [
+      0,
+      1,
+      5,
+      20,
+      100,
+      100000
+    ]
+  },
+  "selection_protocol": "Reference availability, provider attributes, landscape variety, dated aerial spot checks and matched-scene preflight before any inference. No post-score replacement.",
+  "coverage_protocol": "Fixed union of selected whole reference footprints. Whole predictions selected by representative point; boundary tolerance lengths use original lines inside mask. Precision is conditional on mapped coverage, not landscape-wide false positives.",
+  "sources": {
+    "ca2022": {
+      "adapter": "zip-shapefile",
+      "filename": "ca.zip",
+      "url": "https://data.cnra.ca.gov/dataset/6c3d65e3-35bb-49e1-a51e-49d5a2cf09a9/resource/b92e0daf-6e2e-4b5c-a112-09474138d1cd/download/i15_crop_mapping_2022_shp.zip",
+      "sha256": "83397ca4e1e49445a3380693f88b8e40e9ee292e6001f749c78268aecab2040b",
+      "reference_year": 2022,
+      "crop_column": "MAIN_CROP",
+      "id_column": "UniqueID",
+      "reference_kind": "mapped_crop_unit",
+      "license": "Public domain",
+      "provider": "California DWR / Land IQ",
+      "documentation": "https://lab.data.ca.gov/dataset/statewide-crop-mapping",
+      "crop_evidence": "https://data.cnra.ca.gov/dataset/6c3d65e3-35bb-49e1-a51e-49d5a2cf09a9/resource/9a00d123-7d5f-46a0-8e89-b6b0591a01f0/download/2022-dwr-standard-land-use-legend-remote-sensing-version.pdf",
+      "geometry_vintage": "Water year 2022 mapping; exact aerial dates per polygon unavailable",
+      "vintage_verified": false,
+      "limitations": "Homogeneous cropped-area units, not legal parcels. Mixed crops may cause internal splits. Crop classification accuracy does not measure boundary accuracy. Aerial and satellite information contribute to mapping; complete independence from Landsat is not demonstrated.",
+      "redistribution": "Public domain"
+    },
+    "wa2025": {
+      "adapter": "zip-geodatabase",
+      "layer": "WSDACrop_2025",
+      "filename": "wa.zip",
+      "url": "https://cms.agr.wa.gov/WSDAKentico/Documents/DO/NRAS/2025WSDACropDistribution-gdb.zip",
+      "sha256": "2e82d00a0cb654d40577b94701bcb40113377daeb168f31863060623f005f2a9",
+      "reference_year": 2023,
+      "crop_column": "CropGroup",
+      "id_column": null,
+      "reference_kind": "mapped_crop_unit",
+      "license": "No explicit license in downloaded provider page; public download",
+      "provider": "Washington WSDA",
+      "documentation": "https://agr.wa.gov/departments/land-and-water/natural-resources/agricultural-land-use",
+      "geometry_vintage": "2025 publication filtered to LastSurveyDate in 2023 and WSDA data source; survey date does not independently date geometry",
+      "vintage_verified": false,
+      "limitations": "Subset excludes NASS-derived observations and other survey years. CropGroup is a broad group, not species. Geometry changes may postdate the survey. No exhaustive local coverage or independent physical-field validation is claimed.",
+      "redistribution": "Keep extracted vectors and reference-overlay maps local pending permission"
+    },
+    "mt2020": {
+      "adapter": "arcgis",
+      "filename": "mt_beaverhead.geojson",
+      "url": "https://gis.dnrc.mt.gov/arcgis/rest/services/WRD/MontanaStatewideIrrigation/FeatureServer/0",
+      "query_bbox": [
+        -112.62,
+        45.2,
+        -112.56,
+        45.24
+      ],
+      "sha256": "365f4d89120c6d99976fc801eabfa304d87f3b4b19eb669759ca4d85d46f0f42",
+      "reference_year": 2020,
+      "crop_column": null,
+      "id_column": "OBJECTID",
+      "reference_kind": "irrigation_mapping_unit",
+      "license": "No explicit license in service metadata; copyright Montana DNRC / University of Montana Climate Office",
+      "provider": "Montana DNRC / University of Montana Climate Office",
+      "documentation": "https://gis.dnrc.mt.gov/arcgis/rest/services/WRD/MontanaStatewideIrrigation/FeatureServer/0",
+      "geometry_vintage": "Estimated irrigated extent 2020; NAIP 2019/2020 and Landsat/Sentinel indices 2018-2021",
+      "vintage_verified": false,
+      "limitations": "Irrigation-equipped agricultural fields; omitted small ambiguous fields. Pivot/corner divisions may be irrigation units rather than visible cultivation boundaries. Landsat contributes to reference construction. Local aerial audit is July 2019, one year before comparison. No crop species attribute.",
+      "redistribution": "Keep extracted vectors and reference-overlay maps local pending permission"
+    },
+    "ut2018": {
+      "adapter": "arcgis",
+      "filename": "ut_cache.geojson",
+      "url": "https://services.arcgis.com/ZzrwjTRez6FJiOq4/arcgis/rest/services/Water_Related_Land_Use_Statewide_2018/FeatureServer/0",
+      "query_bbox": [
+        -111.91,
+        41.73,
+        -111.86,
+        41.77
+      ],
+      "sha256": "748cb2998937d5de4769cc3e8959bcd27eed306dacc7e9efc07c4c0858ca03ad",
+      "reference_year": 2018,
+      "crop_column": "Description",
+      "id_column": "OBJECTID",
+      "reference_kind": "irrigation_mapping_unit",
+      "license": "CC BY-SA (version unspecified in provider item)",
+      "provider": "Utah Division of Water Resources",
+      "documentation": "https://gis.utah.gov/products/sgid/planning/water-related-land-use/",
+      "license_evidence": "https://www.arcgis.com/home/item.html?id=4f1671cc9da441b3825ead1512a08e7b",
+      "geometry_vintage": "2018 SURV_YEAR throughout selected subset; exact polygon digitization dates unavailable",
+      "vintage_verified": false,
+      "limitations": "Irrigated land-use fields based on aerial digitization and surveys, with crop/water attributes. Grass hay and wet-area interfaces can have uncertain visible edges. Description is provider attribution, not model-inferred species.",
+      "redistribution": "Attribute Utah DWRe; CC BY-SA provider terms"
+    },
+    "qc2023": {
+      "adapter": "zip-shapefile",
+      "encoding": "cp1252",
+      "filename": "qc2023.zip",
+      "url": "https://www.fadq.qc.ca/fileadmin/geo4tb/BDPPAD/BDPPAD_V03_2023.zip",
+      "sha256": "9258447ac941b23efc78bf582c8555f66d1eb0a732c5949fa2f169697c139f82",
+      "reference_year": 2023,
+      "crop_column": "DESCODPR1",
+      "id_column": "IDANPAR",
+      "reference_kind": "declaration_parcel",
+      "license": "CC BY 4.0",
+      "provider": "La Financiere agricole du Quebec (FADQ)",
+      "documentation": "https://www.fadq.qc.ca/documents/donnees/base-de-donnees-des-parcelles-et-productions-agricoles-declarees/",
+      "license_evidence": "https://www.donneesquebec.ca/recherche/dataset/base-de-donnees-des-parcelles-et-productions-agricoles-declarees-bdppad",
+      "geometry_vintage": "2023 active crop declarations/client confirmation; original polygon image and creation/update year unspecified",
+      "vintage_verified": false,
+      "limitations": "Only current declared cultivated parcels retained; not exhaustive. Crop declarations are not ground truth. Insurance parcel splits may lack a visible physical edge, including long narrow strips. Spring aerial imagery and summer Landsat differ seasonally. Annual release does not date original geometry.",
+      "redistribution": "CC BY 4.0; attribute FADQ"
+    }
+  },
+  "sites": [
+    {
+      "id": "ca_colusa",
+      "country": "United States",
+      "region": "Colusa County, California",
+      "bbox": [
+        -122.04,
+        39.08,
+        -121.99,
+        39.12
+      ],
+      "reference_source": "ca2022",
+      "date_start": "2022-06-01",
+      "date_end": "2022-09-30",
+      "filters": [
+        {
+          "column": "MAIN_CROP",
+          "op": "in",
+          "value": [
+            "R1"
+          ]
+        }
+      ],
+      "crop_context": "Rice: R1 code verified in DWR legend",
+      "climate_context": "Central Valley Mediterranean seasonality; dry warm summers",
+      "climate_evidence": "https://statesummaries.ncics.org/chapter/ca/",
+      "selection_rationale": "Known rice parcels with visible bunds; small reference count is retained rather than selecting on performance",
+      "aerial_audit": {
+        "reference_year": 2022,
+        "bbox": [
+          -122.04,
+          39.08,
+          -121.99,
+          39.12
+        ],
+        "n_reference": 14,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_3912157_nw_10_060_20220709",
+          "USDA/NAIP/DOQQ/m_3912264_ne_10_060_20220709"
+        ],
+        "naip_dates_ms": [
+          1657324800000,
+          1657324800000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Visible bunds and cultivated-area edges align in overview and two reference-selected zooms. Only R1 parcels evaluated; nearby other crop and idle units are unknown coverage.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard"
+    },
+    {
+      "id": "ca_orchards",
+      "country": "United States",
+      "region": "Tulare County, California",
+      "bbox": [
+        -119.49,
+        36.46,
+        -119.44,
+        36.5
+      ],
+      "reference_source": "ca2022",
+      "date_start": "2022-05-01",
+      "date_end": "2022-08-31",
+      "filters": [
+        {
+          "column": "MAIN_CROP",
+          "op": "in",
+          "value": [
+            "D2",
+            "D3",
+            "D5",
+            "D7",
+            "D12",
+            "D13",
+            "V",
+            "C",
+            "YP"
+          ]
+        }
+      ],
+      "crop_context": "Orchards/vineyards including peaches and nectarines D5, almonds D12, plums D7",
+      "climate_context": "Central Valley Mediterranean seasonality; dry warm summers",
+      "climate_evidence": "https://statesummaries.ncics.org/chapter/ca/",
+      "selection_rationale": "Many small perennial blocks with shared edges; provider crop codes, not appearance, define crop inclusion",
+      "aerial_audit": {
+        "reference_year": 2022,
+        "bbox": [
+          -119.49,
+          36.46,
+          -119.44,
+          36.5
+        ],
+        "n_reference": 333,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_3611929_sw_11_060_20220624",
+          "USDA/NAIP/DOQQ/m_3611937_ne_11_060_20220624",
+          "USDA/NAIP/DOQQ/m_3611937_nw_11_060_20220624"
+        ],
+        "naip_dates_ms": [
+          1656028800000,
+          1656028800000,
+          1656028800000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Orchard-block edges generally align with tree-row breaks and access lanes in the inspected zooms. Some internal orchard blocks may reflect age/crop differences rather than hard physical divisions.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard"
+    },
+    {
+      "id": "wa_grant",
+      "country": "United States",
+      "region": "Grant County, Washington",
+      "bbox": [
+        -119.4,
+        46.85,
+        -119.34,
+        46.89
+      ],
+      "reference_source": "wa2025",
+      "date_start": "2023-05-01",
+      "date_end": "2023-08-31",
+      "filters": [
+        {
+          "column": "LastSurveyDate",
+          "op": "year",
+          "value": 2023
+        },
+        {
+          "column": "DataSource",
+          "op": "in",
+          "value": [
+            "WSDA"
+          ]
+        },
+        {
+          "column": "County",
+          "op": "in",
+          "value": [
+            "Grant"
+          ]
+        }
+      ],
+      "crop_context": "Provider groups: cereal grain, hay/silage, herbs and vegetables; irrigation attributes include pivots",
+      "climate_context": "Dry inland climate east of Cascades, greater seasonal temperature range than coast",
+      "climate_evidence": "https://statesummaries.ncics.org/chapter/wa/",
+      "selection_rationale": "Pivot and rectangular units with 2023 WSDA observations; exclude NASS source and mismatched survey years before inference",
+      "aerial_audit": {
+        "reference_year": 2023,
+        "bbox": [
+          -119.4,
+          46.85,
+          -119.34,
+          46.89
+        ],
+        "n_reference": 29,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_4611905_se_11_060_20230622_20230912",
+          "USDA/NAIP/DOQQ/m_4611906_sw_11_060_20230622_20230911",
+          "USDA/NAIP/DOQQ/m_4611913_ne_11_060_20230622_20230912",
+          "USDA/NAIP/DOQQ/m_4611914_nw_11_060_20230622_20230911"
+        ],
+        "naip_dates_ms": [
+          1687392000000,
+          1687392000000,
+          1687392000000,
+          1687392000000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Inspected pivot rims and rectangular shared edges align visibly; narrow irrigated corners can be separate units. Survey dates and source filters are applied before scores.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard"
+    },
+    {
+      "id": "mt_beaverhead",
+      "country": "United States",
+      "region": "Beaverhead County, Montana",
+      "bbox": [
+        -112.62,
+        45.2,
+        -112.56,
+        45.24
+      ],
+      "reference_source": "mt2020",
+      "date_start": "2020-06-01",
+      "date_end": "2020-09-30",
+      "filters": [],
+      "crop_context": "Irrigation-equipped agricultural fields: pivot, flood and sprinkler types; crop species unknown",
+      "climate_context": "Interior mountain-valley continental climate; seasonal temperature extremes",
+      "climate_evidence": "https://statesummaries.ncics.org/report_section/mt/1/",
+      "selection_rationale": "Mixed irrigation shapes and field sizes; explicitly a secondary irrigation-unit comparison with 2019 aerial audit",
+      "aerial_audit": {
+        "reference_year": 2020,
+        "bbox": [
+          -112.62,
+          45.2,
+          -112.56,
+          45.24
+        ],
+        "n_reference": 42,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_4511252_ne_12_060_20190721",
+          "USDA/NAIP/DOQQ/m_4511252_nw_12_060_20190721"
+        ],
+        "naip_dates_ms": [
+          1563667200000,
+          1563667200000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Pivot outlines align, but corner/irrigation-system splits can cross visually continuous cropped ground. Retained solely as irrigation-unit agreement; July 2019 audit is not 2020 verification.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard"
+    },
+    {
+      "id": "ut_cache",
+      "country": "United States",
+      "region": "Cache County, Utah",
+      "bbox": [
+        -111.91,
+        41.73,
+        -111.86,
+        41.77
+      ],
+      "reference_source": "ut2018",
+      "date_start": "2018-05-01",
+      "date_end": "2018-08-31",
+      "filters": [
+        {
+          "column": "Landuse",
+          "op": "in",
+          "value": [
+            "Agricultural"
+          ]
+        },
+        {
+          "column": "Description",
+          "op": "in",
+          "value": [
+            "Grass Hay",
+            "Alfalfa",
+            "Winter Wheat",
+            "Barley",
+            "Safflower",
+            "Vegetables",
+            "Idle"
+          ]
+        },
+        {
+          "column": "SURV_YEAR",
+          "op": "in",
+          "value": [
+            "2018"
+          ]
+        }
+      ],
+      "crop_context": "Grass hay, alfalfa, winter wheat, barley and minor crops from provider Description",
+      "climate_context": "Interior mountain-valley climate, cool winters and dry warm summers",
+      "climate_evidence": "https://statesummaries.ncics.org/chapter/ut/",
+      "selection_rationale": "Small irregular hay/crop units near riparian land; pasture, urban, water and wetland classes excluded by reference attributes",
+      "aerial_audit": {
+        "reference_year": 2018,
+        "bbox": [
+          -111.91,
+          41.73,
+          -111.86,
+          41.77
+        ],
+        "n_reference": 132,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "naip_ids": [
+          "USDA/NAIP/DOQQ/m_4111109_se_12_060_20180829",
+          "USDA/NAIP/DOQQ/m_4111110_sw_12_060_20180829",
+          "USDA/NAIP/DOQQ/m_4111117_ne_12_060_20180829",
+          "USDA/NAIP/DOQQ/m_4111118_nw_12_060_20180829"
+        ],
+        "naip_dates_ms": [
+          1535500800000,
+          1535500800000,
+          1535500800000,
+          1535500800000
+        ],
+        "license": "USDA NAIP public domain",
+        "collection": "USDA/NAIP/DOQQ"
+      },
+      "audit_notes": "Clear hay-block edges coexist with uncertain wet/riparian interfaces and subdivisions lacking visible separation. Retained solely as irrigation land-use unit agreement.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard"
+    },
+    {
+      "id": "qc2023",
+      "country": "Canada",
+      "region": "Les Maskoutains / Saint-Hyacinthe area, Monteregie, Quebec",
+      "bbox": [
+        -72.96,
+        45.74,
+        -72.91,
+        45.78
+      ],
+      "reference_source": "qc2023",
+      "date_start": "2023-06-01",
+      "date_end": "2023-09-30",
+      "filters": [
+        {
+          "column": "NBPRO",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "column": "TYPPAR",
+          "op": "in",
+          "value": [
+            "PAC"
+          ]
+        },
+        {
+          "column": "DESCODPR1",
+          "op": "not-in",
+          "value": [
+            "Partie non cultivée",
+            "Terre en friche"
+          ]
+        }
+      ],
+      "crop_context": "Maize, soybeans, hay and other current declarations from FADQ; species are declarations",
+      "climate_context": "Temperate Saint Lawrence lowlands agricultural context; seasonal growing period",
+      "climate_evidence": "https://cdn-contenu.quebec.ca/cdn-contenu/adm/min/agriculture-pecheries-alimentation/consultation-publique/RA_Ruiz_Lavoie_evolution-spatiale-activites-agricoles_MAPAQ.pdf",
+      "selection_rationale": "Active 2023 declarations in smaller elongated parcels; retain invisible declaration splits as secondary parcel agreement, not physical truth",
+      "aerial_audit": {
+        "reference_year": 2023,
+        "bbox": [
+          -72.96,
+          45.74,
+          -72.91,
+          45.78
+        ],
+        "n_reference": 166,
+        "audit": "Provider polygons over dated aerial imagery, before inference; qualitative single-reviewer spot check",
+        "imagery_year": 2023,
+        "imagery_season": "spring",
+        "url": "https://orthophotos2023.geomont.qc.ca/WMS/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GeoMont_Orthophotos_2023&STYLES=&SRS=EPSG%3A4326&BBOX=-72.96%2C45.74%2C-72.91%2C45.78&WIDTH=2000&HEIGHT=1600&FORMAT=image%2Fjpeg",
+        "license": "CC BY 4.0; GeoMont/MRNF"
+      },
+      "audit_notes": "Outer crop edges broadly align; many narrow declaration strips have faint or no visible shared boundary in spring imagery. Retained solely as declaration-parcel agreement.",
+      "audit_review": "Single-reviewer qualitative spot check before model inference; not a surveyed or independently double-reviewed physical-field gold standard"
+    }
+  ]
+}

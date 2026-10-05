@@ -121,6 +121,7 @@ Earth Engine catalogue and the providers on 2026-09-26 to 2026-09-28.
 | USGS NAIP Plus ImageServer | `usgs-naip-plus` | 0.3-0.6 m (finest selected footprint) | 2012-2023, **latest vintage per state only** | US states and territories | uint8 | no |
 | SPOT 6/7 multispectral | `spot` | 6 m | 2012-2023 | global, **restricted** | uncalibrated DN | yes |
 | SPOT 6/7 panchromatic | `spot-pan` | 1.5 m | 2012-2023 | global, **restricted** | uncalibrated DN | yes |
+| Landsat 7/8/9 panchromatic | `landsat-pan` | 15 m | 1999-present | global | unit TOA reflectance | yes |
 | Local GeoTIFF | `local` | the file's | any | user-provided | unknown | no |
 | Google Satellite Embedding (AlphaEarth) | `google-embedding` | 10 m, 64-D | 2017-2025 | global land | embedding | default backend; `source_coop` backend needs none |
 | TESSERA | `tessera-embedding` | 10 m, 128-D | v1 2017-2025 (near-global 2024), v1.1 2015-2025, v2 beta | depends on version | embedding | no |
@@ -474,6 +475,32 @@ Example scripts and notebooks are in [`examples/`](https://github.com/montimaj/a
 | [20_stratified_evaluation.py](https://github.com/montimaj/agribound/blob/main/examples/20_stratified_evaluation.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/20_stratified_evaluation.ipynb) | Stratified, size-class and boundary evaluation against NMOSE with bootstrap intervals; overall object and boundary metrics on Landsat, Sentinel-2, SPOT and NAIP of 2018 and with and without the crop filter |
 | [21_published_ftw_audit.py](https://github.com/montimaj/agribound/blob/main/examples/21_published_ftw_audit.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/21_published_ftw_audit.ipynb) | Published FTW polygons evaluated against NMOSE |
 | [22_global_south_spot_pan.py](https://github.com/montimaj/agribound/blob/main/examples/22_global_south_spot_pan.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/22_global_south_spot_pan.ipynb) | Delineate-Anything v2 on SPOT 6/7 panchromatic (1.5 m, restricted) in six farming landscapes of the Global South |
+| [23_landsat_pan_sr_comparison.py](examples/23_landsat_pan_sr_comparison.py) | [notebook](examples/notebooks/23_landsat_pan_sr_comparison.ipynb) | Matched Landsat 8/9 PAN, SR and PAN+SR RGB fusion; actual delineation against public RPG parcels, boundary/size metrics and comparison figure |
+| [24_landsat_landscape_comparison.py](examples/24_landsat_landscape_comparison.py) | [notebook](examples/notebooks/24_landsat_landscape_comparison.ipynb) | Repeat the matched comparison in Brittany, Landes and Alsace; measured landscape differences, parcel profiles and aggregate figures |
+| [25_landsat_international_comparison.py](examples/25_landsat_international_comparison.py) | [notebook](examples/notebooks/25_landsat_international_comparison.ipynb) | Six frozen sites in four countries; public reference inventory, seasonal windows, measured PAN/SR/fusion comparisons and explicit unmeasured-site evidence |
+| [26_landsat_north_america_comparison.py](examples/26_landsat_north_america_comparison.py) | [notebook](examples/notebooks/26_landsat_north_america_comparison.ipynb) | Six frozen sites in four US states and Québec; dated reference audits, matched PAN/SR/fusion, explicit coverage masks, reference inventory and manual-reference workflow |
+
+Example [27_landsat_multispectral_comparison.py](examples/27_landsat_multispectral_comparison.py)
+extends those Landsat suites with NIR false color, direct PAN/NIR/Red stacking,
+a coarse-PAN spatial-detail control and an unsharpened-NIR/visible-fusion hybrid.
+See the [multispectral comparison guide](docs/user-guide/landsat-multispectral-comparison.md)
+for reproducible runs, all-site maps, paired metrics and representative figures.
+
+Example [28_landsat_ftw_comparison.py](examples/28_landsat_ftw_comparison.py)
+compares those eight Landsat inputs with published FTW predictions across frozen
+historical and new site-year cohorts. It separates source-reference evaluation
+from prediction agreement and retains confidence, coverage and training-overlap
+audits. See the [FTW comparison guide](docs/user-guide/landsat-ftw-comparison.md).
+
+Start with the fast offline tutorials:
+[29: native Landsat PAN](examples/29_landsat_pan_field_delineation.py)
+([notebook](examples/notebooks/29_landsat_pan_field_delineation.ipynb)) and
+[30: Landsat versus published FTW](examples/30_landsat_ftw_product_comparison.py)
+([notebook](examples/notebooks/30_landsat_ftw_product_comparison.ipynb)).
+They verify a small attributed bundle of real measurements, regenerate common
+background maps, and separate reference evaluation from peer-product agreement.
+Downloads and inference require explicit opt-in; see the
+[tutorial guide](docs/user-guide/landsat-tutorials.md) for exact commands.
 
 ## Google Earth Engine Authentication
 

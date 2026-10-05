@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "site": {
+    "id": "fr_camargue_2024",
+    "country": "France",
+    "country_code": "FR",
+    "region": "Arles / Camargue, Bouches-du-Rhone",
+    "bbox": [
+      4.55,
+      43.55,
+      4.59,
+      43.58
+    ],
+    "cohort": "ftw_new",
+    "historical": false,
+    "ftw_year": 2024,
+    "date_start": "2024-05-01",
+    "date_end": "2024-09-30",
+    "reference_year": 2024,
+    "reference_mode": "rpg",
+    "reference_kind": "declaration_parcel",
+    "coverage_policy": "known_footprints",
+    "climate": "Mediterranean regional climate",
+    "climate_evidence": "https://meteofrance.com/changement-climatique/le-climat-en-france-hexagonale-et-corse",
+    "crop_context": "Declared rice and other annual crops; exact codes retained",
+    "crop_evidence": "https://www.data.gouv.fr/datasets/rpg",
+    "rationale": "Rice-growing regional setting; acquisition covers summer crops",
+    "existing_dir": "outputs/landsat_ftw_comparison/preparation/fr_camargue_2024",
+    "landsat_run_dir": "outputs/landsat_ftw_comparison/landsat_runs/fr_camargue_2024",
+    "redistribution": "Keep local; attribute original provider",
+    "temporal_category": "same_nominal_year_geometry_uncertain",
+    "training_overlap": "Unknown spatial overlap for both models; no independent holdout claim",
+    "benchmark_split": "Unknown; no verified spatial split membership",
+    "position_uncertainty": "Numerical boundary positional uncertainty not documented"
+  },
+  "comparison": {
+    "cloud_cover_max": 20,
+    "engine": "delineate-anything",
+    "checkpoint": "large_v2",
+    "checkpoint_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a",
+    "postprocessing": "Same as example 23: 1000 m2 minimum, 2 m simplification, no smoothing/SAM/LULC",
+    "boundary_tolerances_m": [
+      10,
+      15,
+      30
+    ],
+    "size_bins_ha": [
+      0,
+      1,
+      5,
+      20,
+      100,
+      100000
+    ]
+  },
+  "selected_summary_sites": [
+    "fr_camargue_2024",
+    "fr_bordeaux_2024",
+    "nl_flevoland_2025",
+    "nl_bollenstreek_2025",
+    "qc_yamaska_2024",
+    "vn_mekong_adjacent_2024"
+  ],
+  "selection": "All six additional sites in frozen FTW suite; licensing and landscape metadata, not scores",
+  "limitations": "Source-derived declarations, not verified independent physical-field truth. Model training independence unknown. Vietnamese labels are 2021, imagery/product 2024.",
+  "licenses": {
+    "USGS": "https://www.usgs.gov/faqs/are-there-any-restrictions-use-or-redistribution-landsat-data",
+    "RPG": "https://www.data.gouv.fr/datasets/rpg",
+    "FTW": "https://source.coop/ftw/global-data"
+  },
+  "files": [
+    {
+      "path": "inputs/landsat.tif",
+      "source": "outputs/landsat_ftw_comparison/preparation/fr_camargue_2024/inputs/landsat.tif",
+      "license": "USGS public domain; derived fusion Apache-2.0",
+      "sha256": "1ba313ac22f52ce97d26dc56290283408e587e3ae7d603cca5fa8f063fb14b42",
+      "bytes": 389127,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "inputs/landsat-pan.tif",
+      "source": "outputs/landsat_ftw_comparison/preparation/fr_camargue_2024/inputs/landsat-pan.tif",
+      "license": "USGS public domain; derived fusion Apache-2.0",
+      "sha256": "80edf34c8b5469f5ce661ebd62aa67cd1f27496e12153f51e44d2b71522eef58",
+      "bytes": 271403,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "inputs/pan_sr_rgb.tif",
+      "source": "outputs/landsat_ftw_comparison/preparation/fr_camargue_2024/inputs/pan_sr_rgb.tif",
+      "license": "USGS public domain; derived fusion Apache-2.0",
+      "sha256": "e066fa4881d13801ad331a692f690771ebf187b9a3094a3c62fff6ed7e914745",
+      "bytes": 1217317,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "reference.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/reference.gpkg",
+      "license": "Etalab-2.0",
+      "sha256": "1165ca097ac38a3a937ecacdafabd1ddfdd5bf43503a7db663d147d5fa108a2c",
+      "bytes": 118784,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "evaluation_coverage.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/evaluation_coverage.gpkg",
+      "license": "Etalab-2.0",
+      "sha256": "a7bca3b5a1c91d28e33187d278252e515223a5528fa1b5bbce8de20513e499fa",
+      "bytes": 118784,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "scene_manifest.json",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/scene_manifest.json",
+      "license": "Apache-2.0",
+      "sha256": "2812a70f83530143b1439fb8c4efb4439f10ffb60bbc3a09880d0862be626da2",
+      "bytes": 14354,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "figure_windows.json",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/figure_windows.json",
+      "license": "Apache-2.0",
+      "sha256": "ef2c79be9fdf5c161c57ebac69e66e312d2d3c6ee0c8a3c3ea709fe32b634ce6",
+      "bytes": 750,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "fusion_validation.json",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fusion_validation.json",
+      "license": "Apache-2.0",
+      "sha256": "f368180aa5e9cd9d36a21a3a03f8e39136443bd61e0ec6d6282aa18bb5f19ea6",
+      "bytes": 2635,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "ftw_raw.parquet",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/ftw_raw.parquet",
+      "license": "CC-BY-4.0",
+      "sha256": "023738df237cce7eada578bd7d6740989a183a7966c974ff124e432793571c7b",
+      "bytes": 53172,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "predictions/fields_pan.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fields_pan.gpkg",
+      "license": "Apache-2.0",
+      "sha256": "500c0fea2ebe261256f110444b401571f8d7af2f8255e32a13a11f83db569f70",
+      "bytes": 139264,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "predictions/fields_sr.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fields_sr.gpkg",
+      "license": "Apache-2.0",
+      "sha256": "69b3898ced9702c62548357e0d07c469f964e6824337f9c1db02008bd7a7fea9",
+      "bytes": 110592,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "predictions/fields_combined.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fields_combined.gpkg",
+      "license": "Apache-2.0",
+      "sha256": "733e10a819ef45daf5ff37a8e750a7ff6c994e38f9841cb60b6c53f954a33c9f",
+      "bytes": 135168,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "predictions/fields_false_color.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fields_false_color.gpkg",
+      "license": "Apache-2.0",
+      "sha256": "28fe8aed1db0446f0498844f14519bb9d46e090c287ed2c8ea83f2d3c92d44b1",
+      "bytes": 110592,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "predictions/fields_false_color_15m.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fields_false_color_15m.gpkg",
+      "license": "Apache-2.0",
+      "sha256": "0b895368419d3680ec4328d8389ec53cdf7c28bacd5f3f1a19ab6513f1cc9b71",
+      "bytes": 118784,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "predictions/fields_pan_nir_red.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fields_pan_nir_red.gpkg",
+      "license": "Apache-2.0",
+      "sha256": "f9a551158a185df45e93ea07a914819e4084f1572bb163d20cec15115134a662",
+      "bytes": 143360,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "predictions/fields_coarse_pan_nir_red.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fields_coarse_pan_nir_red.gpkg",
+      "license": "Apache-2.0",
+      "sha256": "5e891ab542055ba907d6ddaa6ea0ebf5df63dc0495a1cc4207e2ad400c9a1be4",
+      "bytes": 118784,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "predictions/fields_hybrid.gpkg",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fields_hybrid.gpkg",
+      "license": "Apache-2.0",
+      "sha256": "9bf40d49217c576a5ecf85978aec89d1ef3594f8f24b0b17c5bf51af2bdae3a8",
+      "bytes": 143360,
+      "transformation": "byte-identical copy"
+    },
+    {
+      "path": "reference_headline_15m.csv",
+      "source": "outputs/landsat_ftw_comparison/reference_headline_15m.csv",
+      "license": "Apache-2.0 derived statistics; source attributions in inventory",
+      "sha256": "f86cab2e46be915385d2f7daf2c15ec5b51ff0d991a23071aa9d8296a1c9045b",
+      "bytes": 32150,
+      "source_sha256": "f994ed91737d65f75afe9ec609d46e34a2bd5ed35578160c550fbb189b9a714e",
+      "transformation": "six preselected public-reference sites; retain all rows"
+    },
+    {
+      "path": "prediction_agreement.csv",
+      "source": "outputs/landsat_ftw_comparison/prediction_agreement.csv",
+      "license": "Apache-2.0 derived statistics; source attributions in inventory",
+      "sha256": "08c69d2101c5a2da0bde96515484545b9dc1faae7f3a45ec790c2f6f50dc2354",
+      "bytes": 134811,
+      "source_sha256": "4afd0eac1dd0a07d96ac236485b5c4516d95389ed849706b3b0a16236547fd3f",
+      "transformation": "six preselected public-reference sites; retain all rows"
+    },
+    {
+      "path": "reference_inventory.csv",
+      "source": "outputs/landsat_ftw_comparison/reference_inventory.csv",
+      "license": "Apache-2.0 derived statistics; source attributions in inventory",
+      "sha256": "5d43655de614f7f30bd70fb5d48e77300552eedf1989704ed552c9e436a97dca",
+      "bytes": 6031,
+      "source_sha256": "73b8d9ad5b4da9c2f3b8c7bd4b1af10f71c34ff3a30ce23441fd89d6653c2f8d",
+      "transformation": "six preselected public-reference sites; retain all rows"
+    },
+    {
+      "path": "confidence_sensitivity.csv",
+      "source": "outputs/landsat_ftw_comparison/confidence_sensitivity.csv",
+      "license": "Apache-2.0 derived statistics; source attributions in inventory",
+      "sha256": "4902d71816cb579ca9f9101c00420fa756229f13a642b1b5fff96491afab9cba",
+      "bytes": 2604,
+      "source_sha256": "3c7b87fc28012f78a83e86f5ca6f627e8a4c812d3abe55b7c1a0096a63862183",
+      "transformation": "six preselected public-reference sites; retain all rows"
+    },
+    {
+      "path": "product_status.csv",
+      "source": "outputs/landsat_ftw_comparison/product_status.csv",
+      "license": "Apache-2.0 derived statistics; source attributions in inventory",
+      "sha256": "2dc17f4dbd13cfc96fa432fc71b6298bfe73a93b45fac808fb3d04aed9e1e7f9",
+      "bytes": 11786,
+      "source_sha256": "375a27ff63801f6ecfc9b2305b09b179c71154c36e147173601408906fae0044",
+      "transformation": "six preselected public-reference sites; retain all rows"
+    },
+    {
+      "path": "model_provenance.json",
+      "source": "outputs/landsat_ftw_comparison/fr_camargue_2024/fields_*.gpkg.provenance.json",
+      "license": "Apache-2.0",
+      "sha256": "13d9b2079fa01e360c97250cc59d4097c47232fd58d4690b1da0ddf2828f8639",
+      "bytes": 17050,
+      "transformation": "selected nonpersonal engine metadata and config; checkpoint paths/hostnames omitted"
+    }
+  ]
+}

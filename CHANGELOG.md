@@ -6,8 +6,36 @@ All notable changes to agribound will be documented in this file.
 
 ### Added
 
-- `landsat-pan`: native 15 m Landsat 7/8/9 B8 TOA imagery through the existing
-  source interfaces, with sensor QA masks, scene cloud filtering and RGB replication.
+- Examples 29/30 and synchronized offline notebooks: a small attributed public
+  Landsat/FTW snapshot, common-background maps, reusable input-integrity checks,
+  reference evaluation separated from product agreement, and explicit live modes.
+
+- Example 28: separate frozen Landsat/FTW suite, six additional AOIs, immutable
+  published-product snapshots, independent product status, reference evaluation
+  and prediction agreement tracks, confidence sensitivities and landscape maps.
+
+- Example 27: frozen all-site Landsat NIR/Red/Green, resampling, PAN/NIR/Red,
+  coarse-PAN and hybrid comparisons; offline input-integrity checks, preserved
+  baseline reuse, coverage-aware metrics and common-background figure generation.
+
+- Example 26: 18 North American PAN/SR/fusion delineations in six frozen
+  sites, dated reference audits, CRS-aware reference adapters with checked
+  ArcGIS batches, reference inventories and a blank independent annotation kit.
+- Optional evaluation boundary coverage masks preserve original line segments,
+  whole-field overlap and size, and use a 1 mm reprojection guard for coincident
+  edges. Reference categories and conditional coverage scores remain explicit.
+- Example 25: a frozen international PAN/SR/fusion suite with verified reference
+  checksums and licenses, site-specific seasons, reference provenance, equal-site
+  and field-count-weighted summaries, and explicit evidence for failed selection.
+- Example 24: nine additional real PAN/SR/fusion runs in Brittany, Landes and
+  Alsace, with automatic local UTM grids, parcel morphology profiles and
+  landscape comparison tables and figures.
+- Example 23: matched Landsat 8/9 PAN, SR and experimental RGB detail fusion,
+  evaluated against public same-year RPG parcels with reproducible source
+  manifests, native-resolution inference, size/boundary metrics and figures.
+- `landsat-pan`: native 15 m Landsat 7/8/9 B8 TOA imagery, with scene cloud
+  filtering, sensor-specific QA masks, median composites and RGB replication.
+  Preserves TOA reflectance, sensor provenance and Landsat 7 SLC-off gaps.
 
 ## [1.0.1] - 2026-09-30
 

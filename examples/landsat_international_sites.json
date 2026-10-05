@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "selection_date": "2026-10-01",
+  "selection_basis": "Reference coverage, reported land use, hemisphere and regional crop calendars; frozen before inference. No selection by model scores.",
+  "comparison": {
+    "cloud_cover_max": 20,
+    "engine": "delineate-anything",
+    "checkpoint": "large_v2",
+    "checkpoint_sha256": "46700b8a279b07922953a11adaeb5e658d9a2384b6334c8e0a3090886218915a",
+    "postprocessing": "Same as example 23: 1000 m2 minimum, 2 m simplification, no smoothing/SAM/LULC",
+    "boundary_tolerances_m": [10, 15, 30],
+    "size_bins_ha": [0, 1, 5, 20, 100, 100000]
+  },
+  "sources": {
+    "netherlands": {
+      "filename": "boundaries_netherlands_2022.parquet",
+      "url": "https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/kerner-lab/fields-of-the-world-netherlands/boundaries_netherlands_2022.parquet",
+      "sha256": "aa12b254a15653174b6a94a46567654bdc85afddc01a59e0eac5a681acdf1d58",
+      "reference_year": 2022,
+      "license": "CC0-1.0",
+      "attribution": "RVO / PDOK; converted and subset by Kerner Lab, Fields of The World",
+      "reference_kind": "Annual BRP crop declarations based on the agricultural reference register; not cadastral ownership boundaries",
+      "coverage": "FTW arable-land subset; grassland and other excluded classes are absent. Unmatched predictions are not all proven non-fields.",
+      "position_uncertainty": "No numerical positional accuracy stated in the conversion metadata; agricultural reference/declaration geometry can differ from physical edges.",
+      "crop_column": "crop_type",
+      "sources": [
+        "https://source.coop/kerner-lab/fields-of-the-world-netherlands",
+        "https://www.pdok.nl/ogc-apis/-/article/gewaspercelen-inspire-geharmoniseerd-"
+      ]
+    },
+    "spain": {
+      "filename": "boundaries_spain_2020.parquet",
+      "url": "https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/kerner-lab/fields-of-the-world-spain/boundaries_spain_2020.parquet",
+      "sha256": "0946ee9164cbc7f56d57f8793f28696860e6bc1abee69f1465e3053b06c0eea6",
+      "reference_year": 2020,
+      "license": "CC-BY-4.0",
+      "attribution": "SIGPAC Navarra / EuroCrops; converted and subset by Kerner Lab, Fields of The World",
+      "reference_kind": "SIGPAC agricultural land-use enclosures, including arable and perennial classes; not exhaustive physical field truth",
+      "coverage": "Selected agricultural classes only; ARABLE LAND is a use class, not a crop species or an irrigation label.",
+      "position_uncertainty": "No numerical positional accuracy stated in the conversion metadata; use-class and declaration splits may have invisible edges.",
+      "crop_column": "crop_name",
+      "sources": [
+        "https://source.coop/kerner-lab/fields-of-the-world-spain",
+        "https://www.navarra.es/es/agricultura-y-ganaderia/pac/sigpac"
+      ]
+    },
+    "southafrica": {
+      "filename": "boundaries_south_africa_2018.parquet",
+      "url": "https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/kerner-lab/fields-of-the-world-southafrica/boundaries_south_africa_2018.parquet",
+      "sha256": "f3ec5d3a36fc6bd4b8aff2631b11b570fcadad84003aaff7082b7641623d2273",
+      "reference_year": 2018,
+      "license": "CC-BY-NC-SA-4.0",
+      "attribution": "ESA Fusion Competition crop ground-reference data; converted by Kerner Lab, Fields of The World",
+      "reference_kind": "Crop-labeled field/cadastral reference from the ESA classification challenge; physical edge equivalence is not guaranteed",
+      "coverage": "Western Cape challenge area only, five included grain/forage classes; completeness outside those classes is not established.",
+      "position_uncertainty": "No numerical positional accuracy stated in the conversion metadata.",
+      "crop_column": "crop_name",
+      "sources": [
+        "https://source.coop/kerner-lab/fields-of-the-world-southafrica",
+        "https://source.coop/esa/fusion-competition",
+        "https://platform-challenges.philab.esa.int/ai4food-security-south-africa"
+      ]
+    },
+    "vietnam": {
+      "filename": "boundaries_vietnam_2021.parquet",
+      "url": "https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/kerner-lab/fields-of-the-world-vietnam/boundaries_vietnam_2021.parquet",
+      "sha256": "3029152b37a449a8b25d449ab4f9fe37e46000932072e8b4172287cd8a70d94a",
+      "reference_year": 2021,
+      "license": "CC-BY-4.0",
+      "attribution": "AI4SmallFarms, Persello et al., University of Twente / TU Delft / DLR; converted by Kerner Lab, Fields of The World",
+      "reference_kind": "All visible agricultural fields manually digitized within surveyed tiles using Sentinel-2 and very-high-resolution imagery",
+      "coverage": "Approximately 5 km tiles only. Chosen boxes lie inside tiles, but the dataset has no per-field crop species labels.",
+      "position_uncertainty": "Multi-stage quality and topology checks, no numerical positional accuracy supplied. Digitization is August 2021; seasonal windows are earlier in the same year.",
+      "crop_column": null,
+      "sources": [
+        "https://source.coop/kerner-lab/fields-of-the-world-vietnam",
+        "https://doi.org/10.17026/dans-xy6-ngg6",
+        "https://elib.dlr.de/200095/1/AI4SmallFarms_A_Dataset_for_Crop_Field_Delineation_in_Southeast_Asian_Smallholder_Farms.pdf"
+      ]
+    }
+  },
+  "sites": [
+    {
+      "id": "nl_meierij",
+      "country": "Netherlands",
+      "region": "Noord-Brabant, near Veghel/Meierijstad",
+      "bbox": [5.54, 51.55, 5.60, 51.59],
+      "reference_source": "netherlands",
+      "date_start": "2022-05-01",
+      "date_end": "2022-08-31",
+      "climate": "Temperate maritime",
+      "crop_context": "Reference declarations dominated by silage maize, with consumption potatoes and sugar beet; no species inferred from imagery",
+      "rationale": "Temperate summer arable comparison with several labeled crop species and medium-sized fields",
+      "climate_evidence": "https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub102-87.pdf",
+      "calendar_basis": "Summer growing window for the crop declarations, consistent with the French baseline window"
+    },
+    {
+      "id": "es_valtierra",
+      "country": "Spain",
+      "region": "Navarra, Ribera del Ebro near Valtierra",
+      "bbox": [-1.68, 42.15, -1.64, 42.18],
+      "reference_source": "spain",
+      "date_start": "2020-05-01",
+      "date_end": "2020-08-31",
+      "climate": "Dry Mediterranean continental / semi-arid regional context",
+      "crop_context": "Arable and vegetable-use enclosures in a documented irrigation region; neither species nor irrigation is confirmed for every field",
+      "rationale": "Summer crops in a dry regional climate, contrasting with temperate and tropical sites",
+      "climate_evidence": "https://www.navarra.es/mapacultivos/climatologia.html",
+      "crop_evidence": "https://www.lexnavarra.navarra.es/detalle.asp?r=29769",
+      "calendar_basis": "Summer window; regional crop map and irrigation documentation, not field-specific planting dates"
+    },
+    {
+      "id": "es_olite",
+      "country": "Spain",
+      "region": "Navarra, Zona Media near Olite",
+      "bbox": [-1.69, 42.455, -1.65, 42.485],
+      "reference_source": "spain",
+      "date_start": "2020-04-01",
+      "date_end": "2020-07-31",
+      "climate": "Mediterranean with dry summers",
+      "crop_context": "Reference arable-use enclosures, vineyards and olive plots; arable crop species unknown",
+      "rationale": "Small mixed annual/perennial enclosures; a spring-to-harvest window contrasting with the Ribera summer window",
+      "climate_evidence": "https://www.navarra.es/mapacultivos/climatologia.html",
+      "crop_evidence": "https://www.navarra.es/mapacultivos/navarra.html",
+      "calendar_basis": "Spring and early summer cover annual crop growth/harvest alongside perennial cultivation"
+    },
+    {
+      "id": "za_hessequa",
+      "country": "South Africa",
+      "region": "Western Cape, Hessequa near Heidelberg",
+      "bbox": [20.90, -34.20, 20.95, -34.16],
+      "reference_source": "southafrica",
+      "date_start": "2018-07-01",
+      "date_end": "2018-10-31",
+      "climate": "Southern Cape winter-growing grain region; Mediterranean-to-coastal rainfall transition",
+      "crop_context": "Labeled wheat, barley, canola, small-grain grazing and lucerne/medics; large parcels relative to other selected sites",
+      "rationale": "Southern Hemisphere winter/spring commercial grain and forage reference case",
+      "climate_evidence": "https://d7.westerncape.gov.za/assets/departments/treasury/Documents/Socio-economic-profiles/2016/municipality/Eden-District/wc042_hessequa_2015_sep-lg_profile.pdf",
+      "crop_evidence": "https://www.westerncape.gov.za/provincial-treasury/sites/provincial-treasury.westerncape.gov.za/files/atoms/files/2023-24%20MERO%20Garden%20Route%20District.pdf",
+      "calendar_basis": "Winter/spring grain development, July through October; no Northern Hemisphere summer assumption"
+    },
+    {
+      "id": "vn_redriver",
+      "country": "Vietnam",
+      "region": "Thai Binh province, Red River Delta (2021 administrative names)",
+      "bbox": [106.38, 20.615, 106.405, 20.64],
+      "reference_source": "vietnam",
+      "date_start": "2021-02-01",
+      "date_end": "2021-05-31",
+      "climate": "Northern monsoonal climate with cooler winters",
+      "crop_context": "Smallholder fields in a documented rice-based delta; species unmeasured at field level",
+      "rationale": "Very small fields within one fully digitized tile; winter/spring rice regional calendar",
+      "climate_evidence": "https://climateknowledgeportal.worldbank.org/sites/default/files/2021-04/15077-Vietnam%20Country%20Profile-WEB.pdf",
+      "crop_evidence": "https://www.fao.org/4/Y4347E/y4347e1u.htm",
+      "calendar_basis": "https://www.fao.org/fileadmin/templates/rap/files/meetings/2016/161109_AMIS_4.7-AMIS_Stock_Seminar_Vietnam_rev.pdf",
+      "vintage_note": "Same reference year, but imagery February-May precedes August digitization; field rearrangements cannot be ruled out"
+    },
+    {
+      "id": "vn_mekong",
+      "country": "Vietnam",
+      "region": "Dong Thap province, Mekong Delta near Cao Lanh (2021 administrative names)",
+      "bbox": [105.69, 10.582, 105.715, 10.607],
+      "reference_source": "vietnam",
+      "date_start": "2021-01-01",
+      "date_end": "2021-04-30",
+      "climate": "Humid tropical monsoonal; dry-season observation window",
+      "crop_context": "Fields in a documented multiple-rice-cropping delta; species unmeasured at field level",
+      "rationale": "Tropical rice regional context and less fragmented reference fields than the northern tile",
+      "climate_evidence": "https://climateknowledgeportal.worldbank.org/sites/default/files/2021-04/15077-Vietnam%20Country%20Profile-WEB.pdf",
+      "crop_evidence": "https://www.fao.org/4/Y4347E/y4347e1u.htm",
+      "calendar_basis": "https://www.fao.org/fileadmin/templates/rap/files/meetings/2016/161109_AMIS_4.7-AMIS_Stock_Seminar_Vietnam_rev.pdf",
+      "vintage_note": "Same reference year, but imagery January-April precedes August digitization; field rearrangements cannot be ruled out"
+    }
+  ],
+  "gaps": [
+    "Irrigation is supported as regional context in Valtierra, not as a verified field-level attribute; no pure irrigated-versus-rainfed contrast is claimed.",
+    "Vietnam has no species labels, so the rice interpretation is regional context, not a measured crop-stratified result.",
+    "India, Kenya and Rwanda FTW subsets have presence-only labels; excluded from full-area precision/oversegmentation comparisons.",
+    "Global machine-predicted field maps were excluded as independent ground truth.",
+    "No fully documented ground-survey positional uncertainty or guaranteed geographical holdout from the pretrained checkpoint is available."
+  ]
+}

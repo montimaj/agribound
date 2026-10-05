@@ -224,6 +224,7 @@ def evaluate(
     boundary_tolerance_m: float | None = None,
     equal_area_crs: Any = None,
     boundary_sample_spacing_m: float | None = BOUNDARY_SAMPLE_SPACING_M,
+    boundary_mask: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
 ) -> dict[str, Any]:
     """Compute object-level accuracy metrics of predicted field polygons.
 
@@ -235,6 +236,15 @@ def evaluate(
     reference : geopandas.GeoDataFrame or geopandas.GeoSeries
         Reference field polygons. Must have a CRS unless it contains no
         geometries (it may differ from the prediction's CRS).
+    boundary_mask : geopandas.GeoDataFrame or geopandas.GeoSeries, optional
+        Known reference coverage for boundary tolerance metrics. Intersect
+        original boundary lines with this polygon mask; never use the boundary
+        of clipped polygons, which would introduce artificial mask edges.
+        Requires ``boundary_tolerance_m``. Does not select objects or change
+        their IoU, area, matched-pair distances or size classes. Select whole
+        objects consistently before calling when coverage is incomplete.
+        A 1 mm outward guard in the metric CRS prevents floating-point
+        reprojection from discarding lines exactly on the mask boundary.
     iou_threshold : float
         Minimum IoU (intersection over union) for a prediction and a reference
         field to match, in ``(0, 1]`` (default 0.5). A pair matches when
@@ -540,8 +550,17 @@ def evaluate(
         equal_area_crs=equal_area_crs,
         boundary_sample_spacing_m=boundary_sample_spacing_m,
     )
-    run = _run(predicted, reference, params, strata=strata, size_bins=size_bins)
+    run = _run(
+        predicted,
+        reference,
+        params,
+        strata=strata,
+        size_bins=size_bins,
+        boundary_mask=boundary_mask,
+    )
     metrics = _summarise(run)
+    if boundary_mask is not None:
+        metrics["boundary_mask_applied"] = True
     if params.bootstrap > 0:
         _add_bootstrap(metrics, run)
 
@@ -573,6 +592,7 @@ def evaluate_frame(
     boundary_tolerance_m: float | None = None,
     size_bins: str | Sequence[float] | np.ndarray | None = None,
     boundary_sample_spacing_m: float | None = BOUNDARY_SAMPLE_SPACING_M,
+    boundary_mask: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
 ) -> pd.DataFrame:
     """Return the per-reference-field evaluation table.
 
@@ -592,6 +612,9 @@ def evaluate_frame(
         See :func:`evaluate` (hectares); adds a ``size_class`` column.
     boundary_sample_spacing_m : float or None
         See :func:`evaluate` (default 1 m).
+    boundary_mask : geopandas.GeoDataFrame or geopandas.GeoSeries, optional
+        See :func:`evaluate`; ``perimeter_m`` then measures only original
+        boundary lines inside the mask, while matched-pair distances stay whole.
 
     Returns
     -------
@@ -640,8 +663,18 @@ def evaluate_frame(
         equal_area_crs=equal_area_crs,
         boundary_sample_spacing_m=boundary_sample_spacing_m,
     )
-    run = _run(predicted, reference, params, strata=strata, size_bins=size_bins)
-    return _frame(run)
+    run = _run(
+        predicted,
+        reference,
+        params,
+        strata=strata,
+        size_bins=size_bins,
+        boundary_mask=boundary_mask,
+    )
+    frame = _frame(run)
+    if boundary_mask is not None:
+        frame.attrs["boundary_mask_applied"] = True
+    return frame
 
 
 def pixels_per_field(
@@ -1409,8 +1442,31 @@ def _ranges(starts: np.ndarray, counts: np.ndarray) -> np.ndarray:
     return np.arange(total, dtype=np.int64) + np.repeat(offsets, counts)
 
 
+def _local_boundary_mask(mask: _Layer, epsg: int) -> Any:
+    """Project original mask vertices just as boundary vertices are projected.
+
+    Equal-area preparation densifies edges for area measurements. Reprojecting
+    that densified mask would follow curves instead of the boundary evaluator's
+    original straight segments, excluding parts of a coincident perimeter.
+    """
+    return shapely.union_all(_to_crs(mask.src, mask.crs, epsg)).buffer(0.001)
+
+
+def _boundary_lengths(layer: _Layer, mask: Any) -> np.ndarray:
+    """Original boundary length inside coverage, in each object's metric zone."""
+    lines = shapely.boundary(layer.utm)
+    if mask is None:
+        return shapely.length(lines)
+    lengths = np.zeros(layer.n)
+    for epsg in np.unique(layer.epsg):
+        selected = np.flatnonzero(layer.epsg == epsg)
+        local_mask = _local_boundary_mask(mask, int(epsg))
+        lengths[selected] = shapely.length(shapely.intersection(lines[selected], local_mask))
+    return lengths
+
+
 def _boundary_within_tolerance(
-    layer: _Layer, other: _Layer, tol: float, ea_crs: pyproj.CRS
+    layer: _Layer, other: _Layer, tol: float, ea_crs: pyproj.CRS, mask: Any = None
 ) -> np.ndarray:
     """Per polygon of *layer*: boundary length within *tol* of any *other* boundary."""
     within = np.zeros(layer.n)
@@ -1450,6 +1506,7 @@ def _boundary_within_tolerance(
         sel = np.flatnonzero((layer.epsg == epsg) & (n_cand > 0))
         if len(sel) == 0:
             continue
+        local_mask = _local_boundary_mask(mask, int(epsg)) if mask is not None else None
         # Hilbert-curve order keeps each chunk compact, so the bounding-box
         # filter in _length_within drops the far parts of large candidates.
         hilbert = gpd.GeoSeries(layer.utm[sel]).hilbert_distance().to_numpy()
@@ -1459,6 +1516,9 @@ def _boundary_within_tolerance(
             cand = np.unique(ib[_ranges(first_cand[chunk], n_cand[chunk])])
             lines = shapely.boundary(layer.utm[chunk])
             others = shapely.boundary(_in_zone(other, cand, int(epsg)))
+            if local_mask is not None:
+                lines = shapely.intersection(lines, local_mask)
+                others = shapely.intersection(others, local_mask)
             within[chunk] = _length_within(lines, others, tol)
     return within
 
@@ -1624,8 +1684,20 @@ def _run(
     *,
     strata: Any,
     size_bins: Any,
+    boundary_mask: Any = None,
 ) -> _Run:
     ea_crs = params.ea_crs
+    mask = None
+    if boundary_mask is not None:
+        if params.tolerance is None:
+            raise ValueError("boundary_mask requires boundary_tolerance_m")
+        series = _as_geoseries(boundary_mask, "boundary_mask")
+        if series.empty or not series.geom_type.isin(["Polygon", "MultiPolygon"]).all():
+            raise ValueError("boundary_mask requires nonempty polygon geometries")
+        layer = _prepare_layer(series, "boundary_mask", ea_crs)
+        if layer.n != len(series):
+            raise ValueError("boundary_mask contains missing, empty or collapsed geometries")
+        mask = layer
     ref = _prepare_layer(reference, "reference", ea_crs)
     pred = _prepare_layer(predicted, "predicted", ea_crs)
     strata_groups = _resolve_strata(strata, reference, ref)
@@ -1687,16 +1759,16 @@ def _run(
     hausdorff[mr], mean_dist[mr], spacing[mr] = _pair_boundary_distances(
         ref, pred, mr, ref_match[mr], params.spacing
     )
-    perim_ref = shapely.length(shapely.boundary(ref.utm)) if n_ref else np.zeros(0)
+    perim_ref = _boundary_lengths(ref, mask)
 
     tol = params.tolerance
     within_ref = within_tol = None
     within_pred = np.zeros(n_pred)
     perim_pred = np.zeros(n_pred)
     if tol is not None:
-        within_ref = _boundary_within_tolerance(ref, pred, tol, ea_crs)
-        within_pred = _boundary_within_tolerance(pred, ref, tol, ea_crs)
-        perim_pred = shapely.length(shapely.boundary(pred.utm)) if n_pred else np.zeros(0)
+        within_ref = _boundary_within_tolerance(ref, pred, tol, ea_crs, mask)
+        within_pred = _boundary_within_tolerance(pred, ref, tol, ea_crs, mask)
+        perim_pred = _boundary_lengths(pred, mask)
         within_tol = matched & (np.nan_to_num(mean_dist, nan=np.inf) <= tol)
 
     # Per-reference quantity matrix (see _QUANTITIES).

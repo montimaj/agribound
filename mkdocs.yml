@@ -81,6 +81,13 @@ nav:
   - User Guide:
       - Quickstart: user-guide/quickstart.md
       - Satellite Sources: user-guide/satellite-sources.md
+      - Landsat PAN Comparison: user-guide/landsat-pan-comparison.md
+      - International Landsat Comparison: user-guide/landsat-international-comparison.md
+      - North American Landsat Comparison: user-guide/landsat-north-america-comparison.md
+      - Landsat Multispectral Comparison: user-guide/landsat-multispectral-comparison.md
+      - Landsat and Published FTW Comparison: user-guide/landsat-ftw-comparison.md
+      - Offline Landsat and FTW Tutorials: user-guide/landsat-tutorials.md
+      - North American Reference Workflow: user-guide/north-america-reference-workflow.md
       - Delineation Engines: user-guide/engines.md
       - SAM Refinement: user-guide/sam-refinement.md
       - Configuration Reference: user-guide/configuration.md
