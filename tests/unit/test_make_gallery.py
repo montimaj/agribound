@@ -531,6 +531,65 @@ def test_one_locator_dot_and_location_record_per_area(tool, tmp_path, monkeypatc
     assert [a["panel"] for a in stats["location"]["areas"]] == ["1", "2"]
 
 
+def test_maps_carry_no_axis_labels(tool, tmp_path, monkeypatch):
+    # geopandas >= 1.2 labels the axes of every .plot() with the CRS axis names: text under
+    # every panel, and a world locator pushed out of the footer. Stand in for it here.
+    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
+
+    add, labelled = Axes.add_collection, []
+
+    def add_and_label(self, collection, *args, **kwargs):
+        labelled.append(self)
+        self.set_xlabel(self.get_xlabel() or "Easting [metre]")
+        self.set_ylabel(self.get_ylabel() or "Northing [metre]")
+        return add(self, collection, *args, **kwargs)
+
+    monkeypatch.setattr(Axes, "add_collection", add_and_label)
+    _fake_boundaries(tool, monkeypatch)
+    root = _run_root(tmp_path)
+    _second_area(root)
+    labels = []
+    check = tool._check_footer
+
+    def spy(fig, *args):
+        labels.extend((ax.get_xlabel(), ax.get_ylabel()) for ax in fig.axes if ax.get_visible())
+        return check(fig, *args)
+
+    monkeypatch.setattr(tool, "_check_footer", spy)
+    one = tool.Entry(
+        "99",
+        "Demo_example",
+        "Demo",
+        [tool.Layer("outputs/demo/fields.gpkg", "Demo")],
+        reference="outputs/demo/reference.gpkg",
+        inset=False,
+    )
+    tool.render(one, root, tmp_path / "gallery", "composite")
+    two = tool.Entry(
+        "86",
+        "Demo_area_inset",
+        "Demo",
+        [
+            tool.Layer("outputs/demo/fields.gpkg", "A", area="A"),
+            tool.Layer("outputs/demo2/fields.gpkg", "B", area="B"),
+        ],
+        multi_area=True,
+        per_layer_background=True,
+        crop_m=400,
+    )
+    tool.render_areas(two, root, tmp_path / "gallery", "composite")  # 2 panels, world locator
+    fig = plt.figure(figsize=(4, 3))
+    try:
+        loc = tool._locate(115.5, 37.65)
+        iax, _india = tool._draw_inset(fig, [0.1, 0.1, 0.8, 0.8], loc, "Hebei, China")
+        labels.append((iax.get_xlabel(), iax.get_ylabel()))
+    finally:
+        plt.close(fig)
+    assert labelled  # the stand-in ran
+    assert labels == [("", "")] * 5
+
+
 def test_the_background_note_lists_each_area_once_when_all_share_a_source(tool):
     comp = {
         "AGRIBOUND_RESOLUTION_M": "1.5",

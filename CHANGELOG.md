@@ -130,6 +130,11 @@ All notable changes to agribound will be documented in this file.
   checkpoint Ultralytics keeps) and 0.00 from the third epoch on. The
   fine-tuning guide now recommends a smaller `yolo_lr0` for small training
   sets.
+- `tools/make_gallery.py` with geopandas 1.2 or later: geopandas 1.2 labels
+  the axes of every plot with the CRS axis names ("Easting [metre]"). The
+  labels pushed the locator insets out of the footer, which stopped the render
+  of every entry with an inset, and entries without one showed them beside
+  each map. The tool now removes them.
 
 ### Changed
 

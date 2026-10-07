@@ -104,7 +104,10 @@ Outputs (``--out-dir``, default ``assets/gallery_1.0``):
 
 The rendering is deterministic (no random numbers; no dates or software
 versions in the PNG metadata; the previews are encoded from the PNG with fixed
-settings), so a second run gives byte-identical files.
+settings), so a second run with the same library versions gives byte-identical
+files. Other versions can move pixels: geopandas 1.2 draws each multipart
+country as one shape, which changes the coastlines of the locator insets
+slightly (the maps are unchanged).
 """
 
 from __future__ import annotations
@@ -1228,6 +1231,18 @@ def _model_note_base(prov: dict) -> str | None:
     return None
 
 
+def _bare_axes(ax) -> None:
+    """No ticks and no axis labels on a map (call after the geopandas plots).
+
+    geopandas >= 1.2 labels the axes of every ``.plot()`` with the CRS axis names
+    ("Easting [metre]"); ``add_labels=False`` would break geopandas 1.0 and 1.1.
+    """
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+
+
 def _nice_length(width_m: float) -> float:
     target = width_m / 5
     exp = 10 ** math.floor(math.log10(target))
@@ -1651,8 +1666,7 @@ def _draw_inset(fig, rect, loc: dict, title: str) -> tuple:
     # Shrink the inset box to the map's aspect, keeping it in the bottom-right corner.
     iax.set_aspect(_inset_aspect(loc), adjustable="box")
     iax.set_anchor("SE")
-    iax.set_xticks([])
-    iax.set_yticks([])
+    _bare_axes(iax)
     for sp in iax.spines.values():
         sp.set_edgecolor("#333333")
         sp.set_linewidth(0.7)
@@ -2079,8 +2093,7 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
         ax.set_ylim(ext[2], ext[3])
         ax.set_aspect("equal")
         ax.set_anchor("N")
-        ax.set_xticks([])
-        ax.set_yticks([])
+        _bare_axes(ax)
         for s in ax.spines.values():
             s.set_linewidth(0.6)
         _scalebar(ax, ext, crs)
@@ -2331,8 +2344,7 @@ def _draw_world_inset(fig, rect, points: list[tuple[str, float, float]], view) -
     iax.set_ylim(y0, y1)
     iax.set_aspect(1 / max(math.cos(math.radians((y0 + y1) / 2)), 0.2), adjustable="box")
     iax.set_anchor("SE")
-    iax.set_xticks([])
-    iax.set_yticks([])
+    _bare_axes(iax)
     for sp in iax.spines.values():
         sp.set_edgecolor("#333333")
         sp.set_linewidth(0.7)
@@ -2571,8 +2583,7 @@ def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
         ax.set_ylim(e[2], e[3])
         ax.set_aspect("equal")
         ax.set_anchor("N")
-        ax.set_xticks([])
-        ax.set_yticks([])
+        _bare_axes(ax)
         for sp in ax.spines.values():
             sp.set_linewidth(0.6)
         _scalebar(ax, e, p["crs"])
