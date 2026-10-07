@@ -14,6 +14,9 @@ https://code.earthengine.google.com/
 # TESSERA blog (blocks automated requests)
 https://geotessera.org/
 
+# USDA NASS (returns 403 to GitHub Actions runners; the pages load elsewhere)
+https://www.nass.usda.gov/
+
 # Own GitHub Pages (may not be deployed yet during CI)
 https://montimaj.github.io/agribound/
 
