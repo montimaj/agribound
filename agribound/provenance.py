@@ -131,10 +131,90 @@ def _utc_now() -> str:
 # ---------------------------------------------------------------------------
 
 
+#: Fields added after agribound 1.0.1, and when each one does not apply
+#: (field -> predicate on the configuration dictionary). Such a field is left
+#: out of :func:`config_hash` where it does not apply, so the hashes of earlier
+#: configurations do not change and their outputs are still reused. The
+#: identities computed from the whole configuration dictionary, the tile-manifest
+#: signature (:func:`agribound.hpc.tiles.write_tile_manifest`) and the agent's
+#: plan directory (``propose_run``), leave it out where it does not apply and
+#: holds its default (:func:`drop_inapplicable_fields` with
+#: ``keep_non_default=True``), so tile manifests and plan directories of
+#: configurations that 1.0.1 could express are unchanged too. A field added
+#: later must be listed here. ``landsat_pan_missions`` always applies to
+#: ``source="landsat-pan"``, even at its default, so an output made before the
+#: mission rule existed is not reused (that code mixed Landsat 7 and 8/9 PAN).
+HASH_CONDITIONAL_FIELDS: dict[str, Any] = {
+    "lulc_tree_crops": lambda data: data.get("lulc_tree_crops") is not True,
+    "landsat_pan_missions": lambda data: data.get("source") != "landsat-pan",
+}
+
+
+@functools.cache
+def _conditional_field_defaults() -> dict[str, Any]:
+    """Defaults of the :data:`HASH_CONDITIONAL_FIELDS` (JSON form), from ``AgriboundConfig``."""
+    import dataclasses
+
+    from agribound.config import AgriboundConfig
+
+    defaults = {}
+    for f in dataclasses.fields(AgriboundConfig):
+        if f.name in HASH_CONDITIONAL_FIELDS:
+            default = f.default if f.default is not dataclasses.MISSING else f.default_factory()
+            defaults[f.name] = to_jsonable(default)
+    return defaults
+
+
+def drop_inapplicable_fields(
+    data: dict[str, Any], *, keep_non_default: bool = False
+) -> dict[str, Any]:
+    """Return *data* without the :data:`HASH_CONDITIONAL_FIELDS` that do not apply to it.
+
+    Every predicate sees the whole of *data*. :func:`canonical_config` (and so
+    :func:`config_hash`) uses the default form: a field that does not apply
+    cannot change the result, whatever its value.
+
+    Parameters
+    ----------
+    data : dict
+        Configuration dictionary (``AgriboundConfig.to_dict()``).
+    keep_non_default : bool
+        Leave a field out only when it does not apply **and** holds its
+        default (or is missing). Every configuration written before the field
+        existed holds the default, so identities computed from the whole
+        configuration dictionary (the tile-manifest signature and the agent's
+        plan directory) stay those of agribound 1.0.1 for the configurations
+        1.0.1 could express, while an explicit value still changes them.
+
+    Returns
+    -------
+    dict
+        A new dictionary; *data* is not modified.
+    """
+    defaults = _conditional_field_defaults() if keep_non_default else {}
+    drop = set()
+    for name, not_applicable in HASH_CONDITIONAL_FIELDS.items():
+        if name not in data or not not_applicable(data):
+            continue
+        if keep_non_default and to_jsonable(data[name]) != defaults[name]:
+            continue
+        drop.add(name)
+    return {k: v for k, v in data.items() if k not in drop}
+
+
 def canonical_config(config: Any) -> dict[str, Any]:
-    """Return the configuration fields that define the result (see :data:`HASH_EXCLUDED_FIELDS`)."""
+    """Return the configuration fields that define the result.
+
+    Fields in :data:`HASH_EXCLUDED_FIELDS` are left out, and so are the fields
+    of :data:`HASH_CONDITIONAL_FIELDS` where they do not apply
+    (:func:`drop_inapplicable_fields`).
+    """
     data = config.to_dict() if hasattr(config, "to_dict") else dict(config)
-    return {k: to_jsonable(v) for k, v in sorted(data.items()) if k not in HASH_EXCLUDED_FIELDS}
+    return {
+        k: to_jsonable(v)
+        for k, v in sorted(drop_inapplicable_fields(data).items())
+        if k not in HASH_EXCLUDED_FIELDS
+    }
 
 
 def config_hash(config: Any) -> str:
@@ -144,7 +224,10 @@ def config_hash(config: Any) -> str:
     caching/provenance switches, credentials, request tuning and execution
     resources) are excluded, so configurations that differ only in these
     fields hash identically. This includes ``device``, which can change the
-    polygons slightly (see :data:`HASH_EXCLUDED_FIELDS`).
+    polygons slightly (see :data:`HASH_EXCLUDED_FIELDS`). Fields added after
+    1.0.1 are hashed only where they apply (:data:`HASH_CONDITIONAL_FIELDS`):
+    ``lulc_tree_crops`` when it is *True*, ``landsat_pan_missions`` for
+    ``source="landsat-pan"``.
 
     Parameters
     ----------
@@ -658,12 +741,14 @@ class RunRecorder:
 
 
 __all__ = [
+    "HASH_CONDITIONAL_FIELDS",
     "HASH_EXCLUDED_FIELDS",
     "MAX_RECORDED_WARNINGS",
     "PROVENANCE_SCHEMA_VERSION",
     "RunRecorder",
     "canonical_config",
     "config_hash",
+    "drop_inapplicable_fields",
     "provenance_path",
     "read_provenance",
     "reuse_facts",

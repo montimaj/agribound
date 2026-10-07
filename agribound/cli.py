@@ -71,6 +71,7 @@ _PARAM_TO_FIELD: dict[str, str] = {
     "cloud_cover_max": "cloud_cover_max",
     "s2_cloud_mask": "s2_cloud_mask",
     "naip_resolution": "naip_resolution_m",
+    "landsat_pan_missions": "landsat_pan_missions",
     "export_crs": "export_crs",
     "tessera_version": "tessera_version",
     "embedding_cache_dir": "embedding_cache_dir",
@@ -82,6 +83,7 @@ _PARAM_TO_FIELD: dict[str, str] = {
     "lulc_dataset": "lulc_dataset",
     "lulc_mode": "lulc_mode",
     "lulc_on_error": "lulc_on_error",
+    "lulc_tree_crops": "lulc_tree_crops",
     "seed": "seed",
     "cache_dir": "cache_dir",
     "gee_service_account_key": "gee_service_account_key",
@@ -377,6 +379,15 @@ _STAGE_A_OPTIONS = [
         help=f"NAIP export resolution in meters.{_d('naip_resolution_m')}",
     ),
     click.option(
+        "--landsat-pan-missions",
+        default=None,
+        help=(
+            "Missions whose PAN band --source landsat-pan uses: 'auto' (Landsat 8/9 whenever "
+            "the window overlaps their record, else Landsat 7; never both bandpasses) or a "
+            f"comma-separated list of LE07, LC08, LC09.{_d('landsat_pan_missions')}"
+        ),
+    ),
+    click.option(
         "--export-crs",
         default=None,
         help=(
@@ -447,6 +458,15 @@ _STAGE_A_OPTIONS = [
         default=None,
         type=click.Choice(["raise", "warn"]),
         help=f"What to do when the LULC filter fails.{_d('lulc_on_error')}",
+    ),
+    click.option(
+        "--lulc-tree-crops/--no-lulc-tree-crops",
+        default=None,
+        help=(
+            "Count tree cover as crop in the LULC filter, for orchards and plantations "
+            "(Dynamic World crops+trees, C3S tree-cover classes, with which the filter also "
+            f"keeps forest; NLCD and CDL unchanged).{_d('lulc_tree_crops')}"
+        ),
     ),
     click.option("--seed", default=None, type=int, help=f"Random seed.{_d('seed')}"),
     click.option(

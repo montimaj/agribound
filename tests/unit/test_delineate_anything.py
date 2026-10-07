@@ -970,11 +970,69 @@ def test_finetune_yolo_training_arguments(tmp_path, fake_ultralytics, fake_weigh
     assert kwargs["mosaic"] == 0.0 and kwargs["optimizer"] == "AdamW"
     assert kwargs["fliplr"] == 0.5 and kwargs["flipud"] == 0.5
     assert kwargs["imgsz"] == 512 and kwargs["epochs"] == 3 and kwargs["lr0"] == 0.002
+    # Ultralytics' optimizer="auto" sets warmup_bias_lr=0 (its 0.1 is for a named optimizer).
+    assert kwargs["warmup_bias_lr"] == 0.0
     assert Path(best).is_file() and Path(best).name == "best.pt"
     assert str(Path(best)).startswith(str(tmp_path / "run"))
     meta = json.loads(Path(f"{best}.agribound.json").read_text())
     assert meta["base_model_key"] == "large_v2" and meta["super_resolution"] == 2
     assert meta["imgsz_matches_model_input"] is True
+    assert meta["recipe_version"] == 2 and meta["train_kwargs"]["warmup_bias_lr"] == 0.0
+
+
+def test_finetune_yolo_warmup_and_learning_rate_overrides(tmp_path, fake_ultralytics, fake_weights):
+    from agribound.engines.finetune._yolo import _finetune_yolo
+
+    train_dir, ref_path = _training_dir(tmp_path, chip=256)
+    roots = []
+    for params in (
+        {},
+        {"yolo_warmup_bias_lr": 0.1},
+        {"yolo_warmup_bias_lr": 0.1, "yolo_lr0": 1e-4},
+    ):
+        config = AgriboundConfig(
+            source="local",
+            engine="delineate-anything",
+            local_tif_path=str(tmp_path / "x.tif"),
+            output_path=str(tmp_path / "o.gpkg"),
+            reference_boundaries=str(ref_path),
+            lulc_filter=False,
+            device="cpu",
+            fine_tune_epochs=3,
+            cache_dir=str(tmp_path / "run"),
+            engine_params=params,
+        )
+        best = _finetune_yolo(train_dir, config, "DA-large_v2")
+        roots.append(Path(best).parents[2])
+    warmup_only = fake_ultralytics.instances[1].train_kwargs
+    assert warmup_only["warmup_bias_lr"] == 0.1 and warmup_only["lr0"] == 0.002
+    kwargs = fake_ultralytics.instances[2].train_kwargs
+    assert kwargs["warmup_bias_lr"] == 0.1 and kwargs["lr0"] == 1e-4
+    # warmup_bias_lr and lr0 are each part of the run directory key (the first two runs
+    # differ only in warmup_bias_lr, the last two only in lr0): no run directory is shared.
+    assert len(set(roots)) == 3
+
+
+@pytest.mark.parametrize("value", [-0.1, 1.5, float("nan"), float("inf")])
+def test_finetune_yolo_rejects_invalid_warmup_bias_lr(
+    tmp_path, fake_ultralytics, fake_weights, value
+):
+    from agribound.engines.finetune._yolo import _finetune_yolo
+
+    train_dir, ref_path = _training_dir(tmp_path, chip=256)
+    config = AgriboundConfig(
+        source="local",
+        engine="delineate-anything",
+        local_tif_path=str(tmp_path / "x.tif"),
+        output_path=str(tmp_path / "o.gpkg"),
+        reference_boundaries=str(ref_path),
+        lulc_filter=False,
+        device="cpu",
+        cache_dir=str(tmp_path / "run"),
+        engine_params={"yolo_warmup_bias_lr": value},
+    )
+    with pytest.raises(ValueError, match="yolo_warmup_bias_lr"):
+        _finetune_yolo(train_dir, config, "DA-large_v2")
 
 
 def test_finetune_yolo_warns_when_imgsz_is_not_the_model_input(

@@ -91,6 +91,14 @@ class TestConstants:
         assert lf.C3S_CROP_CLASSES == (10, 11, 12, 20, 30)
         assert lf.CDL_CULTIVATED_VALUE == 2
 
+    def test_tree_crop_classes(self):
+        assert lf.C3S_TREE_CLASSES == (50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90)
+        assert not set(lf.C3S_TREE_CLASSES) & set(lf.C3S_CROP_CLASSES)
+        # not the tree and shrub mosaic (100) or flooded tree cover (160, 170)
+        assert not {100, 160, 170} & set(lf.C3S_TREE_CLASSES)
+        assert lf.TREE_CROP_DATASETS == ("dynamic_world", "c3s")
+        assert {"C3S_TREE_CLASSES", "TREE_CROP_DATASETS"} <= set(lf.__all__)
+
     def test_year_ranges(self):
         assert lf.dataset_year_range("nlcd") == (1985, 2025)
         assert lf.dataset_year_range("c3s") == (2000, 2022)
@@ -291,14 +299,67 @@ class TestFilterRasterMode:
         # the threshold is not part of the cache key: the same raster is used
         cfg0 = cfg.merged(lulc_crop_threshold=0.0)
         assert len(lf.filter_by_lulc(polys, cfg0)) == 4
+        assert lf.filter_by_lulc(polys, cfg0).attrs["lulc_stats"]["tree_crops"] is False
+
+    def test_tree_crops_use_their_own_raster(self, namoi_raster_mode, monkeypatch):
+        cfg, polys = namoi_raster_mode
+        tree = cfg.merged(lulc_tree_crops=True)
+        selection = lf._select(tree)
+        path = lf._lulc_raster_path(tree, selection)
+        assert path != lf._lulc_raster_path(cfg, selection)
+        # crops + trees: the whole raster is 0.95, so nothing is below the threshold
+        _lulc_raster(
+            path,
+            np.full((200, 200), 0.95, np.float32),
+            AGRIBOUND_LULC_DATASET="dynamic_world",
+            AGRIBOUND_LULC_ASSET="GOOGLE/DYNAMICWORLD/V1",
+            AGRIBOUND_LULC_BAND="crops+trees",
+            AGRIBOUND_LULC_YEAR=selection.year_used,
+            AGRIBOUND_LULC_VALUE="mean annual-median Dynamic World crops+trees probability",
+            AGRIBOUND_LULC_TREE_CROPS="True",
+        )
+
+        def no_gee(config):
+            raise AssertionError("must not contact Earth Engine")
+
+        monkeypatch.setattr("agribound.auth.ensure_gee", no_gee)
+        out = lf.filter_by_lulc(polys, tree)
+        assert list(out["name"]) == ["crop", "noncrop", "nan", "straddle"]
+        assert out["lulc:crop_fraction"].tolist() == pytest.approx([0.95] * 4)
+        stats = out.attrs["lulc_stats"]
+        assert stats["tree_crops"] is True and stats["mode"] == "raster"
+        assert stats["band"] == "crops+trees" and "crops+trees" in stats["value"]
+        # the default rule still reads the crops-only raster
+        default = lf.filter_by_lulc(polys, cfg)
+        assert list(default["name"]) == ["crop", "nan", "straddle"]
+        assert default.attrs["lulc_stats"]["tree_crops"] is False
+        assert default.attrs["lulc_stats"]["band"] == "crops"
+
+
+@pytest.mark.parametrize(
+    ("dataset", "differs"),
+    [("dynamic_world", True), ("c3s", True), ("nlcd", False), ("cdl", False)],
+)
+def test_lulc_raster_path_depends_on_tree_crops_for_dw_and_c3s(tmp_path, dataset, differs):
+    cfg = _config(tmp_path, NAMOI, lulc_mode="raster")
+    selection = lf.LulcSelection(dataset, 2020, 2020, "test")
+    default = lf._lulc_raster_path(cfg, selection)
+    tree = lf._lulc_raster_path(cfg.merged(lulc_tree_crops=True), selection)
+    assert (tree != default) is differs
+    assert tree.name.startswith(f"lulc_{dataset}_") and tree.parent == default.parent
+    # the tree-crop raster is not shared with another dataset or year
+    other = lf.LulcSelection(dataset, 2021, 2021, "test")
+    assert lf._lulc_raster_path(cfg.merged(lulc_tree_crops=True), other) != tree
 
 
 class TestFilterServerMode:
     def test_missing_means_are_nan(self, tmp_path, nlcd_coverage, monkeypatch):
         monkeypatch.setattr("agribound.auth.ensure_gee", lambda config: None)
         monkeypatch.setattr("agribound.composites.gee.ee_geometry", lambda g: "REGION")
-        meta = {"asset": "A", "band": "b", "year_used": 2023, "value": "v"}
-        monkeypatch.setattr(lf, "crop_image", lambda ds, year, region: ("IMG", meta))
+        meta = {"asset": "A", "band": "b", "year_used": 2023, "value": "v", "tree_crops": False}
+        monkeypatch.setattr(
+            lf, "crop_image", lambda ds, year, region, tree_crops=False: ("IMG", meta)
+        )
         monkeypatch.setattr(
             lf, "server_zonal_means", lambda gdf, image, scale, batch_size: np.array([0.8, np.nan])
         )
@@ -307,6 +368,30 @@ class TestFilterServerMode:
         assert len(out) == 2
         assert np.isnan(out["lulc:crop_fraction"].iloc[1])
         assert out.attrs["lulc_stats"]["mode"] == "server"
+
+    @pytest.mark.parametrize("tree_crops", [False, True])
+    def test_tree_crops_passed_and_recorded(self, tmp_path, nlcd_coverage, monkeypatch, tree_crops):
+        monkeypatch.setattr("agribound.auth.ensure_gee", lambda config: None)
+        monkeypatch.setattr("agribound.composites.gee.ee_geometry", lambda g: "REGION")
+        seen = []
+
+        def fake_crop_image(dataset, year, region, tree_crops=False):
+            seen.append((dataset, year, tree_crops))
+            band = "crops+trees" if tree_crops else "crops"
+            meta = {"asset": "A", "band": band, "year_used": year, "value": "v"}
+            return "IMG", {**meta, "tree_crops": tree_crops}
+
+        monkeypatch.setattr(lf, "crop_image", fake_crop_image)
+        monkeypatch.setattr(
+            lf, "server_zonal_means", lambda gdf, image, scale, batch_size: np.array([0.8, 0.1])
+        )
+        polys = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1), box(2, 2, 3, 3)], crs="EPSG:32755")
+        out = lf.filter_by_lulc(polys, _config(tmp_path, NAMOI, lulc_tree_crops=tree_crops))
+        assert seen == [("dynamic_world", 2023, tree_crops)]
+        stats = out.attrs["lulc_stats"]
+        assert stats["tree_crops"] is tree_crops
+        assert stats["band"] == ("crops+trees" if tree_crops else "crops")
+        assert stats["n_kept"] == 1 and stats["n_below_threshold"] == 1
 
     def test_failures_become_runtime_error(self, tmp_path, nlcd_coverage, monkeypatch):
         monkeypatch.setattr("agribound.auth.ensure_gee", lambda config: None)
@@ -385,9 +470,74 @@ class TestMisc:
         assert len(out) == 0
         assert {"lulc:crop_fraction", "lulc:dataset", "lulc:year", "lulc:valid"} <= set(out.columns)
         assert out.attrs["lulc_stats"]["n_in"] == 0
+        assert out.attrs["lulc_stats"]["tree_crops"] is False
+        tree = lf.filter_by_lulc(
+            gpd.GeoDataFrame(geometry=[], crs="EPSG:4326"), cfg.merged(lulc_tree_crops=True)
+        )
+        assert tree.attrs["lulc_stats"]["tree_crops"] is True
 
     def test_prefetch_disabled_returns_none(self, tmp_path):
         assert lf.prefetch_lulc_raster(_config(tmp_path, lulc_filter=False)) is None
+
+    def test_prefetch_passes_tree_crops_and_tags_the_raster(
+        self, tmp_path, nlcd_coverage, monkeypatch
+    ):
+        exports = []
+        monkeypatch.setattr("agribound.auth.ensure_gee", lambda config: None)
+        monkeypatch.setattr("agribound.composites.gee.ee_geometry", lambda geom: "REGION")
+
+        def fake_crop_image(dataset, year, region, tree_crops=False):
+            band = "crops+trees" if tree_crops else "crops"
+            meta = {"asset": "DW", "band": band, "year_used": year, "value": f"v-{band}"}
+            return "IMG", {**meta, "tree_crops": tree_crops}
+
+        def fake_export(image, out_path, *, grid, dtype, band_names, tags, **kwargs):
+            exports.append({"path": str(out_path), "tags": tags})
+            open(out_path, "wb").close()
+            return str(out_path)
+
+        monkeypatch.setattr(lf, "crop_image", fake_crop_image)
+        monkeypatch.setattr("agribound.composites.gee.export_ee_image", fake_export)
+        cfg = _config(tmp_path, NAMOI, lulc_mode="raster")
+        tree_path = lf.prefetch_lulc_raster(cfg.merged(lulc_tree_crops=True))
+        default_path = lf.prefetch_lulc_raster(cfg)
+        assert tree_path != default_path
+        assert [e["path"] for e in exports] == [tree_path, default_path]
+        tree_tags, default_tags = (e["tags"] for e in exports)
+        assert tree_tags["AGRIBOUND_LULC_TREE_CROPS"] == "True"
+        assert tree_tags["AGRIBOUND_LULC_BAND"] == "crops+trees"
+        assert tree_tags["AGRIBOUND_LULC_VALUE"] == "v-crops+trees"
+        assert default_tags["AGRIBOUND_LULC_TREE_CROPS"] == "False"
+        assert default_tags["AGRIBOUND_LULC_BAND"] == "crops"
+        # each raster is reused by its own rule
+        assert lf.prefetch_lulc_raster(cfg.merged(lulc_tree_crops=True)) == tree_path
+        assert len(exports) == 2
+
+    def test_nlcd_raster_is_shared_and_tagged_alike_with_tree_crops(
+        self, tmp_path, nlcd_coverage, monkeypatch
+    ):
+        """NLCD does not change with lulc_tree_crops: one raster, whichever run made it."""
+        exports = []
+        monkeypatch.setattr("agribound.composites.gee.ee_geometry", lambda geom: "REGION")
+
+        def fake_crop_image(dataset, year, region, tree_crops=False):
+            meta = {"asset": "N", "band": "b1", "year_used": year, "value": "v"}
+            return "IMG", {**meta, "tree_crops": tree_crops}
+
+        monkeypatch.setattr(lf, "crop_image", fake_crop_image)
+
+        def fake_export(image, out_path, *, grid, dtype, band_names, tags, **kwargs):
+            exports.append(tags)
+            open(out_path, "wb").close()
+            return str(out_path)
+
+        monkeypatch.setattr("agribound.composites.gee.export_ee_image", fake_export)
+        cfg = _config(tmp_path, IOWA, lulc_mode="raster", lulc_tree_crops=True)
+        assert lf._select(cfg).dataset == "nlcd"
+        path = lf.prefetch_lulc_raster(cfg)
+        assert lf.prefetch_lulc_raster(cfg.merged(lulc_tree_crops=False)) == path
+        (tags,) = exports
+        assert tags["AGRIBOUND_LULC_TREE_CROPS"] == "False"  # tree crops did not change it
 
     def test_prefetch_reuses_cached_raster(self, namoi_raster_mode, monkeypatch):
         cfg, _ = namoi_raster_mode
@@ -478,8 +628,21 @@ class TestCropImage:
             "band": "b1",
             "year_used": 2023,
             "value": lf.LULC_DATASETS["nlcd"].value,
+            "tree_crops": False,
         }
         assert crop_ee == [(lf.NLCD_ASSET, ("calendarRange", 2023, 2023, "year"))]
+
+    def test_nlcd_and_cdl_unchanged_by_tree_crops(self, crop_ee, monkeypatch):
+        """NLCD 82 already includes orchards and vineyards; CDL counts them as cultivated."""
+        monkeypatch.setattr(lf, "_nlcd_source", lambda year: (lf.NLCD_ASSET, "b1", int(year)))
+        for dataset, year in (("nlcd", 2023), ("cdl", 2020)):
+            image, meta = lf.crop_image(dataset, year, "REGION")
+            tree_image, tree_meta = lf.crop_image(dataset, year, "REGION", tree_crops=True)
+            assert tree_image.bands["crop"].tolist() == image.bands["crop"].tolist()
+            assert {k: v for k, v in tree_meta.items() if k != "tree_crops"} == {
+                k: v for k, v in meta.items() if k != "tree_crops"
+            }
+            assert tree_meta["value"] == lf.LULC_DATASETS[dataset].value
 
     def test_nlcd_fallback_release(self, crop_ee, monkeypatch):
         monkeypatch.setattr(
@@ -498,23 +661,74 @@ class TestCropImage:
         assert crop_ee == [(lf.CDL_ASSET, ("calendarRange", 2020, 2020, "year"))]
 
     def test_c3s_cropland_classes_include_11_and_12(self, crop_ee):
-        image, _ = lf.crop_image("c3s", 2010, "REGION")
+        image, meta = lf.crop_image("c3s", 2010, "REGION")
         assert image.bands["crop"].tolist() == [[1, 1, 1, 1, 1, 0, 0, 0]]
+        assert meta["value"] == lf.LULC_DATASETS["c3s"].value and meta["tree_crops"] is False
+
+    def test_c3s_tree_crops_add_the_tree_cover_classes(self, crop_ee, monkeypatch):
+        lccs = [10, 11, 12, 20, 30, 40, 50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90, 100]
+        lccs += [110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220]
+        images = {lf.C3S_ASSET: _Img({"b1": [lccs]})}
+        monkeypatch.setattr(
+            sys.modules["ee"], "ImageCollection", lambda asset: _Collection(asset, crop_ee, images)
+        )
+        default, _ = lf.crop_image("c3s", 2015, "REGION")
+        image, meta = lf.crop_image("c3s", 2015, "REGION", tree_crops=True)
+        crop = dict(zip(lccs, default.bands["crop"][0], strict=True))
+        assert {c for c, v in crop.items() if v == 1} == set(lf.C3S_CROP_CLASSES)
+        tree = dict(zip(lccs, image.bands["crop"][0], strict=True))
+        assert {c for c, v in tree.items() if v == 1} == set(
+            lf.C3S_CROP_CLASSES + lf.C3S_TREE_CLASSES
+        )
+        assert meta == {
+            "asset": lf.C3S_ASSET,
+            "band": "b1",
+            "year_used": 2015,
+            "value": "fraction of C3S cropland or tree-cover pixels",
+            "tree_crops": True,
+        }
 
     def test_dynamic_world_uses_annual_median(self, crop_ee, monkeypatch):
         seen = {}
 
-        def fake_dw(region, year):
-            seen["args"] = (region, year)
+        def fake_dw(region, year, classes=("crops",)):
+            seen["args"] = (region, year, classes)
             return _Img({"crop": [[0.2, 0.8]]})
 
         monkeypatch.setattr(
             "agribound.composites.dynamic_world.dynamic_world_crop_probability", fake_dw
         )
         image, meta = lf.crop_image("dynamic_world", 2023, "REGION")
-        assert seen["args"] == ("REGION", 2023)
+        assert seen["args"] == ("REGION", 2023, ("crops",))
         assert image.bands["crop"].tolist() == [[0.2, 0.8]]
-        assert meta["asset"] == "GOOGLE/DYNAMICWORLD/V1"
+        assert meta == {
+            "asset": "GOOGLE/DYNAMICWORLD/V1",
+            "band": "crops",
+            "year_used": 2023,
+            "value": lf.LULC_DATASETS["dynamic_world"].value,
+            "tree_crops": False,
+        }
+
+    def test_dynamic_world_tree_crops_count_crops_and_trees(self, crop_ee, monkeypatch):
+        seen = {}
+
+        def fake_dw(region, year, classes=("crops",)):
+            seen["classes"] = classes
+            return _Img({"crop": [[0.9, 0.1]]})
+
+        monkeypatch.setattr(
+            "agribound.composites.dynamic_world.dynamic_world_crop_probability", fake_dw
+        )
+        image, meta = lf.crop_image("dynamic_world", 2020, "REGION", tree_crops=True)
+        assert seen["classes"] == ("crops", "trees")
+        assert image.bands["crop"].tolist() == [[0.9, 0.1]]
+        assert meta == {
+            "asset": "GOOGLE/DYNAMICWORLD/V1",
+            "band": "crops+trees",
+            "year_used": 2020,
+            "value": "mean annual-median Dynamic World crops+trees probability",
+            "tree_crops": True,
+        }
 
     def test_unknown_dataset(self, crop_ee):
         with pytest.raises(ValueError, match="Unknown LULC dataset 'worldcover'"):

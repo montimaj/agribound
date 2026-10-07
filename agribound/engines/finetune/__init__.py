@@ -32,9 +32,12 @@ Each fine-tuning run gets its own directory from
 compositing and export settings) plus the engine, the base-model id, a
 fingerprint of the reference file (resolved path, modification time and size),
 the number of epochs, the split settings, the seed, ``config.bands``, the
-``engine_params`` (excluding ``checkpoint_path`` and ``sam_*`` keys) and the
-engine's default chip-size rule (:func:`agribound.engines.finetune._data.chip_size_rule`). The
-trainers receive a copy of the configuration whose
+``engine_params`` (excluding ``checkpoint_path`` and ``sam_*`` keys), the
+engine's default chip-size rule (:func:`agribound.engines.finetune._data.chip_size_rule`)
+and, for Delineate-Anything, the version of the training recipe
+(:data:`agribound.engines.finetune._yolo.RECIPE_VERSION`), so a checkpoint
+trained with an earlier recipe is not reused. The trainers receive a copy of
+the configuration whose
 :meth:`~agribound.config.AgriboundConfig.get_working_dir` is that directory.
 Their chips and checkpoints therefore cannot collide with another run's.
 ``finetune_manifest.json`` in the directory records the checkpoint, and a later
@@ -281,6 +284,11 @@ def _run_dir(config: AgriboundConfig, engine: str, model_key: str) -> Path:
         # change of that rule must not reuse checkpoints trained on differently sized chips.
         f"chip_rule={_data.chip_size_rule(engine)}",
     ]
+    if engine == "delineate-anything":
+        # A new training recipe (same engine_params) must not reuse earlier checkpoints.
+        from agribound.engines.finetune._yolo import RECIPE_VERSION
+
+        parts.append(f"recipe={RECIPE_VERSION}")
     if split == "block":
         parts.append(f"block_size_m={config.fine_tune_block_size_m}")
     elif split == "column":

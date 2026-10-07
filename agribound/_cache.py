@@ -175,6 +175,8 @@ def _key_fields(config: Any, include_temporal: bool) -> list[tuple[str, Any]]:
         items.append(
             ("google_embedding_backend", getattr(config, "google_embedding_backend", None))
         )
+    if source == "landsat-pan":
+        items.append(("landsat_pan_missions", getattr(config, "landsat_pan_missions", "auto")))
     if source == "usgs-naip-plus":
         items.append(("usgs_service_url", getattr(config, "usgs_service_url", None)))
         items.append(("usgs_state", getattr(config, "usgs_state", None)))
@@ -217,8 +219,9 @@ def cache_key(config: Any, *parts: object, include_temporal: bool = True) -> str
     ``s2_cloud_mask``, ``naip_resolution_m``; ``cloud_score_threshold`` when
     Cloud Score+ masking is selected; ``tessera_version``/``tessera_variant``
     for embedding sources; ``google_embedding_backend`` for Google embeddings;
-    the USGS service URL, state and year-fallback flag for USGS NAIP Plus; and
-    the local raster's path, size and modification time for local sources.
+    ``landsat_pan_missions`` for Landsat PAN; the USGS service URL, state and
+    year-fallback flag for USGS NAIP Plus; and the local raster's path, size
+    and modification time for local sources.
     """
     payload = {
         "fields": [

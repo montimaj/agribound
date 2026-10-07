@@ -99,25 +99,6 @@ _ALL_IMAGERY_SOURCES = [
 # ---------------------------------------------------------------------------
 
 SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
-    "landsat-pan": {
-        "name": "Landsat 7/8/9 Collection 2 Tier 1 TOA panchromatic",
-        "collection": (
-            "LANDSAT/LE07/C02/T1_TOA + LANDSAT/LC08/C02/T1_TOA + LANDSAT/LC09/C02/T1_TOA"
-        ),
-        "resolution_m": 15,
-        "native_resolution_m": 15,
-        "all_bands": ["B8"],
-        "canonical_bands": {"R": "B8", "G": "B8", "B": "B8"},
-        "value_scale": "unit",
-        "year_range": (1999, None),
-        "coverage": (
-            "Global. Landsat 7 ETM+ 1999-05-28 to 2024-01-19 (SLC-off gaps after 2003), "
-            "Landsat 8 OLI from 2013-03-18, Landsat 9 OLI-2 from 2021-10-31. "
-            "Landsat 7 and 8/9 PAN spectral responses differ"
-        ),
-        "requires_gee": True,
-        "restricted": False,
-    },
     "landsat": {
         "name": "Landsat 5/7/8/9 Collection 2 Level-2",
         "collection": (
@@ -143,6 +124,27 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "Global. Landsat 5 TM 1984-03-16 to 2012-05-05, Landsat 7 ETM+ 1999-05-28 to "
             "2024-01-19, Landsat 8 OLI 2013-03-18 to present, Landsat 9 OLI-2 2021-10-31 to "
             "present"
+        ),
+        "requires_gee": True,
+        "restricted": False,
+    },
+    "landsat-pan": {
+        "name": "Landsat 7/8/9 Collection 2 Tier 1 TOA panchromatic",
+        "collection": (
+            "LANDSAT/LE07/C02/T1_TOA + LANDSAT/LC08/C02/T1_TOA + LANDSAT/LC09/C02/T1_TOA"
+        ),
+        "resolution_m": 15,
+        "native_resolution_m": 15,
+        "all_bands": ["B8"],
+        "canonical_bands": {"R": "B8", "G": "B8", "B": "B8"},
+        "value_scale": "unit",
+        "year_range": (1999, None),
+        "coverage": (
+            "Global. Landsat 7 ETM+ 1999-05-28 to 2024-01-19 (SLC-off gaps after 2003), "
+            "Landsat 8 OLI from 2013-03-18, Landsat 9 OLI-2 from 2021-10-31. "
+            "The PAN bandpasses differ (Landsat 7 0.52-0.90 um, Landsat 8/9 0.50-0.68 um), so "
+            "by default (landsat_pan_missions='auto') a composite uses Landsat 8/9 when the date "
+            "window overlaps their record and Landsat 7 only for earlier windows, never both"
         ),
         "requires_gee": True,
         "restricted": False,
@@ -382,6 +384,10 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
         ),
         "source_notes": {
             "landsat": "30 m Landsat composites are outside the 0.25-10 m training range.",
+            "landsat-pan": (
+                "15 m Landsat PAN composites are outside the 0.25-10 m training range; the "
+                "single band is replicated to grey R, G, B."
+            ),
             "hls": "30 m HLS composites are outside the 0.25-10 m training range.",
         },
     },

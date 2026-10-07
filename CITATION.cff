@@ -15,7 +15,7 @@ authors:
     orcid: "https://orcid.org/0000-0002-3539-0147"
   - family-names: Rapp
     given-names: Jeremy
-    affiliation: "Department Of Earth and Environmental Sciences, Michigan State University, East Lansing, MI, USA"
+    affiliation: "Earth System Science Center, The University of Alabama in Huntsville, Huntsville, Alabama, USA"
     orcid: "https://orcid.org/0000-0002-0460-2725"
   - family-names: Huntington
     given-names: Justin L.
@@ -52,6 +52,9 @@ authors:
     given-names: David
     affiliation: "Montana Climate Office, W.A. Franke College of Forestry and Conservation, University of Montana, Missoula, Montana, USA"
     orcid: "https://orcid.org/0000-0003-0871-9055"
+  - family-names: Abramowitz
+    given-names: Jacob C.
+    affiliation: "Earth System Science Center, The University of Alabama in Huntsville, Huntsville, Alabama, USA"
   - family-names: Roy
     given-names: Samapriya
     affiliation: "Division of Hydrologic Sciences, Desert Research Institute, Reno, NV, USA"
@@ -95,6 +98,8 @@ preferred-citation:
       given-names: Eric R.
     - family-names: Ketchum
       given-names: David
+    - family-names: Abramowitz
+      given-names: Jacob C.
     - family-names: Roy
       given-names: Samapriya
 references:

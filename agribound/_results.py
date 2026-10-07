@@ -18,6 +18,7 @@ from typing import Any
 RESULTS_VERSIONS: dict[str, int] = {
     "embedding": 2,
     "sam_refine": 2,
+    "delineate_anything_finetune": 2,
 }
 """Version of each component's results; 1 = agribound <= 1.0.0.
 
@@ -26,6 +27,9 @@ configuration, so that outputs of earlier releases are no longer reused.
 
 - ``"embedding"``: the embedding engine's clustering (2: agribound 1.0.1).
 - ``"sam_refine"``: SAM refinement (2: agribound 1.0.1).
+- ``"delineate_anything_finetune"``: fine-tuning Delineate-Anything (2: the
+  bias warmup learning rate of AdamW is 0, as in Ultralytics'
+  ``optimizer="auto"``; agribound <= 1.0.1 used 0.1).
 
 A record without an entry for a component counts as version 1, so a
 component added later starts at 1 when its output is unchanged, or at 2
@@ -60,6 +64,10 @@ def results_versions(config: Any) -> dict[str, int]:
       ``engine_params["sam_refine"]``). The pipeline refines the output of
       every engine, including an ensemble's; the embedding engine refines
       its own polygons.
+    - ``"delineate_anything_finetune"``: ``config.fine_tune`` with
+      ``config.engine == "delineate-anything"`` (a run that loads a fine-tuned
+      checkpoint through ``engine_params["checkpoint_path"]`` is covered by
+      the checkpoint's path in the configuration hash).
 
     Parameters
     ----------
@@ -79,6 +87,8 @@ def results_versions(config: Any) -> dict[str, int]:
         or (engine == "ensemble" and "embedding" in _ensemble_member_engines(config)),
         "sam_refine": bool(getattr(config, "sam_refine", False))
         or bool(engine_params.get("sam_refine", False)),
+        "delineate_anything_finetune": bool(getattr(config, "fine_tune", False))
+        and engine == "delineate-anything",
     }
     return {name: version for name, version in RESULTS_VERSIONS.items() if applies[name]}
 

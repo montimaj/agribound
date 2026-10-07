@@ -22,6 +22,18 @@ value in [0, 1] and drops polygons below ``config.lulc_crop_threshold``:
                           20, 30; fraction of pixels
 ========================  ==========================================  ==========  =========
 
+Tree crops (``config.lulc_tree_crops=True``): Dynamic World files plantations
+and orchards under ``trees``, so their ``crops`` probability is low and the
+default rule removes them. With the option, the Dynamic World value is the
+annual median of the per-image sum of the ``crops`` and ``trees``
+probabilities, and C3S also counts its tree-cover classes
+(:data:`C3S_TREE_CLASSES`: 50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90). With
+these two datasets the filter then keeps forest as well as tree crops; it
+still removes water, built-up, bare, grass and shrub land. NLCD and CDL are
+unchanged, so with them it still removes forest: NLCD class 82 (cultivated
+crops) includes "perennial woody crops such as orchards and vineyards", and
+CDL counts orchards as cultivated.
+
 Year ranges are those of the assets on 2026-09-26. When the requested year is
 outside a dataset's range, the nearest available year is used, recorded in
 ``lulc:year`` and logged as a WARNING. Annual NLCD and C3S come from the
@@ -95,6 +107,13 @@ NLCD_CROP_CLASSES = (81, 82)
 #: C3S LCCS cropland classes: 10 rainfed, 11 herbaceous, 12 tree/shrub, 20 irrigated,
 #: 30 mosaic cropland (>50 %).
 C3S_CROP_CLASSES = (10, 11, 12, 20, 30)
+#: C3S LCCS tree-cover classes added by ``lulc_tree_crops``: 50 broadleaved evergreen,
+#: 60-62 broadleaved deciduous, 70-72 needleleaved evergreen, 80-82 needleleaved
+#: deciduous, 90 mixed leaf type (not 100, the tree and shrub mosaic, nor 160 and 170,
+#: flooded tree cover).
+C3S_TREE_CLASSES = (50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90)
+#: LULC datasets whose crop value ``lulc_tree_crops`` changes.
+TREE_CROP_DATASETS = ("dynamic_world", "c3s")
 #: CDL ``cultivated`` band value for cultivated land (1 = non-cultivated).
 CDL_CULTIVATED_VALUE = 2
 
@@ -311,18 +330,22 @@ def _nlcd_valid_fraction(geometry_4326: Any, year: int) -> float:
     return float(value) if value is not None else 0.0
 
 
-def crop_image(dataset: str, year: int, region: Any) -> tuple[Any, dict[str, Any]]:
+def crop_image(
+    dataset: str, year: int, region: Any, tree_crops: bool = False
+) -> tuple[Any, dict[str, Any]]:
     """Return the Earth Engine crop image (band ``"crop"``, 0-1) for a dataset and year.
 
     Binary datasets give 1 for crop classes and 0 otherwise; Dynamic World
     gives the annual median crop probability. Pixels without data stay
-    masked.
+    masked. With *tree_crops* (``config.lulc_tree_crops``), Dynamic World
+    counts ``crops`` + ``trees`` and C3S adds :data:`C3S_TREE_CLASSES`; NLCD
+    and CDL are unchanged (see the module docstring).
 
     Returns
     -------
     tuple
         ``(ee.Image, info)`` where ``info`` has ``asset``, ``band``,
-        ``year_used`` and ``value``.
+        ``year_used``, ``value`` and ``tree_crops``.
     """
     import ee
 
@@ -348,17 +371,33 @@ def crop_image(dataset: str, year: int, region: Any) -> tuple[Any, dict[str, Any
             .filter(ee.Filter.calendarRange(year_used, year_used, "year"))
             .first()
         ).select(band)
-        crop = img.remap(list(C3S_CROP_CLASSES), [1] * len(C3S_CROP_CLASSES), 0)
+        classes = C3S_CROP_CLASSES + (C3S_TREE_CLASSES if tree_crops else ())
+        crop = img.remap(list(classes), [1] * len(classes), 0)
     elif dataset == "dynamic_world":
         from agribound.composites.dynamic_world import (
             DYNAMIC_WORLD_COLLECTION,
+            DYNAMIC_WORLD_TREE_BAND,
             dynamic_world_crop_probability,
         )
 
         asset, band, year_used = DYNAMIC_WORLD_COLLECTION, info.band, int(year)
-        crop = dynamic_world_crop_probability(region, year_used)
+        classes = (info.band, DYNAMIC_WORLD_TREE_BAND) if tree_crops else (info.band,)
+        crop = dynamic_world_crop_probability(region, year_used, classes)
+        band = "+".join(classes)
     image = ee.Image(crop).rename("crop").toFloat()
-    return image, {"asset": asset, "band": band, "year_used": int(year_used), "value": info.value}
+    value = info.value
+    if tree_crops and dataset in TREE_CROP_DATASETS:
+        value = {
+            "dynamic_world": "mean annual-median Dynamic World crops+trees probability",
+            "c3s": "fraction of C3S cropland or tree-cover pixels",
+        }[dataset]
+    return image, {
+        "asset": asset,
+        "band": band,
+        "year_used": int(year_used),
+        "value": value,
+        "tree_crops": bool(tree_crops),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -753,6 +792,11 @@ def server_zonal_means(
 # ---------------------------------------------------------------------------
 
 
+def _tree_crop_parts(config: AgriboundConfig, dataset: str) -> tuple[str, ...]:
+    """Extra cache-key part when ``lulc_tree_crops`` changes the crop value of *dataset*."""
+    return ("tree-crops",) if config.lulc_tree_crops and dataset in TREE_CROP_DATASETS else ()
+
+
 def _lulc_raster_path(config: AgriboundConfig, selection: LulcSelection) -> Path:
     from agribound._cache import cache_path
 
@@ -763,6 +807,7 @@ def _lulc_raster_path(config: AgriboundConfig, selection: LulcSelection) -> Path
         LULC_RECIPE_VERSION,
         selection.dataset,
         selection.year_used,
+        *_tree_crop_parts(config, selection.dataset),
         include_temporal=False,
     )
 
@@ -827,7 +872,9 @@ def _prefetch(config: AgriboundConfig) -> str:
     grid = compute_export_grid(box(*geom.bounds), crs, info.raster_scale_m)
     grid = _expand_grid(grid, 3)
     region = ee_geometry(grid_footprint_4326(grid))
-    image, meta = crop_image(selection.dataset, selection.year_used, region)
+    image, meta = crop_image(
+        selection.dataset, selection.year_used, region, tree_crops=config.lulc_tree_crops
+    )
     from agribound._version import __version__
 
     tags = {
@@ -838,6 +885,11 @@ def _prefetch(config: AgriboundConfig) -> str:
         "AGRIBOUND_LULC_YEAR": meta["year_used"],
         "AGRIBOUND_LULC_YEAR_REQUESTED": selection.year_requested,
         "AGRIBOUND_LULC_VALUE": meta["value"],
+        # NLCD and CDL rasters do not change with lulc_tree_crops, so runs with and
+        # without it share them (_lulc_raster_path): tag them alike.
+        "AGRIBOUND_LULC_TREE_CROPS": str(
+            bool(meta["tree_crops"]) and selection.dataset in TREE_CROP_DATASETS
+        ),
         "AGRIBOUND_LULC_SELECTION_REASON": selection.reason,
         "AGRIBOUND_RECIPE_VERSION": LULC_RECIPE_VERSION,
     }
@@ -887,6 +939,7 @@ def _empty_result(gdf: gpd.GeoDataFrame, config: AgriboundConfig) -> gpd.GeoData
         "threshold": float(config.lulc_crop_threshold),
         "mode": config.lulc_mode,
         "nodata_policy": config.lulc_nodata_policy,
+        "tree_crops": bool(config.lulc_tree_crops),
     }
     return result
 
@@ -910,9 +963,9 @@ def filter_by_lulc(gdf: gpd.GeoDataFrame, config: AgriboundConfig) -> gpd.GeoDat
         ``lulc:year`` and ``lulc:valid`` columns (index reset). ``attrs`` keeps
         the input attributes and adds ``lulc_stats`` = {``dataset``,
         ``year_requested``, ``year_used``, ``n_in``, ``n_kept``, ``n_nan``,
-        ``threshold``, ``mode``, ``nodata_policy``, ``n_below_threshold``,
-        ``n_nan_dropped``, ``asset``, ``band``, ``value``,
-        ``selection_reason``, ``nlcd_valid_fraction``}.
+        ``threshold``, ``mode``, ``nodata_policy``, ``tree_crops``,
+        ``n_below_threshold``, ``n_nan_dropped``, ``asset``, ``band``,
+        ``value``, ``selection_reason``, ``nlcd_valid_fraction``}.
 
     Raises
     ------
@@ -952,6 +1005,7 @@ def filter_by_lulc(gdf: gpd.GeoDataFrame, config: AgriboundConfig) -> gpd.GeoDat
         "threshold": threshold,
         "mode": config.lulc_mode,
         "nodata_policy": config.lulc_nodata_policy,
+        "tree_crops": bool(config.lulc_tree_crops),
         "n_below_threshold": int((valid & ~above).sum()),
         "n_nan_dropped": 0 if keep_nan else n_nan,
         "asset": meta["asset"],
@@ -1004,6 +1058,7 @@ def _compute_values(
             "band": tags.get("AGRIBOUND_LULC_BAND"),
             "year_used": int(tags.get("AGRIBOUND_LULC_YEAR", selection.year_used)),
             "value": tags.get("AGRIBOUND_LULC_VALUE", LULC_DATASETS[selection.dataset].value),
+            "tree_crops": bool(config.lulc_tree_crops),
         }
         return zonal_mean_from_raster(gdf, path), selection, meta
 
@@ -1013,7 +1068,9 @@ def _compute_values(
     ensure_gee(config)
     selection = _select(config, gdf)
     region = ee_geometry(_selection_region_4326(config, gdf))
-    image, meta = crop_image(selection.dataset, selection.year_used, region)
+    image, meta = crop_image(
+        selection.dataset, selection.year_used, region, tree_crops=config.lulc_tree_crops
+    )
     scale = LULC_DATASETS[selection.dataset].reduce_scale_m
     values = server_zonal_means(gdf, image, scale, batch_size=config.lulc_batch_size)
     return values, selection, meta
@@ -1021,9 +1078,11 @@ def _compute_values(
 
 __all__ = [
     "C3S_CROP_CLASSES",
+    "C3S_TREE_CLASSES",
     "CDL_CULTIVATED_VALUE",
     "LULC_DATASETS",
     "NLCD_CROP_CLASSES",
+    "TREE_CROP_DATASETS",
     "LulcDataset",
     "LulcSelection",
     "crop_image",

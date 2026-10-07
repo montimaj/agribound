@@ -59,6 +59,9 @@ VALID_LULC_NODATA_POLICIES = ("keep", "drop")
 VALID_SAM_BACKENDS = SAM_REFINE_BACKENDS
 VALID_FINE_TUNE_SPLITS = ("block", "random", "column")
 VALID_GOOGLE_EMBEDDING_BACKENDS = ("gee", "source_coop")
+#: Landsat missions whose panchromatic band ``source="landsat-pan"`` can use, in
+#: canonical order (see ``landsat_pan_missions``).
+VALID_LANDSAT_PAN_MISSIONS = ("LE07", "LC08", "LC09")
 VALID_AOI_SELECTIONS = ("representative_point", "intersects", "clip", "none")
 
 #: File extensions that imply an output format.
@@ -149,6 +152,19 @@ class AgriboundConfig:
     naip_resolution_m : float
         NAIP export resolution in metres (default 1.0; the native GSD is
         0.6 m in most states since 2018).
+    landsat_pan_missions : str or tuple[str, ...]
+        Missions whose panchromatic band ``source="landsat-pan"`` composites
+        (ignored for other sources). ``"auto"`` (default) never mixes the two
+        PAN bandpasses: Landsat 8/9 OLI (0.50-0.68 µm; ``LC08``, ``LC09``)
+        whenever the date window overlaps their record (from 2013-03-18), else
+        Landsat 7 ETM+ (0.52-0.90 µm; ``LE07``). Or a list of ``"LE07"``,
+        ``"LC08"`` and ``"LC09"`` (a comma-separated string is accepted):
+        exactly those missions, where their record overlaps the window; a list
+        with ``LE07`` and an OLI mission mixes the two bandpasses in one
+        median, with a WARNING. For ``landsat-pan``, a setting with no mission
+        whose record overlaps the year (or ``date_range``) is rejected with a
+        :class:`ValueError` (Landsat 7 1999-05-28 to 2024-01-19, Landsat 8
+        from 2013-03-18, Landsat 9 from 2021-10-31).
     tessera_version : str
         TESSERA dataset version: ``"v1"`` (default), ``"v1.1"`` or ``"v2"``
         (beta).
@@ -220,6 +236,15 @@ class AgriboundConfig:
     lulc_nodata_policy : str
         Polygons without valid LULC pixels are kept and flagged (``"keep"``,
         default) or dropped (``"drop"``).
+    lulc_tree_crops : bool
+        Count tree cover as crop in the LULC filter (default *False*), for
+        tree crops such as orchards and plantations: Dynamic World files
+        plantations under ``trees``, so its crop value becomes the annual
+        median of the ``crops`` + ``trees`` probability, and C3S adds its tree
+        cover classes (50, 60-62, 70-72, 80-82, 90) to the cropland classes;
+        with these two datasets the filter then no longer removes forest.
+        NLCD and CDL are unchanged (NLCD class 82 already includes orchards
+        and vineyards), so with them the filter still removes forest.
     sam_refine : bool
         Refine polygons with box-prompted SAM after delineation (default
         *False*). ``engine_params["sam_refine"]`` is still honoured.
@@ -323,6 +348,7 @@ class AgriboundConfig:
     s2_cloud_mask: str = "scl"
     cloud_score_threshold: float = 0.60
     naip_resolution_m: float = 1.0
+    landsat_pan_missions: str | tuple[str, ...] = "auto"
 
     # Embeddings ---------------------------------------------------------------
     tessera_version: str = "v1"
@@ -347,6 +373,7 @@ class AgriboundConfig:
     lulc_on_error: str = "raise"
     lulc_mode: str = "server"
     lulc_nodata_policy: str = "keep"
+    lulc_tree_crops: bool = False
 
     # SAM refinement -----------------------------------------------------------
     sam_refine: bool = False
@@ -407,6 +434,7 @@ class AgriboundConfig:
 
         if isinstance(self.date_range, list):
             self.date_range = tuple(self.date_range)
+        self.landsat_pan_missions = _normalise_landsat_pan_missions(self.landsat_pan_missions)
         if self.engine_params is None:
             self.engine_params = {}
         if self.study_area is None:
@@ -466,6 +494,8 @@ class AgriboundConfig:
         _choice("lulc_on_error", self.lulc_on_error, VALID_LULC_ON_ERROR)
         _choice("lulc_mode", self.lulc_mode, VALID_LULC_MODES)
         _choice("lulc_nodata_policy", self.lulc_nodata_policy, VALID_LULC_NODATA_POLICIES)
+        if not isinstance(self.lulc_tree_crops, bool):
+            raise TypeError(f"lulc_tree_crops must be a bool, got {self.lulc_tree_crops!r}")
         _choice("sam_backend", self.sam_backend, VALID_SAM_BACKENDS)
         _choice("fine_tune_split", self.fine_tune_split, VALID_FINE_TUNE_SPLITS)
         _choice(
@@ -531,6 +561,7 @@ class AgriboundConfig:
         # Years and dates -----------------------------------------------------
         self._validate_year()
         self._validate_date_range()
+        self._validate_landsat_pan_window()
 
         # CRS -------------------------------------------------------------
         self.export_crs = _normalise_export_crs(self.export_crs)
@@ -691,6 +722,39 @@ class AgriboundConfig:
             raise ValueError(f"date_range start {parsed[0]} is after end {parsed[1]}")
         self.date_range = (parsed[0].isoformat(), parsed[1].isoformat())
 
+    def _validate_landsat_pan_window(self) -> None:
+        """For ``landsat-pan``, require a selected mission whose record overlaps the window.
+
+        Uses the composite builder's own rule
+        (:func:`agribound.composites.gee.landsat_pan_missions_for_window` on
+        :func:`~agribound.composites.gee.date_window`), so a mission list that
+        cannot match the year or ``date_range`` fails here instead of at the
+        composite stage. Other sources ignore ``landsat_pan_missions``.
+        """
+        if self.source != "landsat-pan":
+            return
+        from agribound.composites.gee import date_window, landsat_pan_missions_for_window
+
+        window = date_window(self)
+        setting = self.landsat_pan_missions
+        if landsat_pan_missions_for_window(setting, window):
+            return
+        text = setting if isinstance(setting, str) else ",".join(setting)
+        if self.date_range is not None:
+            period = f"date_range {self.date_range[0]} to {self.date_range[1]}"
+        else:
+            period = f"year={self.year}"
+        hint = (
+            "Landsat PAN images start on 1999-05-28."
+            if setting == "auto"
+            else "Use 'auto' or missions whose record overlaps the window."
+        )
+        raise ValueError(
+            f"landsat_pan_missions={text!r} has no mission whose record overlaps {period} "
+            "(Landsat 7 1999-05-28 to 2024-01-19, Landsat 8 from 2013-03-18, Landsat 9 from "
+            f"2021-10-31). {hint}"
+        )
+
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
@@ -709,6 +773,8 @@ class AgriboundConfig:
         data = {f.name: copy.deepcopy(getattr(self, f.name)) for f in fields(self)}
         if data.get("date_range") is not None:
             data["date_range"] = list(data["date_range"])
+        if isinstance(data.get("landsat_pan_missions"), tuple):
+            data["landsat_pan_missions"] = list(data["landsat_pan_missions"])
         return data
 
     def to_yaml(self, path: str | Path) -> None:
@@ -849,8 +915,8 @@ class AgriboundConfig:
     def is_gee_source(self) -> bool:
         """Return *True* if the imagery composite is built on Google Earth Engine.
 
-        Covers ``landsat``, ``sentinel2``, ``hls``, ``naip``, ``spot`` and
-        ``spot-pan``. Embedding sources are not included (see
+        Covers ``landsat``, ``landsat-pan``, ``sentinel2``, ``hls``, ``naip``,
+        ``spot`` and ``spot-pan``. Embedding sources are not included (see
         :meth:`requires_gee`).
         """
         return self.source in GEE_IMAGERY_SOURCES
@@ -919,6 +985,43 @@ def _plain(value: Any) -> Any:
 def _choice(name: str, value: str, choices: tuple[str, ...]) -> None:
     if value not in choices:
         raise ValueError(f"Invalid {name} {value!r}. Choose from {choices}")
+
+
+def _normalise_landsat_pan_missions(value: Any) -> str | tuple[str, ...]:
+    """``"auto"``, or the distinct missions of *value* in canonical order.
+
+    Accepts ``"auto"`` (any case), a comma-separated string such as
+    ``"LC08,LC09"`` or a list/tuple of mission IDs (any case).
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if text.lower() == "auto":
+            return "auto"
+        items: list[Any] = [part for part in text.split(",") if part.strip()]
+    elif isinstance(value, list | tuple):
+        items = list(value)
+    else:
+        raise TypeError(
+            "landsat_pan_missions must be 'auto' or a list of mission IDs, got "
+            f"{type(value).__name__}"
+        )
+    missions = set()
+    for item in items:
+        if not isinstance(item, str):
+            raise TypeError(f"landsat_pan_missions entries must be strings, got {item!r}")
+        missions.add(item.strip().upper())
+    unknown = sorted(missions - set(VALID_LANDSAT_PAN_MISSIONS))
+    if unknown:
+        raise ValueError(
+            f"Invalid landsat_pan_missions {unknown}. Choose 'auto' or from "
+            f"{VALID_LANDSAT_PAN_MISSIONS}"
+        )
+    if not missions:
+        raise ValueError(
+            "landsat_pan_missions is empty. Use 'auto' or name at least one of "
+            f"{VALID_LANDSAT_PAN_MISSIONS}"
+        )
+    return tuple(m for m in VALID_LANDSAT_PAN_MISSIONS if m in missions)
 
 
 def _as_int(name: str, value: Any) -> int:

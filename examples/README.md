@@ -39,8 +39,10 @@ its data, assumptions, caveats and prerequisites; read it before running.
    `outputs/<example>/`. An existing output made with the same settings is
    loaded instead of recomputed; one made with other settings, from a changed
    study-area file, or by a release whose results for those settings differ
-   (1.0.0 outputs of the embedding engine or of SAM refinement) gives a
-   `FileExistsError`. Examples 01, 05, 10, 13 and 22 take `--overwrite` to recompute;
+   (1.0.0 outputs of the embedding engine or of SAM refinement, and outputs
+   of agribound 1.0.1 or earlier that fine-tune Delineate-Anything, in
+   examples 01 and 12) gives a `FileExistsError`. Examples 01, 05, 10, 13, 22
+   and 23 take `--overwrite` to recompute;
    for the other examples, delete the output (or its `outputs/<example>/`
    directory) first.
 
@@ -78,6 +80,7 @@ guard (ftw-tools' data-loader workers use the `spawn` start method).
 | 20 | [20_stratified_evaluation.py](20_stratified_evaluation.py) | San Juan Basin, New Mexico, USA | Sentinel-2 (or `--predicted`); Landsat, SPOT 6/7 (restricted), NAIP | Delineate-Anything, FTW | Stratified (sub-basin), size-class and boundary evaluation with bootstrap intervals for Delineate-Anything on Sentinel-2 2019; overall object and boundary metrics (no strata, size classes or intervals) for the same engine on Landsat, Sentinel-2, SPOT and NAIP of 2018, and for FTW and Delineate-Anything on Sentinel-2 2019 with and without the crop filter (`--resolution-year`, `--no-resolution`, `--no-lulc-comparison`; `--predicted` skips both comparisons) |
 | 21 | [21_published_ftw_audit.py](21_published_ftw_audit.py) | Belen, New Mexico, USA | published FTW polygons | - | `query_ftw` (confidence coverage) and evaluation against NMOSE |
 | 22 | [22_global_south_spot_pan.py](22_global_south_spot_pan.py) | India, China, Argentina, Kenya, Egypt, Brazil | SPOT 6/7 panchromatic (restricted) | Delineate-Anything | Six study areas at 1.5 m (3 km squares; 6 km for the centre pivots), from smallholder paddies to centre pivots; crop filter as a separate step |
+| 23 | [23_tree_crops.py](23_tree_crops.py) | Ghana, Papua New Guinea, California (USA), Spain | SPOT 6/7 panchromatic (restricted), NAIP, Landsat 8/9 panchromatic, Sentinel-2, Google and TESSERA embeddings | Delineate-Anything (released and fine-tuned), DINOv3 (fine-tuned), SAM 2, FTW, embedding | Tree crops (oil palm estate and smallholders, almond and pistachio orchards, olive groves) evaluated against RSPO, DWR / Land IQ and SIGPAC references; Delineate-Anything and DINOv3 fine-tuned on the same labels near each site; the default crop filter and `lulc_tree_crops` as a separate step |
 
 Estimated runtimes are given in each docstring; most were not measured
 for 1.0 (the docstrings say which were).
@@ -108,6 +111,7 @@ for 1.0 (the docstrings say which were).
 | 20 | [20_stratified_evaluation.ipynb](notebooks/20_stratified_evaluation.ipynb) |
 | 21 | [21_published_ftw_audit.ipynb](notebooks/21_published_ftw_audit.ipynb) |
 | 22 | [22_global_south_spot_pan.ipynb](notebooks/22_global_south_spot_pan.ipynb) |
+| 23 | [23_tree_crops.ipynb](notebooks/23_tree_crops.ipynb) |
 
 ## HPC and regions
 
@@ -123,9 +127,13 @@ for 1.0 (the docstrings say which were).
   90 % of the area has NLCD data), Dynamic World (2016 to the last complete
   year) or C3S (before 2016) from Earth Engine and removes polygons with a
   crop fraction below 0.3. It is off in examples 05, 10 and 16 (see their
-  docstrings). The Earth Engine catalogue notes that Dynamic World crop
-  probabilities can be low in arid regions, so the default threshold may
-  remove real fields there.
+  docstrings); examples 22 and 23 apply it as a separate step. Dynamic World
+  files plantations and many orchards under `trees`, so where the filter
+  uses it (outside the conterminous US) it can remove tree crops;
+  `lulc_tree_crops=True` counts `crops` + `trees` instead (example 23). The
+  Earth Engine catalogue notes that Dynamic World crop probabilities can be
+  low in arid regions, so the default threshold may remove real fields
+  there.
 - **Label-free vs fine-tuned.** Delineate-Anything, FTW, the embedding engine
   and Prithvi's `embed`/`pca` modes run without labels. GeoAI and DINOv3 have
   no published field-boundary weights and need fine-tuning on reference
@@ -142,11 +150,13 @@ for 1.0 (the docstrings say which were).
   fine-tuned engines (they were trained on the same polygons), and NMOSE may
   not contain every field in an area, so predictions of missing fields count
   as false positives. Example 20 shows a stratified evaluation.
-- **SPOT 6/7** (examples 02, 03, 08, 11, 12, 14, 15, 20) is restricted to
+- **SPOT 6/7** (examples 02, 03, 08, 11, 12, 14, 15, 20, 22, 23) is restricted to
   select Earth Engine users (internal DRI use). Without access the SPOT runs
-  fail with a message: examples 08 and 11, which use only SPOT, produce no
-  fields; the others report the failed SPOT run and continue with their other
-  sources. External users who need SPOT-based field boundaries can contact
+  fail with a message: examples 08, 11 and 22, which use only SPOT, produce no
+  fields; examples 02, 03, 12, 14, 15 and 20 report the failed SPOT run and
+  continue with their other sources. Example 23 checks access first and skips
+  its SPOT runs, SAM 2 refinement and fine-tuning (all on SPOT); the rest
+  runs. External users who need SPOT-based field boundaries can contact
   the package author (sayantan.majumdar@dri.edu).
 - **NMOSE reference data** (examples 01, 12, 13, 14, 20, 21) are not included
   in the repository; the scripts expect

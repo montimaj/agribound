@@ -146,10 +146,42 @@ class TestCacheKey:
             {"seed": 1},
             {"tessera_version": "v1.1"},  # not an embedding source
             {"cloud_score_threshold": 0.5},  # SCL mask selected
+            {"landsat_pan_missions": ("LE07", "LC08")},  # not the landsat-pan source
+            {"lulc_tree_crops": True},  # LULC rasters add their own key part
         ],
     )
     def test_key_stable_for_unrelated_fields(self, s2_config, override):
         assert cache_key(s2_config.merged(**override)) == cache_key(s2_config)
+
+    def test_landsat_pan_missions_in_key_for_landsat_pan_only(self, s2_config):
+        auto = s2_config.merged(source="landsat-pan")
+        assert ("landsat_pan_missions", "auto") in _cache._key_fields(auto, True)
+        assert "landsat_pan_missions" not in dict(_cache._key_fields(s2_config, True))
+        keys = {
+            cache_key(auto.merged(landsat_pan_missions=value))
+            for value in ("auto", "LE07", "LC08", "LC08,LC09", "LE07,LC08,LC09")
+        }
+        assert len(keys) == 5
+        # The normalised setting is hashed: order and case do not matter.
+        assert cache_key(auto.merged(landsat_pan_missions="lc09,LC08")) == cache_key(
+            auto.merged(landsat_pan_missions=["LC08", "LC09"])
+        )
+        # Not in the other sources' keys (their cached composites stay valid).
+        landsat = s2_config.merged(source="landsat")
+        assert cache_key(landsat.merged(landsat_pan_missions="LE07")) == cache_key(landsat)
+
+    def test_landsat_pan_key_differs_from_the_key_without_missions(self, s2_config):
+        """Composites cached before the mission rule (Landsat 7 and 8/9 mixed) are not reused."""
+        import hashlib
+
+        auto = s2_config.merged(source="landsat-pan")
+        fields = [
+            [n, _cache._canonical(v)]
+            for n, v in _cache._key_fields(auto, True)
+            if n != "landsat_pan_missions"
+        ]
+        text = json.dumps({"fields": fields, "parts": []}, sort_keys=True, separators=(",", ":"))
+        assert cache_key(auto) != hashlib.sha1(text.encode()).hexdigest()[:12]
 
     def test_cloud_score_threshold_matters_with_cloud_score_plus(self, s2_config):
         cs = s2_config.merged(s2_cloud_mask="cloud_score_plus")

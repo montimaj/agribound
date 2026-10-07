@@ -37,6 +37,9 @@ fine-tuning.
 training data (see the engine notes).
 - Imagery access: restricted sources, US-only sources, year coverage, Earth Engine access and \
 quotas.
+- Tree crops (orchards, plantations): whether the default LULC crop filter would remove them \
+(see the recommend_configurations notes and the propose_run warnings); list lulc_tree_crops as \
+an alternative unless the user asked for it.
 
 Rules:
 - Keep the package defaults for thresholds and filters (LULC crop-filter threshold and \
@@ -61,7 +64,7 @@ sha256 hash) without running anything. execute_plan, when this server was starte
 --allow-execute, runs one approved plan per server process after human confirmation. Keep \
 package-default thresholds unless the user asked for a value; never re-run or re-tune a plan to \
 change the number of polygons; report limitations (GSD vs field size, labels, \
-out-of-distribution inputs, imagery access) from tool outputs.
+out-of-distribution inputs, imagery access, the LULC crop filter on tree crops) from tool outputs.
 """
 
 

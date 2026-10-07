@@ -14,6 +14,9 @@ https://code.earthengine.google.com/
 # TESSERA blog (blocks automated requests)
 https://geotessera.org/
 
+# USDA NASS (returns 403 to GitHub Actions runners; the pages load elsewhere)
+https://www.nass.usda.gov/
+
 # Own GitHub Pages (may not be deployed yet during CI)
 https://montimaj.github.io/agribound/
 
@@ -26,11 +29,13 @@ https://github.com/montimaj/agribound/blob/main/examples/19_hpc_tiling.py
 https://github.com/montimaj/agribound/blob/main/examples/20_stratified_evaluation.py
 https://github.com/montimaj/agribound/blob/main/examples/21_published_ftw_audit.py
 https://github.com/montimaj/agribound/blob/main/examples/22_global_south_spot_pan.py
+https://github.com/montimaj/agribound/blob/main/examples/23_tree_crops.py
 https://github.com/montimaj/agribound/blob/main/examples/notebooks/18_agent_orchestration.ipynb
 https://github.com/montimaj/agribound/blob/main/examples/notebooks/19_hpc_tiling.ipynb
 https://github.com/montimaj/agribound/blob/main/examples/notebooks/20_stratified_evaluation.ipynb
 https://github.com/montimaj/agribound/blob/main/examples/notebooks/21_published_ftw_audit.ipynb
 https://github.com/montimaj/agribound/blob/main/examples/notebooks/22_global_south_spot_pan.ipynb
+https://github.com/montimaj/agribound/blob/main/examples/notebooks/23_tree_crops.ipynb
 https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png
 https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/
 https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_0.1x/

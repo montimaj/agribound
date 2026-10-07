@@ -63,10 +63,15 @@ the India outline in ``~/.cache/agribound/india``. The source credit
 Multi-area entries (``Entry.multi_area``, rendered by :func:`render_areas`) draw
 one panel per layer, each in the CRS of its own background composite, on the
 square of side ``Layer.crop_m`` (else ``Entry.crop_m``) that holds the most
-polygon representative points among candidates half a side apart. Their inset
-is a world locator (``WORLD_INSET_W_IN``, ``WORLD_INSET_PAD_DEG``) with one
-numbered red dot per panel; India is drawn from the Survey of India outline as
-above, and the credit line starts "Inset: study areas 1-N; ".
+representative points of the layer's polygons among candidates half a side
+apart; with ``Entry.crop_on_reference``, of the panel's reference polygons
+(``Layer.reference``, drawn in cyan) when it has any. Their inset
+is a world locator (``WORLD_INSET_W_IN``, ``WORLD_INSET_PAD_DEG``, or
+``Entry.inset_pad_deg``) with one
+numbered red dot per study area; India is drawn from the Survey of India outline as
+above, and the credit line starts "Inset: study areas 1-N; ". Panels with the same
+``Layer.area`` (several models on one study area) share a number, a dot and the
+window of the area's first panel.
 
 Footer
 ------
@@ -88,13 +93,21 @@ Outputs (``--out-dir``, default ``assets/gallery_1.0``):
 - ``gallery_stats.json``: per entry, the facts the captions quote (polygon
   counts, area quantiles, source, year, imagery window, engine metadata, the
   inset location (``location``: lon/lat, country, admin1; for a multi-area
-  entry, one record per panel and each layer's ``window``) and, when the
-  example wrote one, its metrics file). A full run writes the file afresh;
-  ``--only`` replaces the rendered entries and keeps the others.
+  entry, one record per study area and each layer's ``window``) and, when the
+  example wrote one, its metrics file). The layer counts are of the whole
+  output file. ``reference`` counts the reference polygons that intersect the
+  map (the crop square, when the entry is cropped); in a multi-area entry,
+  each layer's ``reference`` describes the panel's whole reference file, and
+  ``n_polygons_in_window`` counts those that intersect the panel's square. A
+  full run writes the file afresh; ``--only`` replaces the rendered entries
+  and keeps the others.
 
 The rendering is deterministic (no random numbers; no dates or software
 versions in the PNG metadata; the previews are encoded from the PNG with fixed
-settings), so a second run gives byte-identical files.
+settings), so a second run with the same library versions gives byte-identical
+files. Other versions can move pixels: geopandas 1.2 draws each multipart
+country as one shape, which changes the coastlines of the locator insets
+slightly (the maps are unchanged).
 """
 
 from __future__ import annotations
@@ -245,6 +258,7 @@ def _sam2_note(versions: dict, resmoothed: bool | str = False) -> str:
 SOURCE_LABELS = {
     "sentinel2": "Sentinel-2 L2A",
     "landsat": "Landsat C2 L2",  # with the recorded missions: see _landsat_label
+    "landsat-pan": "Landsat PAN TOA",  # with the recorded sensors: see _landsat_pan_label
     "hls": "HLS",
     "naip": "NAIP",
     "usgs-naip-plus": "USGS NAIP Plus",
@@ -253,6 +267,20 @@ SOURCE_LABELS = {
     "local": "local GeoTIFF",
 }
 LANDSAT_MISSIONS = {"LT04": 4, "LT05": 5, "LE07": 7, "LC08": 8, "LC09": 9}
+
+
+def _count(n: int, noun: str) -> str:
+    """``"1 field"``, ``"1,185 fields"``: a count with its noun in the singular or plural."""
+    n = int(n)
+    return f"{n:,} {noun}" if n == 1 else f"{n:,} {noun}s"
+
+
+def _fit_title(title: str, width_in: float) -> float:
+    """Font size at which *title* fits *width_in* inches (TITLE_FS, smaller down to 7 pt)."""
+    fs = TITLE_FS
+    while fs > 7 and _text_width_in(title, fs) > width_in * 0.98:
+        fs -= 0.5  # a long title is set smaller, not over the next panel
+    return fs
 
 
 def _landsat_label(collections: str | None) -> str:
@@ -268,6 +296,19 @@ def _landsat_label(collections: str | None) -> str:
     return f"Landsat {'/'.join(str(m) for m in missions)} C2 L2"
 
 
+def _landsat_pan_label(sensors: str | None) -> str:
+    """Landsat PAN label from a composite's ``AGRIBOUND_SENSORS`` tag.
+
+    ``"LC08,LC09"`` gives ``"Landsat 8/9 PAN TOA"``; without the tag (composites made
+    before it existed) the label is ``"Landsat PAN TOA"``.
+    """
+    ids = [s.strip() for s in (sensors or "").split(",")]
+    missions = sorted({LANDSAT_MISSIONS[i] for i in ids if i in LANDSAT_MISSIONS})
+    if not missions:
+        return SOURCE_LABELS["landsat-pan"]
+    return f"Landsat {'/'.join(str(m) for m in missions)} PAN TOA"
+
+
 @dataclass
 class Layer:
     """One panel: an output file and its label."""
@@ -280,9 +321,17 @@ class Layer:
     removed_vs: str | None = None
     model_from: str | None = None  # output whose sidecar names the model (for files without one)
     background: str | None = None  # per-panel background GeoTIFF glob (per_layer_background)
+    # Per-panel background from another output's provenance (facts.raster_path), e.g. the
+    # Sentinel-2 composite of the same year for a panel of embedding clusters.
+    background_from: str | None = None
     background_source: str | None = None
     bg_role: str | None = None
     crop_m: float | None = None  # multi-area entries: this panel's window side (else the entry's)
+    # Multi-area entries: this panel's reference polygons, drawn in cyan (Entry.reference_label).
+    reference: str | None = None
+    # Multi-area entries: panels with the same area share a number and one locator dot (e.g.
+    # several models on one study area); default: every panel is its own area.
+    area: str | None = None
 
 
 @dataclass
@@ -323,15 +372,21 @@ class Entry:
     )
     overlay_label: str = ""
     model_notes: list[str] = field(default_factory=list)  # extra footer lines
-    sam2_note: bool = False  # add the SAM 2 model line (refined files have no sidecar)
+    sam2_note: bool = False  # add the SAM 2 model line (SAM layer notes name the engine only)
     sam2_resmoothed: bool | str = (
         False  # True: re-smooths all polygons after SAM (13); str: which (15)
     )
     halo: bool = False  # white halo under the outlines, for small fields on busy imagery
     inset: bool = True  # locator inset (country, state/province, study-area marker)
+    # Multi-area entries: (lon, lat) margin of the world locator around the dots, when the
+    # default WORLD_INSET_PAD_DEG leaves a number on the frame (a wide, short view).
+    inset_pad_deg: tuple[float, float] | None = None
     line_width: float = 0.7
     notes: dict = field(default_factory=dict)
 
+
+# Output directory of example 23 (tree crops).
+TC = "outputs/tree_crops"
 
 # Example 15 zoom windows (label, centre x, centre y, side in m; EPSG:32720, the map CRS):
 # 1 = the 4 km square with the most centre pivots (the densest circular-polygon window of the
@@ -543,6 +598,162 @@ ENTRIES: list[Entry] = [
         per_layer_background=True,
         crop_m=2000,  # per panel: the densest of the 2 km squares on a 1 km grid
         ncols=3,
+    ),
+    Entry(
+        "23",
+        "Tree_Crops_SPOT_Pan_example",
+        "Tree crops: Delineate-Anything v2 on SPOT 6/7 panchromatic 1.5 m, four landscapes",
+        [
+            Layer(
+                f"outputs/tree_crops/{slug}/fields_spot-pan_da_{year}.gpkg",
+                label,
+                crop_m=crop,
+                reference=f"outputs/tree_crops/references/{slug}_reference_{'?' * 12}.gpkg",
+            )
+            for slug, year, label, crop in [
+                ("twifo", 2020, "Twifo Praso, Ghana: oil palm estate", 2000),
+                ("oro", 2021, "Oro, Papua New Guinea: oil palm smallholders", 1000),
+                ("madera", 2022, "Madera, California: almonds, pistachios", 2000),
+                ("jaen", 2023, "Úbeda, Spain: olive groves", 1000),
+            ]
+        ],
+        multi_area=True,
+        per_layer_background=True,
+        crop_m=2000,
+        crop_on_reference=True,  # per panel: the square with the most reference polygons
+        reference_label="Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
+        ncols=2,
+        inset_pad_deg=(16.0, 16.0),  # a wide, short view: room above 3 and 4, right of 2
+    ),
+    Entry(
+        "23b",
+        "Tree_Crops_Twifo_example",
+        "Twifo Praso, Ghana: oil palm estate blocks, Delineate-Anything v2, FTW and embeddings",
+        [
+            Layer(f"{TC}/twifo/fields_spot-pan_da_2020.gpkg", "SPOT-Pan 1.5 m"),
+            Layer(
+                f"{TC}/twifo/fields_spot-pan_da-sam2_2020.gpkg",
+                "SPOT-Pan 1.5 m + SAM 2",
+                highlight="agribound:sam_refined",
+            ),
+            Layer(f"{TC}/twifo/fields_spot-pan_da-ft_2020.gpkg", "SPOT-Pan 1.5 m, fine-tuned"),
+            Layer(f"{TC}/twifo/fields_sentinel2_da_2020.gpkg", "Sentinel-2 10 m"),
+            Layer(f"{TC}/twifo/fields_landsat-pan_da_2020.gpkg", "Landsat PAN 15 m"),
+            Layer(f"{TC}/twifo/fields_sentinel2_ftw_2020.gpkg", "FTW, Sentinel-2"),
+            Layer(
+                f"{TC}/twifo/fields_google-embedding_k20_2020.gpkg",
+                "Google embedding, k = 20",
+                background_from=f"{TC}/twifo/fields_sentinel2_da_2020.gpkg",
+                bg_role="the Sentinel-2 composite of the year (the engine reads the embeddings)",
+            ),
+            Layer(
+                f"{TC}/twifo/fields_tessera-embedding_k20_2020.gpkg",
+                "TESSERA, k = 20",
+                background_from=f"{TC}/twifo/fields_sentinel2_da_2020.gpkg",
+                bg_role="the Sentinel-2 composite of the year (the engine reads the embeddings)",
+            ),
+        ],
+        reference=f"{TC}/references/twifo_reference_{'?' * 12}.gpkg",
+        reference_label="RSPO GeoRSPO estate blocks (member-declared)",
+        per_layer_background=True,
+        crop_on_reference=True,  # the 2 km square with the most reference blocks
+        crop_m=2000,
+        ncols=4,
+        model_notes=[
+            "Panels 1-5: Delineate-Anything v2 (large_v2); panel 3 fine-tuned on 109 blocks of the "
+            "NORPALM estate (69 km away; SPOT-Pan 2020, 62 training chips, 20 epochs, "
+            "yolo_lr0=1e-4)"
+        ],
+        sam2_note=True,
+    ),
+    Entry(
+        "23c",
+        "Tree_Crops_Oro_example",
+        "Oro, Papua New Guinea: oil palm smallholder parcels, released and fine-tuned models",
+        [
+            Layer(f"{TC}/oro/fields_spot-pan_da_2021.gpkg", "SPOT-Pan 1.5 m, released"),
+            Layer(f"{TC}/oro/fields_spot-pan_da-ft_2021.gpkg", "SPOT-Pan 1.5 m, fine-tuned"),
+            Layer(
+                f"{TC}/oro/fields_google-embedding_k20_2021.gpkg",
+                "Google embedding, k = 20",
+                background_from=f"{TC}/oro/fields_sentinel2_da_2021.gpkg",
+                bg_role="the Sentinel-2 composite of the year (the engine reads the embeddings)",
+            ),
+        ],
+        reference=f"{TC}/references/oro_reference_{'?' * 12}.gpkg",
+        reference_label="RSPO GeoRSPO smallholder parcels (member-declared)",
+        per_layer_background=True,
+        crop_on_reference=True,  # the 1.5 km square with the most reference parcels
+        crop_m=1500,
+        ncols=3,
+        model_notes=[
+            "Panels 1-2: Delineate-Anything v2 (large_v2); panel 2 fine-tuned on Higaturu scheme "
+            "parcels in a 6 km square 13.6 km away (SPOT-Pan March 2021, 22 training chips "
+            "holding parts of 369 of the square's 564 parcels, 20 epochs, yolo_lr0=1e-4)"
+        ],
+    ),
+    Entry(
+        "23d",
+        "Tree_Crops_Madera_example",
+        "Madera County, California: almond and pistachio orchards, NAIP 1 m to Landsat PAN 15 m",
+        [
+            Layer(f"{TC}/madera/fields_naip_da_2022.gpkg", "NAIP 1 m"),
+            Layer(f"{TC}/madera/fields_spot-pan_da_2022.gpkg", "SPOT-Pan 1.5 m"),
+            Layer(f"{TC}/madera/fields_sentinel2_da_2022.gpkg", "Sentinel-2 10 m"),
+            Layer(f"{TC}/madera/fields_landsat-pan_da_2022.gpkg", "Landsat PAN 15 m"),
+            Layer(f"{TC}/madera/fields_sentinel2_ftw_2022.gpkg", "FTW, Sentinel-2"),
+            Layer(
+                f"{TC}/madera/fields_google-embedding_k20_2022.gpkg",
+                "Google embedding, k = 20",
+                background_from=f"{TC}/madera/fields_sentinel2_da_2022.gpkg",
+                bg_role="the Sentinel-2 composite of the year (the engine reads the embeddings)",
+            ),
+        ],
+        reference=f"{TC}/references/madera_reference_{'?' * 12}.gpkg",
+        reference_label="DWR / Land IQ 2022 fields (all crops)",
+        per_layer_background=True,
+        crop_on_reference=True,  # the 2.5 km square with the most reference fields
+        crop_m=2500,
+        ncols=3,
+        model_notes=["Panels 1-4: Delineate-Anything v2 (large_v2), as released"],
+    ),
+    Entry(
+        "23e",
+        "Tree_Crops_DINOv3_example",
+        "Tree crops: Delineate-Anything v2 (released, fine-tuned) and DINOv3 (fine-tuned)",
+        [
+            Layer(
+                f"{TC}/{slug}/fields_spot-pan_{run}_{year}.gpkg",
+                f"{name}: {model}",
+                crop_m=crop,
+                reference=f"{TC}/references/{slug}_reference_{'?' * 12}.gpkg",
+                area=slug,  # the three models of a study area share its window and dot
+            )
+            for slug, year, name, crop in [
+                ("twifo", 2020, "Twifo Praso", 2000),
+                ("oro", 2021, "Oro", 1000),
+                ("madera", 2022, "Madera", 2000),
+                ("jaen", 2023, "Úbeda", 1000),
+            ]
+            for run, model in [
+                ("da", "DA v2 released"),
+                ("da-ft", "DA v2 fine-tuned"),
+                ("dinov3-ft", "DINOv3 fine-tuned"),
+            ]
+        ],
+        multi_area=True,
+        per_layer_background=True,
+        crop_m=2000,
+        crop_on_reference=True,  # per area: the square with the most reference polygons
+        reference_label="Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
+        ncols=3,
+        inset_pad_deg=(16.0, 16.0),
+        model_notes=[
+            "Fine-tuned on the SPOT-Pan chips of a training area near each study area, never the "
+            "evaluated square: 1 NORPALM estate, 2 Higaturu scheme parcels, 3 Cressey (DWR), "
+            "4 Ibros (SIGPAC); Delineate-Anything 20 epochs, yolo_lr0=1e-4; DINOv3 ViT-L/16 "
+            "(SAT-493M), full fine-tuning, at most 20 epochs"
+        ],
     ),
     Entry(
         "02",
@@ -995,10 +1206,16 @@ def _model_note_base(prov: dict) -> str | None:
         return f"{src} embeddings, {em.get('clusterer')} with {em.get('n_clusters')} clusters"
     if engine == "dinov3":
         rev = str(em.get("weights_revision") or "")[:7]
-        return (
-            f"DINOv3 {em.get('model_name')} with {em.get('weights')} @ {rev} "
-            f"(geoai-py {em.get('geoai-py_version') or ver.get('geoai-py')})"
-        )
+        geoai = f"geoai-py {em.get('geoai-py_version') or ver.get('geoai-py')}"
+        if not cfg.get("fine_tune") and (cfg.get("engine_params") or {}).get("checkpoint_path"):
+            # A checkpoint fine-tuned in another run (e.g. on a training area): name it, as
+            # for Delineate-Anything; the backbone weights are only its starting point.
+            sha = str(em.get("checkpoint_sha256") or "")[:7]
+            return (
+                f"DINOv3 {em.get('model_name')} fine-tuned checkpoint (sha256 {sha}; from "
+                f"{em.get('weights')} @ {rev}; {geoai})"
+            )
+        return f"DINOv3 {em.get('model_name')} with {em.get('weights')} @ {rev} ({geoai})"
     if engine == "geoai":
         win = (
             f"; {em['window_size']} px windows, overlap {em.get('overlap')} px"
@@ -1012,6 +1229,18 @@ def _model_note_base(prov: dict) -> str | None:
     if engine and em.get("model"):
         return f"{engine}: {em.get('model')}"
     return None
+
+
+def _bare_axes(ax) -> None:
+    """No ticks and no axis labels on a map (call after the geopandas plots).
+
+    geopandas >= 1.2 labels the axes of every ``.plot()`` with the CRS axis names
+    ("Easting [metre]"); ``add_labels=False`` would break geopandas 1.0 and 1.1.
+    """
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("")
+    ax.set_ylabel("")
 
 
 def _nice_length(width_m: float) -> float:
@@ -1127,12 +1356,23 @@ def _composite_facts(prov: dict, tif: Path | None = None) -> dict:
         "AGRIBOUND_RESOLUTION_M": "resolution_m",
         "AGRIBOUND_IMAGE_YEARS": "image_years",
         "AGRIBOUND_LOCK_RASTER_IDS": "lock_raster_ids",
+        "AGRIBOUND_SENSORS": "sensors",
     }
     return {v: comp[k] for k, v in keep.items() if k in comp}
 
 
 def _background_for(entry: Entry, root: Path, prov: dict, basemap: str, layer: Layer | None = None):
     """Background GeoTIFF(s), source, provenance for its dates and role note of one layer."""
+    if layer is not None and layer.background_from:
+        bprov = _sidecar(_one(layer.background_from, root))
+        raster = (bprov.get("facts") or {}).get("raster_path")
+        if not raster:
+            raise FileNotFoundError(
+                f"{layer.background_from!r}: its provenance records no facts.raster_path"
+            )
+        source = layer.background_source or (bprov.get("config") or {}).get("source")
+        role = layer.bg_role or entry.bg_role or "the engine's input"
+        return [root / raster], source, bprov, role
     if layer is not None and layer.background:
         tifs = [Path(t) for t in sorted(glob.glob(str(root / layer.background)))]
         if not tifs:
@@ -1189,6 +1429,8 @@ def _bg_note(bg) -> str:
     label = SOURCE_LABELS.get(source or "", source or "imagery")
     if source == "landsat":
         label = _landsat_label(comp.get("collections"))
+    elif source == "landsat-pan":
+        label = _landsat_pan_label(comp.get("sensors"))
     if comp.get("resolution_m"):
         label += f" {float(comp['resolution_m']):g} m"
     window = ""
@@ -1199,7 +1441,7 @@ def _bg_note(bg) -> str:
         )
     elif comp.get("image_years"):
         window = f", {comp['image_years']} imagery"
-    n_img = f", {comp['n_images']} images" if comp.get("n_images") else ""
+    n_img = f", {_count(comp['n_images'], 'image')}" if comp.get("n_images") else ""
     if not n_img and comp.get("lock_raster_ids"):
         n_img = f", {len(comp['lock_raster_ids'].split(','))} source rasters"
     return f"{label}{window}{n_img}; {bg_role}"
@@ -1424,8 +1666,7 @@ def _draw_inset(fig, rect, loc: dict, title: str) -> tuple:
     # Shrink the inset box to the map's aspect, keeping it in the bottom-right corner.
     iax.set_aspect(_inset_aspect(loc), adjustable="box")
     iax.set_anchor("SE")
-    iax.set_xticks([])
-    iax.set_yticks([])
+    _bare_axes(iax)
     for sp in iax.spines.values():
         sp.set_edgecolor("#333333")
         sp.set_linewidth(0.7)
@@ -1568,7 +1809,31 @@ def _write_preview(png: Path, out_dir: Path) -> Path:
 # --------------------------------------------------------------------------- render
 
 
+def _removed_mask(gdf: gpd.GeoDataFrame, kept_path: str, root: Path, crs) -> np.ndarray:
+    """Polygons of *gdf* missing from the crop-filtered output *kept_path*.
+
+    A polygon counts as kept when its representative point lies within a polygon of
+    the filtered output (the filter drops polygons, it does not reshape them).
+    """
+    kept = gpd.read_file(_one(kept_path, root)).to_crs(crs)
+    pts = gpd.GeoDataFrame(geometry=gdf.geometry.representative_point(), crs=crs)
+    hit = gpd.sjoin(pts, kept[["geometry"]], how="left", predicate="within")
+    in_kept = hit.groupby(level=0)["index_right"].apply(lambda s: s.notna().any())
+    return ~in_kept.reindex(gdf.index, fill_value=False).to_numpy()
+
+
 def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
+    if any(lay.reference for lay in entry.layers):
+        raise ValueError(
+            f"entry {entry.key}: Layer.reference is for multi-area entries; use Entry.reference"
+        )
+    for name, used in (
+        ("Layer.area", any(lay.area for lay in entry.layers)),
+        ("Layer.crop_m", any(lay.crop_m for lay in entry.layers)),
+        ("Entry.inset_pad_deg", entry.inset_pad_deg is not None),
+    ):
+        if used:
+            raise ValueError(f"entry {entry.key}: {name} is for multi-area entries")
     layers = []
     for lay in entry.layers:
         p = _one(lay.path, root)
@@ -1596,16 +1861,10 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
     else:
         crs = layers[0][2].estimate_utm_crs()
     frames = [g.to_crs(crs) for _, _, g, _ in layers]
-    removed = []  # per layer: boolean mask of polygons the crop filter removed, or None
-    for (lay, *_), gdf in zip(layers, frames, strict=True):
-        if not lay.removed_vs:
-            removed.append(None)
-            continue
-        kept = gpd.read_file(_one(lay.removed_vs, root)).to_crs(crs)
-        pts = gpd.GeoDataFrame(geometry=gdf.geometry.representative_point(), crs=crs)
-        hit = gpd.sjoin(pts, kept[["geometry"]], how="left", predicate="within")
-        in_kept = hit.groupby(level=0)["index_right"].apply(lambda s: s.notna().any())
-        removed.append(~in_kept.reindex(gdf.index, fill_value=False).to_numpy())
+    removed = [  # per layer: boolean mask of polygons the crop filter removed, or None
+        _removed_mask(gdf, lay.removed_vs, root, crs) if lay.removed_vs else None
+        for (lay, *_), gdf in zip(layers, frames, strict=True)
+    ]
     overlay = overlay_lines = None
     if entry.overlay:
         opath, _, olayer = entry.overlay.partition("::")
@@ -1834,12 +2093,11 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
         ax.set_ylim(ext[2], ext[3])
         ax.set_aspect("equal")
         ax.set_anchor("N")
-        ax.set_xticks([])
-        ax.set_yticks([])
+        _bare_axes(ax)
         for s in ax.spines.values():
             s.set_linewidth(0.6)
         _scalebar(ax, ext, crs)
-        ax.set_title(title, fontsize=TITLE_FS, pad=4)
+        ax.set_title(title, fontsize=_fit_title(title, panel_w), pad=4)
 
     for i, (ax, (lay, _p, _g, _pv), gdf) in enumerate(zip(axes, layers, frames, strict=False)):
         draw(
@@ -1847,7 +2105,7 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
             gdf,
             extent,
             entry.line_width * (1.0 if n_panels == 1 else 0.8),
-            f"{lay.label} ({len(gdf):,} fields)",
+            f"{lay.label} ({_count(len(gdf), 'field')})",
             hl=lay.highlight,
             bg=imgs[i],
             rm=removed[i],
@@ -2028,13 +2286,13 @@ def render(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
     return stats
 
 
-def _world_view(points: list[tuple[str, float, float]]):
-    """View box (EPSG:4326) around the dots of a multi-area entry."""
+def _world_view(points: list[tuple[str, float, float]], pad_deg=None):
+    """View box (EPSG:4326) around the dots of a multi-area entry (margin *pad_deg*)."""
     from shapely.geometry import box
 
     lons = [p[1] for p in points]
     lats = [p[2] for p in points]
-    px, py = WORLD_INSET_PAD_DEG
+    px, py = pad_deg or WORLD_INSET_PAD_DEG
     return box(
         max(min(lons) - px, -180.0),
         max(min(lats) - py, -60.0),
@@ -2086,8 +2344,7 @@ def _draw_world_inset(fig, rect, points: list[tuple[str, float, float]], view) -
     iax.set_ylim(y0, y1)
     iax.set_aspect(1 / max(math.cos(math.radians((y0 + y1) / 2)), 0.2), adjustable="box")
     iax.set_anchor("SE")
-    iax.set_xticks([])
-    iax.set_yticks([])
+    _bare_axes(iax)
     for sp in iax.spines.values():
         sp.set_edgecolor("#333333")
         sp.set_linewidth(0.7)
@@ -2104,7 +2361,8 @@ def _areas_bg_note(panels: list[dict]) -> str:
         (src, role, c.get("resolution_m"), c.get("composite_method")) for src, role, c in facts
     }
     if len(heads) != 1:
-        return "Background: " + "; ".join(f"{p['n']}: {_bg_note(p['bg'])}" for p in panels)
+        items = [f"{p['n']}: {_bg_note(p['bg'])}" for p in panels]
+        return "Background: " + "; ".join(dict.fromkeys(items))
     source, role, res, method = heads.pop()
     label = SOURCE_LABELS.get(source or "", source or "imagery")
     if res:
@@ -2116,10 +2374,20 @@ def _areas_bg_note(panels: list[dict]) -> str:
             if c.get("date_start") and c.get("date_end_exclusive")
             else "dates not recorded"
         )
-        n_img = f", {c['n_images']} images" if c.get("n_images") else ""
+        n_img = f", {_count(c['n_images'], 'image')}" if c.get("n_images") else ""
         per.append(f"{p['n']}: {dates}{n_img}")
     kind = f"{method} composites" if method else "composites"
+    # Panels of one area (Layer.area) with the same imagery give one item.
+    per = list(dict.fromkeys(per))
     return f"Background: {label} {kind} ({role}); end dates exclusive: " + "; ".join(per)
+
+
+def _area_points(panels: list[dict]) -> list[tuple[str, float, float]]:
+    """One ``(number, lon, lat)`` locator dot per area, at the area's first panel's window."""
+    first: dict[str, tuple[str, float, float]] = {}
+    for p in panels:
+        first.setdefault(p["n"], (p["n"], p["lon"], p["lat"]))
+    return list(first.values())
 
 
 def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
@@ -2127,9 +2395,14 @@ def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
 
     Each panel is drawn in the CRS of its own background raster, on the square of side
     ``lay.crop_m`` (else ``entry.crop_m``) holding the most polygon representative points
-    of that layer, among candidate squares half a side apart inside its imagery, with its
-    own scale bar. A world locator with numbered dots replaces the country inset. Options
-    that only :func:`render` implements are refused.
+    of that layer (with ``entry.crop_on_reference``, of the panel's ``lay.reference``
+    polygons when it has any), among candidate squares half a side apart inside its
+    imagery, with its own scale bar. A panel's ``lay.reference`` is drawn in cyan and the
+    polygons missing from ``lay.removed_vs`` in magenta. A world locator with numbered dots
+    replaces the country inset. Panels with the same ``lay.area`` (e.g. several models on
+    one study area) share a number, a dot and the window of the area's first panel, which
+    their imagery must cover in the same CRS. Options that only :func:`render` implements
+    are refused.
     """
     from pyproj import Transformer
 
@@ -2141,7 +2414,6 @@ def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
         n
         for n in (
             "reference",
-            "crop_on_reference",
             "window",
             "zoom_m",
             "overlay",
@@ -2157,36 +2429,68 @@ def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
     ] + [
         f"layers[{k}].{n}"
         for k, lay in enumerate(entry.layers)
-        for n in ("highlight", "removed_vs", "model_from")
+        for n in ("highlight", "model_from")
         if getattr(lay, n)
     ]
     if unsupported:
         raise ValueError(
             f"entry {entry.key}: multi-area entries do not support {', '.join(unsupported)}"
         )
+    # Panel numbers: one per Layer.area, and one per panel without an area.
+    keys = [("area", lay.area) if lay.area else ("panel", i) for i, lay in enumerate(entry.layers)]
+    numbers: dict[tuple, str] = {}
+    for key in keys:
+        numbers.setdefault(key, str(len(numbers) + 1))
+    area_windows: dict[str, tuple] = {}  # Layer.area -> (CRS, window) of its first panel
     panels = []
     for i, lay in enumerate(entry.layers):
         path = _one(lay.path, root)
         gdf, prov = gpd.read_file(path), _sidecar(path)
         bg = _background_for(entry, root, prov, basemap, lay)
         with rasterio.open(bg[0][0]) as src:
-            crs, rb = src.crs, src.bounds
+            crs, rb, res = src.crs, src.bounds, max(abs(src.res[0]), abs(src.res[1]))
         g = gdf.to_crs(crs)
+        ref = None
+        if lay.reference:
+            ref = gpd.read_file(_one(lay.reference, root)).to_crs(crs)
+            ref = ref[ref.geometry.notna() & ~ref.geometry.is_empty]
+        removed = _removed_mask(g, lay.removed_vs, root, crs) if lay.removed_vs else None
         # The square is placed inside the imagery (which covers the study area), so it fits
-        # even where the polygons span less than crop_m in one direction.
+        # even where the polygons span less than crop_m in one direction. With
+        # crop_on_reference it is the square with the most reference polygons.
         full = (rb.left, rb.right, rb.bottom, rb.top)
-        side = lay.crop_m or entry.crop_m
-        ext = _densest_window(g, side, full) if len(g) else None
-        ext = ext or full
+        if lay.area in area_windows:
+            # Every panel of an area shows the window of the area's first panel.
+            crs0, ext = area_windows[lay.area]
+            inside = (
+                ext[0] >= full[0] - res
+                and ext[1] <= full[1] + res
+                and ext[2] >= full[2] - res
+                and ext[3] <= full[3] + res
+            )
+            if crs0 != crs or not inside:
+                raise ValueError(
+                    f"entry {entry.key}: panel {i + 1} ({lay.label}) cannot show the window of "
+                    f"area {lay.area!r}: its imagery is in another CRS or does not cover it"
+                )
+        else:
+            side = lay.crop_m or entry.crop_m
+            dense = ref if (entry.crop_on_reference and ref is not None and len(ref)) else g
+            ext = _densest_window(dense, side, full) if len(dense) else None
+            ext = ext or full
+            if lay.area:
+                area_windows[lay.area] = (crs, ext)
         lon, lat = Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform(
             (ext[0] + ext[1]) / 2, (ext[2] + ext[3]) / 2
         )
         panels.append(
             {
-                "n": str(i + 1),
+                "n": numbers[keys[i]],
                 "lay": lay,
                 "path": path,
                 "gdf": g,
+                "ref": ref,
+                "removed": removed,
                 "prov": prov,
                 "bg": bg,
                 "crs": crs,
@@ -2206,16 +2510,20 @@ def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
         if m not in model_lines:
             model_lines.append(m)
     paragraphs += [("Model: " if k == 0 else "") + m for k, m in enumerate(model_lines)]
-    points = [(p["n"], p["lon"], p["lat"]) for p in panels]
-    view = _world_view(points) if entry.inset else None
+    points = _area_points(panels)
+    view = _world_view(points, entry.inset_pad_deg) if entry.inset else None
     if view is not None:
-        dots = f"Inset: study areas 1-{len(panels)}; "
+        dots = f"Inset: study areas 1-{len(points)}; "
         if _india_outline().intersects(view):
             paragraphs.append(dots + INSET_NOTE_INDIA.removeprefix("Inset: "))
         else:
             paragraphs.append(dots + "Natural Earth country and lake boundaries")
 
     handles = [Line2D([], [], color=PRED_COLOR, lw=1.5, label=PRED_LABEL)]
+    if any(p["removed"] is not None for p in panels):
+        handles.append(Line2D([], [], color=REMOVED_COLOR, lw=1.5, label=REMOVED_LABEL))
+    if any(p["ref"] is not None for p in panels):
+        handles.append(Line2D([], [], color=REF_COLOR, lw=1.5, label=entry.reference_label))
     legend_ncol = len(handles)
     legend_right, legend_h = _measure_legend(handles, legend_ncol)
     inset = None
@@ -2255,7 +2563,12 @@ def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
             tifs, source, (e[0], e[2], e[1], e[3]), p["crs"], px
         )
         ax.imshow(img, extent=img_ext, interpolation="auto", zorder=1)
-        g = p["gdf"].cx[e[0] : e[1], e[2] : e[3]]
+        if p["ref"] is not None and len(p["ref"]):
+            p["ref"].cx[e[0] : e[1], e[2] : e[3]].boundary.plot(
+                ax=ax, color=REF_COLOR, linewidth=lw * 0.9, zorder=3
+            )
+        in_window = p["gdf"].index.isin(p["gdf"].cx[e[0] : e[1], e[2] : e[3]].index)
+        g = p["gdf"][in_window]
         if len(g):
             n_before = len(ax.collections)
             g.boundary.plot(ax=ax, color=PRED_COLOR, linewidth=lw, zorder=4)
@@ -2263,20 +2576,19 @@ def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
                 halo = [pe.Stroke(linewidth=lw + 1.6, foreground="white", alpha=0.85), pe.Normal()]
                 for coll in ax.collections[n_before:]:
                     coll.set_path_effects(halo)
+            rm = p["removed"][in_window] if p["removed"] is not None else None
+            if rm is not None and rm.any():
+                g[rm].boundary.plot(ax=ax, color=REMOVED_COLOR, linewidth=lw * 1.3, zorder=4.6)
         ax.set_xlim(e[0], e[1])
         ax.set_ylim(e[2], e[3])
         ax.set_aspect("equal")
         ax.set_anchor("N")
-        ax.set_xticks([])
-        ax.set_yticks([])
+        _bare_axes(ax)
         for sp in ax.spines.values():
             sp.set_linewidth(0.6)
         _scalebar(ax, e, p["crs"])
-        title = f"{p['n']}. {p['lay'].label} ({len(p['gdf']):,} fields)"
-        fs = TITLE_FS
-        while fs > 7 and _text_width_in(title, fs) > panel_w * 0.98:
-            fs -= 0.5  # a long title is set smaller, not over the next panel
-        ax.set_title(title, fontsize=fs, pad=4)
+        title = f"{p['n']}. {p['lay'].label} ({_count(len(p['gdf']), 'field')})"
+        ax.set_title(title, fontsize=_fit_title(title, panel_w), pad=4)
 
     iax = None
     if inset:
@@ -2342,10 +2654,10 @@ def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
             {
                 "areas": [
                     {
-                        "panel": p["n"],
-                        **{k: v for k, v in _locate(p["lon"], p["lat"]).items() if k[0] != "_"},
+                        "panel": n,
+                        **{k: v for k, v in _locate(lon, lat).items() if k[0] != "_"},
                     }
-                    for p in panels
+                    for n, lon, lat in points
                 ]
             }
             if entry.inset
@@ -2386,6 +2698,24 @@ def render_areas(entry: Entry, root: Path, out_dir: Path, basemap: str) -> dict:
                 },
                 "agribound_version": p["prov"].get("agribound_version"),
                 "run_status": p["prov"].get("status"),
+                "n_removed_by_crop_filter": (
+                    int(p["removed"].sum()) if p["removed"] is not None else None
+                ),
+                # The whole reference of the study area; n_polygons_in_window counts the
+                # reference polygons that intersect the panel's square.
+                "reference": (
+                    {
+                        "label": entry.reference_label,
+                        **_area_stats(p["ref"]),
+                        "n_polygons_in_window": len(
+                            p["ref"].cx[
+                                p["extent"][0] : p["extent"][1], p["extent"][2] : p["extent"][3]
+                            ]
+                        ),
+                    }
+                    if p["ref"] is not None
+                    else None
+                ),
             }
         )
     return stats

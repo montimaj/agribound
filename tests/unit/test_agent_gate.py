@@ -150,8 +150,48 @@ def test_warning_field_lists_are_config_fields_and_cover_the_fallbacks():
     fields = set(AgriboundConfig.field_names())
     assert set(THRESHOLD_FIELDS) <= fields and set(METHOD_FIELDS) <= fields
     assert not set(THRESHOLD_FIELDS) & set(METHOD_FIELDS)
-    assert {"lulc_on_error", "sam_refine", "aoi_selection"} <= set(THRESHOLD_FIELDS)
-    assert {"usgs_allow_year_fallback", "lulc_mode"} <= set(METHOD_FIELDS)
+    assert {"lulc_on_error", "sam_refine", "aoi_selection", "lulc_tree_crops"} <= set(
+        THRESHOLD_FIELDS
+    )
+    assert {"usgs_allow_year_fallback", "lulc_mode", "landsat_pan_missions"} <= set(METHOD_FIELDS)
+
+
+def test_landsat_pan_missions_and_lulc_tree_crops_warnings(tmp_path):
+    config = _config(
+        tmp_path,
+        source="landsat-pan",
+        landsat_pan_missions="LC08,LE07",
+        lulc_tree_crops=True,
+    )
+    changes = non_default_fields(config.to_dict())
+    assert changes["landsat_pan_missions"] == {"default": "auto", "value": ["LE07", "LC08"]}
+    assert changes["lulc_tree_crops"] == {"default": False, "value": True}
+    methods, thresholds = method_warnings(changes), threshold_warnings(changes)
+    assert (
+        "landsat_pan_missions is ['LE07', 'LC08'] (package default 'auto'); this changes the "
+        "input data or the method."
+    ) in methods
+    assert (
+        "lulc_tree_crops is True (package default False); this changes which polygons are kept "
+        "or how they are shaped."
+    ) in thresholds
+    assert not any("lulc_tree_crops" in w for w in methods)
+    assert not any("landsat_pan_missions" in w for w in thresholds)
+    # The defaults are not reported.
+    defaults = non_default_fields(_config(tmp_path, source="landsat-pan").to_dict())
+    assert not {"landsat_pan_missions", "lulc_tree_crops"} & set(defaults)
+
+
+def test_plan_round_trips_landsat_pan_missions(tmp_path):
+    config = _config(tmp_path, source="landsat-pan", landsat_pan_missions=["lc09", "LC08"])
+    plan = make_plan(config)
+    assert plan.config["landsat_pan_missions"] == ["LC08", "LC09"]
+    assert plan.to_config().landsat_pan_missions == ("LC08", "LC09")
+    assert make_plan(plan.to_config()).plan_hash == plan.plan_hash
+    loaded = AgriboundConfig.from_yaml(write_plan_yaml(plan, tmp_path / "plan.yaml"))
+    assert loaded.landsat_pan_missions == ("LC08", "LC09")
+    other = make_plan(config.merged(landsat_pan_missions="auto"))
+    assert other.plan_hash != plan.plan_hash
 
 
 def test_method_warnings_name_the_field_and_default(tmp_path):

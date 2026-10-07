@@ -88,12 +88,31 @@ chip. Chips are upsampled by the same super-resolution factor as at inference
 (2 at 4 m GSD or coarser), so `imgsz` is 512 when chip size × factor is 512
 (a WARNING is logged and `imgsz_matches_model_input: false` recorded
 otherwise). Settings: `seed=config.seed`, `deterministic=True`, `mosaic=0`,
-AdamW with `lr0` 0.002 (`yolo_lr0`), flips, batch 16 (`yolo_batch`),
-`epochs=fine_tune_epochs`; Ultralytics keeps `best.pt`. The test suite
-runs this trainer against a stub of Ultralytics. Example 12's NAIP runs
-fine-tuned `large_v2` with Ultralytics 8.4.163 (650 chips of 512 px, 10
-epochs); their in-sample scores, and those of the GeoAI and DINOv3 models
-fine-tuned on the same reference, are in the [gallery](../gallery.md).
+AdamW with `lr0` 0.002 (`yolo_lr0`) and a bias warmup learning rate of 0
+(`yolo_warmup_bias_lr`; what Ultralytics' `optimizer="auto"`, whose AdamW
+choice the recipe follows, sets; agribound 1.0.1 used Ultralytics' default of
+0.1, which applies only to a named optimizer), flips, batch 16 (`yolo_batch`),
+`epochs=fine_tune_epochs`; Ultralytics keeps `best.pt`. The test suite runs
+this trainer against a stub of Ultralytics. Example 12's NAIP runs fine-tuned
+`large_v2` with agribound 1.0.1's recipe and Ultralytics 8.4.163 (650 chips of
+512 px, 10 epochs); their in-sample scores, and those of the GeoAI and DINOv3
+models fine-tuned on the same reference, are in the [gallery](../gallery.md).
+
+!!! warning "Small training sets"
+    Ultralytics accumulates gradients over 64 images, so a few dozen chips
+    give about one optimizer step per epoch after the warmup, and the default
+    `lr0` can move the pretrained weights further than the run can recover.
+    On the 62 training chips (512 px, SPOT 6/7 panchromatic) of an oil palm
+    estate in example 23, the validation mask mAP50 at the default `lr0` was
+    0.02 after the first epoch (the checkpoint Ultralytics kept) and 0.00 from
+    the third epoch on; with `engine_params={"yolo_lr0": 1e-4}` it was 0.47
+    after 20 epochs, against 0.17 for the released weights (agribound 1.0.1's
+    bias warmup scored 0.00 at the default `lr0`). With a small training set, set a smaller
+    `yolo_lr0` and compare the validation scores (in the Ultralytics
+    `results.csv` of the run) with those of the released weights. A better
+    validation score does not guarantee a better result elsewhere: in example
+    23 the model fine-tuned on that estate did worse than the released weights
+    on another estate, 69 km from the training blocks (centres 81 km apart).
 
 **GeoAI.** geoai's Mask R-CNN recipe run on agribound's own train/validation
 chips (geoai's own trainer would re-split the chips randomly): SGD (lr
@@ -146,8 +165,11 @@ fingerprint of the reference file (path, modification time, size), epochs,
 split settings, seed, `bands`, the training-related `engine_params` (all but
 `checkpoint_path` and the `sam_*` keys) and the engine's default chip-size
 rule, so a changed default does not reuse a checkpoint trained on chips of
-another size. A second call with the same inputs returns the cached
-checkpoint without retraining (`finetune_manifest.json`).
+another size; for Delineate-Anything it also includes the version of the
+training recipe (`agribound.engines.finetune._yolo.RECIPE_VERSION`), so a run
+cached by an earlier recipe is trained again. A second call with the same
+inputs returns the cached checkpoint without retraining
+(`finetune_manifest.json`).
 
 ## Large areas
 

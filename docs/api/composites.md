@@ -15,6 +15,7 @@ USGS NAIP Plus exports, local GeoTIFFs and embedding rasters. See
         - ExportTaskStartedError
         - apply_composite_method
         - date_window
+        - landsat_pan_missions_for_window
       heading_level: 3
 
 ## USGS NAIP Plus

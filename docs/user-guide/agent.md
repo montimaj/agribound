@@ -87,7 +87,7 @@ output models) drive the local loop and the MCP server.
 | `list_sources` | read-only | sources with resolutions, years, coverage, value scale, Earth Engine/restricted access |
 | `list_engines` | read-only | engines with approach, `label_free`, `fine_tunable`, supported sources, bands, references, notes (`source_notes` for notes that apply to one source only), and whether their package is installed |
 | `describe_study_area` | read-only | area, bounding box, centroid, UTM zones, and the estimated composite size per source |
-| `check_availability` | read-only | registry year ranges and coverage; with `live=True`, Earth Engine image counts or TESSERA tile counts over the study area |
+| `check_availability` | read-only | registry year ranges and coverage; with `live=True`, Earth Engine image counts or TESSERA tile counts over the study area (for `landsat-pan`, `image_count` counts the missions that the default `landsat_pan_missions="auto"` uses for the year; the other missions that have images are named in `message`, with their counts) |
 | `estimate_resolvability` | read-only | pixels per field (area / GSD²) per source and the share of fields (by count and area) the SAM stage would refine, from one of: a reference layer (default: the session's), published FTW polygons (one prediction year, the latest unless `year` is given), or a representative field area |
 | `recommend_configurations` | read-only | ranks (source, engine) candidates with deterministic, documented rules (years, restrictions, US-only coverage, engine-source support, label availability, resolution); every rule is listed in the output; it does not predict accuracy |
 | `query_published_ftw` | writes into the work directory | downloads the published FTW polygons for the study area and summarises them (model predictions, not ground truth) |
@@ -100,7 +100,15 @@ package-default thresholds unless the user asked for a value, never change a
 threshold to increase or decrease the number of polygons, never modify a
 denied plan to obtain approval, and report limitations (ground sampling
 distance versus field size, label availability, out-of-distribution inputs,
-imagery access).
+imagery access, and whether the default LULC crop filter would remove tree
+crops). For the last one, `recommend_configurations` adds a note for study
+areas outside the conterminous US, and `propose_run` warns when the LULC
+filter is on without `lulc_tree_crops` and uses, or for such study areas will
+use, Dynamic World or C3S, which can count orchards and plantations as trees
+(see [Tree crops](satellite-sources.md#tree-crops)). The study area is
+checked against the conterminous-US envelope only, without Earth Engine, so
+areas inside the envelope that the filter routes to Dynamic World at run time
+(northern Mexico, southern Canada) get no warning.
 
 ## The confirmation gate
 
@@ -111,15 +119,16 @@ imagery access).
 - The reviewer sees the full resolved configuration, the fields that differ
   from the package defaults, and explicit warnings for non-default thresholds
   and filters (`lulc_filter`, `lulc_crop_threshold`, `lulc_on_error`,
-  `aoi_selection`, `min_field_area_m2`, `sam_refine`, `cloud_cover_max`, ...),
-  for method-changing fields (`composite_method`, `date_range`,
-  `s2_cloud_mask`, `lulc_mode`, `usgs_allow_year_fallback`, `sam_backend`,
-  ...) and for fields that change which remote service is contacted or where
-  data go (`usgs_service_url`, `export_method`, `gcs_bucket`). The plan's
-  `network_services` names the ImageServer host of a non-default
-  `usgs_service_url`, the Cloud Storage bucket, or the Google Drive of the
-  Earth Engine account. The model's rationale, limitations and alternatives
-  are shown after agribound's own sections, each line prefixed with `  | `.
+  `lulc_tree_crops`, `aoi_selection`, `min_field_area_m2`, `sam_refine`,
+  `cloud_cover_max`, ...), for method-changing fields (`composite_method`,
+  `date_range`, `s2_cloud_mask`, `landsat_pan_missions`, `lulc_mode`,
+  `usgs_allow_year_fallback`, `sam_backend`, ...) and for fields that change
+  which remote service is contacted or where data go (`usgs_service_url`,
+  `export_method`, `gcs_bucket`). The plan's `network_services` names the
+  ImageServer host of a non-default `usgs_service_url`, the Cloud Storage
+  bucket, or the Google Drive of the Earth Engine account. The model's
+  rationale, limitations and alternatives are shown after agribound's own
+  sections, each line prefixed with `  | `.
 - Every value on the review screen is shown with control characters, format
   characters (such as bidirectional overrides and zero-width characters) and
   line or paragraph separators escaped (for example as `\x1b` or `\u202e`).

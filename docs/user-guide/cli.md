@@ -47,10 +47,10 @@ Options (all map to [configuration fields](configuration.md)):
 |---|---|
 | Run | `--study-area`, `--source`, `--year`, `--engine`, `-o/--output`, `--output-format`, `--config`, `--dry-run`, `--engine-param KEY=VALUE` (repeatable; VALUE parsed as JSON, else kept as a string; merged into the YAML's `engine_params`) |
 | Earth Engine | `--gee-project`, `--gee-service-account-key`, `--gee-high-volume/--no-gee-high-volume`, `--gee-max-requests`, `--gee-workload-tag`, `--export-method`, `--gcs-bucket` |
-| Compositing | `--composite-method`, `--date-range START END`, `--cloud-cover-max`, `--s2-cloud-mask`, `--naip-resolution`, `--export-crs`, `--tile-size` |
+| Compositing | `--composite-method`, `--date-range START END`, `--cloud-cover-max`, `--s2-cloud-mask`, `--naip-resolution`, `--landsat-pan-missions` (`auto`, or a comma-separated list such as `LC08,LC09`), `--export-crs`, `--tile-size` |
 | Inputs | `--local-tif`, `--usgs-state`, `--tessera-version`, `--embedding-cache-dir` |
 | Selection and post-processing | `--aoi-selection`, `--min-area` (m²), `--simplify` (metres; 0 disables) |
-| LULC filter | `--lulc-filter/--no-lulc-filter`, `--lulc-threshold`, `--lulc-dataset`, `--lulc-mode`, `--lulc-on-error` |
+| LULC filter | `--lulc-filter/--no-lulc-filter`, `--lulc-threshold`, `--lulc-dataset`, `--lulc-mode`, `--lulc-on-error`, `--lulc-tree-crops/--no-lulc-tree-crops` |
 | SAM | `--sam-refine/--no-sam-refine`, `--sam-backend`, `--sam-model` |
 | Fine-tuning and evaluation | `--reference`, `--fine-tune/--no-fine-tune`, `--fine-tune-epochs`, `--fine-tune-split`, `--fine-tune-block-size`, `--fine-tune-split-column` |
 | Compute and reproducibility | `--device`, `--n-workers`, `--seed`, `--cache-dir`, `--overwrite/--no-overwrite`, `--provenance/--no-provenance` |

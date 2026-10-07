@@ -28,6 +28,23 @@ def test_landsat_pan_rgb_and_scale():
     assert not registry.engine_supports_source("prithvi", "landsat-pan")
 
 
+def test_landsat_pan_is_listed_right_after_landsat():
+    sources = list(registry.SOURCE_REGISTRY)
+    assert sources.index("landsat-pan") == sources.index("landsat") + 1
+    assert list(registry.list_sources()) == sources
+
+
+def test_delineate_anything_notes_landsat_pan_resolution():
+    notes = registry.engine_notes("delineate-anything", "landsat-pan")
+    (pan,) = [n for n in notes if "Landsat PAN" in n]
+    assert pan.startswith("15 m Landsat PAN composites are outside the 0.25-10 m training range")
+    assert "grey R, G, B" in pan
+    assert not any(n.startswith("30 m Landsat") for n in notes)  # the landsat note only
+    assert not any(
+        "Landsat PAN" in n for n in registry.engine_notes("delineate-anything", "landsat")
+    )
+
+
 EXPECTED_ENGINES = {
     "delineate-anything",
     "ftw",
