@@ -435,8 +435,8 @@ only for a Dynamic World or C3S raster made with the option, which counts tree
 cover and has its own cache key, so Dynamic World and C3S rasters made with
 and without the option are not shared. NLCD and CDL rasters do not change
 with the option, so runs with and without it share one raster, tagged `False`
-even in a run with `lulc_tree_crops=True`; a raster cached by agribound 1.0.1,
-which is still reused, has no tag. The option enters the configuration hash
+even in a run with `lulc_tree_crops=True`; a raster cached by agribound 1.0.0
+or 1.0.1, which is still reused, has no tag. The option enters the configuration hash
 only when True, so outputs made without it are still reused.
 
 ## Data citations

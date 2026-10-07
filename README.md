@@ -117,8 +117,9 @@ Example 23: Delineate Anything v2 as released on SPOT 6/7 panchromatic
 the DWR / Land IQ 2022 crop map (Madera County) and SIGPAC parcels (Úbeda).
 Object F1 (IoU ≥ 0.5; precision counts only the predictions that overlap a
 reference polygon, as in the gallery) is 0.29 for the estate blocks, about
-half of which come out in pieces, mostly cut along the edges of the engine's
-768 m inference tiles (the blocks are about 1 km long). Among 302 smallholder
+half of which come out in pieces: many are cut along the edges of the
+engine's 768 m inference tiles (the blocks are about 1 km long), and about as
+many along roads or tracks that run through the blocks. Among 302 smallholder
 parcels it draws one polygon. A model fine-tuned on parcels of the same scheme,
 in a square 13.6 km from the Oro square (centres 19.5 km apart), matches 68;
 that fine-tuning was added after the released model's Oro result and kept after
@@ -126,15 +127,16 @@ its own Oro score was seen. For the almond and pistachio blocks F1 is 0.86, on
 fields the model has seen: its training data (FBIS-73M) cover the Madera square
 and 87 % of the Úbeda square, with labels that match 121 of the 122 DWR / Land
 IQ fields and 166 of the 225 SIGPAC recintos, and have no patches in Ghana or
-Papua New Guinea. Fine-tuned on the same labels near each site, DINOv3 (ViT-L/16
-pre-trained on satellite imagery, with agribound's default recipe) merges
-neighbouring fields (merge rates 0.80 to 1.00), because it almost never predicts
-the field-boundary class. Oro is the only site where it beats both Delineate
-Anything v2 models (F1 0.23, against 0.21 for the fine-tuned one). The default LULC crop
-filter removes every polygon at both oil palm sites, because Dynamic World
-counts the palms as trees; `lulc_tree_crops=True` keeps every
-Delineate-Anything polygon and all but 8 of the 2,720 embedding segments. The
-[gallery](https://montimaj.github.io/agribound/gallery/) compares the
+Papua New Guinea. Fine-tuned on the same labels near each site, DINOv3
+(ViT-L/16 pre-trained on satellite imagery, with agribound's default recipe)
+merges neighbouring fields (merge rates 0.80 to 1.00), because it almost never
+predicts the field-boundary class. Oro is the only site where it beats both
+Delineate Anything v2 models (F1 0.23, against 0.21 for the fine-tuned one).
+The default LULC crop filter removes every polygon at both oil palm sites,
+because Dynamic World counts the palms as trees; `lulc_tree_crops=True` keeps
+every Delineate-Anything polygon there and all but 8 of their 2,720 embedding
+segments.
+The [gallery](https://montimaj.github.io/agribound/gallery/) compares the
 sources and engines at Twifo Praso, Oro and Madera.
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Tree_Crops_SPOT_Pan_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Tree_Crops_SPOT_Pan_example.webp" alt="Tree crops — Delineate-Anything v2 on SPOT 6/7 panchromatic in Ghana, Papua New Guinea, California and Spain" width="800"></a>

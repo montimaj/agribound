@@ -38,9 +38,9 @@ All notable changes to agribound will be documented in this file.
   v2 has not seen the Ghana and Papua New Guinea fields, but its training data
   (FBIS-73M) cover the Madera square and 87 % of the Úbeda square, with labels
   that match 121 of the 122 DWR / Land IQ reference fields and 166 of the 225
-  SIGPAC recintos. Gallery entries. Thanks to Jacob
-  Abramowitz (The University of Alabama in Huntsville), who asked about tree
-  crops and pointed to the RSPO concession maps and the subdivided Twifo
+  SIGPAC recintos. The gallery shows the results in five entries. Thanks to
+  Jacob Abramowitz (The University of Alabama in Huntsville), who asked about
+  tree crops and pointed to the RSPO concession maps and the subdivided Twifo
   estate.
 - `engine_params["yolo_warmup_bias_lr"]` (Delineate-Anything fine-tuning): the
   warmup learning rate of the bias parameters (default 0; see Fixed).
@@ -89,7 +89,8 @@ All notable changes to agribound will be documented in this file.
   setting. Dynamic World and C3S rasters made with the option are cached
   separately and tagged `AGRIBOUND_LULC_TREE_CROPS=True`; other LULC rasters
   are tagged `False`, including the NLCD and CDL rasters that runs with and
-  without the option share. Agent plans warn when it is set, and, when it is
+  without the option share; a raster cached by 1.0.0 or 1.0.1, which is still
+  reused, has no tag. Agent plans warn when it is set, and, when it is
   not, where the filter uses Dynamic World or C3S (`lulc_dataset`
   `"dynamic_world"` or `"c3s"`, or `"auto"` for a study area outside the
   conterminous-US envelope); `recommend_configurations` notes the same for
@@ -117,10 +118,11 @@ All notable changes to agribound will be documented in this file.
 
 ### Fixed
 
-- Delineate-Anything fine-tuning used Ultralytics' default
-  `warmup_bias_lr=0.1`, which is meant for SGD, with AdamW. Ultralytics'
-  `optimizer="auto"`, whose AdamW choice the recipe follows (as documented),
-  sets 0 for AdamW, and so does agribound now. On 62 training chips of an oil
+- Delineate-Anything fine-tuning names its optimizer (AdamW), so Ultralytics
+  applied its default `warmup_bias_lr=0.1`, which it uses only for a named
+  optimizer. Ultralytics' own `optimizer="auto"`, whose AdamW choice the
+  recipe follows (as documented), sets 0 ("no higher than 0.01 for Adam"),
+  and so does agribound now. On 62 training chips of an oil
   palm estate (example 23), where the released weights score a validation
   mask mAP50 of 0.17, a test at `lr0=1e-4` (momentum 0.9) scored 0.46 after 20
   epochs without the bias warmup and 0.32 with it; with `yolo_lr0=1e-4` the
@@ -164,8 +166,8 @@ All notable changes to agribound will be documented in this file.
   `list-sources` and the agent tools) states the default mission rule. The
   agent's live `check_availability` counts, for `landsat-pan`, only the
   collections of the missions `"auto"` uses for the year, and names the other
-  missions' image counts in its message; it counted all three, including
-  Landsat 7 in 2013-2024.
+  missions that have images, with their counts, in its message; it counted all
+  three, including Landsat 7 in 2013-2024.
 - Delineate-Anything has a `landsat-pan` source note (`engine_notes`, used by
   the agent tools): 15 m Landsat PAN composites are outside its 0.25-10 m
   training range, and the single band is replicated to grey R, G, B.

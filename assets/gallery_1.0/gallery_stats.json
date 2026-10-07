@@ -6438,7 +6438,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 55,
           "area_ha_total": 2263.7,
           "area_ha_p10": 36.19,
@@ -6533,7 +6533,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 302,
           "area_ha_total": 447.5,
           "area_ha_p10": 0.79,
@@ -6628,7 +6628,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 122,
           "area_ha_total": 2203.3,
           "area_ha_p10": 2.72,
@@ -6639,7 +6639,7 @@
       },
       {
         "panel": "4",
-        "label": "Ubeda, Spain: olive groves",
+        "label": "\u00dabeda, Spain: olive groves",
         "file": "outputs/tree_crops/jaen/fields_spot-pan_da_2023.gpkg",
         "n_polygons": 59,
         "area_ha_total": 1218.2,
@@ -6723,7 +6723,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 225,
           "area_ha_total": 1634.4,
           "area_ha_p10": 0.45,
@@ -8089,7 +8089,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 55,
           "area_ha_total": 2263.7,
           "area_ha_p10": 36.19,
@@ -8182,7 +8182,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 55,
           "area_ha_total": 2263.7,
           "area_ha_p10": 36.19,
@@ -8257,7 +8257,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 55,
           "area_ha_total": 2263.7,
           "area_ha_p10": 36.19,
@@ -8352,7 +8352,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 302,
           "area_ha_total": 447.5,
           "area_ha_p10": 0.79,
@@ -8445,7 +8445,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 302,
           "area_ha_total": 447.5,
           "area_ha_p10": 0.79,
@@ -8520,7 +8520,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 302,
           "area_ha_total": 447.5,
           "area_ha_p10": 0.79,
@@ -8615,7 +8615,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 122,
           "area_ha_total": 2203.3,
           "area_ha_p10": 2.72,
@@ -8708,7 +8708,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 122,
           "area_ha_total": 2203.3,
           "area_ha_p10": 2.72,
@@ -8783,7 +8783,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 122,
           "area_ha_total": 2203.3,
           "area_ha_p10": 2.72,
@@ -8794,7 +8794,7 @@
       },
       {
         "panel": "4",
-        "label": "Ubeda: DA v2 released",
+        "label": "\u00dabeda: DA v2 released",
         "file": "outputs/tree_crops/jaen/fields_spot-pan_da_2023.gpkg",
         "n_polygons": 59,
         "area_ha_total": 1218.2,
@@ -8878,7 +8878,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 225,
           "area_ha_total": 1634.4,
           "area_ha_p10": 0.45,
@@ -8889,7 +8889,7 @@
       },
       {
         "panel": "4",
-        "label": "Ubeda: DA v2 fine-tuned",
+        "label": "\u00dabeda: DA v2 fine-tuned",
         "file": "outputs/tree_crops/jaen/fields_spot-pan_da-ft_2023.gpkg",
         "n_polygons": 53,
         "area_ha_total": 21.2,
@@ -8971,7 +8971,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 225,
           "area_ha_total": 1634.4,
           "area_ha_p10": 0.45,
@@ -8982,7 +8982,7 @@
       },
       {
         "panel": "4",
-        "label": "Ubeda: DINOv3 fine-tuned",
+        "label": "\u00dabeda: DINOv3 fine-tuned",
         "file": "outputs/tree_crops/jaen/fields_spot-pan_dinov3-ft_2023.gpkg",
         "n_polygons": 17,
         "area_ha_total": 1457.9,
@@ -9046,7 +9046,7 @@
         "run_status": "success",
         "n_removed_by_crop_filter": null,
         "reference": {
-          "label": "Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+          "label": "Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
           "n_polygons": 225,
           "area_ha_total": 1634.4,
           "area_ha_p10": 0.45,

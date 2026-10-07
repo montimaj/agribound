@@ -89,9 +89,9 @@ chip. Chips are upsampled by the same super-resolution factor as at inference
 (a WARNING is logged and `imgsz_matches_model_input: false` recorded
 otherwise). Settings: `seed=config.seed`, `deterministic=True`, `mosaic=0`,
 AdamW with `lr0` 0.002 (`yolo_lr0`) and a bias warmup learning rate of 0
-(`yolo_warmup_bias_lr`; what Ultralytics' `optimizer="auto"` uses with AdamW,
-whose choice the recipe follows; agribound 1.0.1 used Ultralytics' default of
-0.1, which is meant for SGD), flips, batch 16 (`yolo_batch`),
+(`yolo_warmup_bias_lr`; what Ultralytics' `optimizer="auto"`, whose AdamW
+choice the recipe follows, sets; agribound 1.0.1 used Ultralytics' default of
+0.1, which applies only to a named optimizer), flips, batch 16 (`yolo_batch`),
 `epochs=fine_tune_epochs`; Ultralytics keeps `best.pt`. The test suite runs
 this trainer against a stub of Ultralytics. Example 12's NAIP runs fine-tuned
 `large_v2` with agribound 1.0.1's recipe and Ultralytics 8.4.163 (650 chips of

@@ -989,8 +989,9 @@ def _landsat_pan_live_check(counts: dict[str, int], year: int, method: str) -> L
     ``image_count`` and ``per_collection`` cover only the collections of the
     missions ``landsat_pan_missions="auto"`` selects for the calendar year
     (:func:`agribound.composites.gee.landsat_pan_missions_for_window`); the
-    other collections' counts are named in ``message``, so the images of a
-    mission that only an explicit list would use stay visible.
+    other collections that have images are named in ``message``, with their
+    counts, so the images of a mission that only an explicit list would use stay
+    visible.
     """
     from agribound.composites.gee import LANDSAT_PAN_COLLECTIONS, landsat_pan_missions_for_window
 
@@ -1611,7 +1612,8 @@ _TREE_CROP_RISK = {
     "c3s": (
         "C3S",
         "it can map orchards and plantations as tree cover rather than cropland, and with "
-        "lulc_tree_crops=False the filter removes such polygons",
+        "lulc_tree_crops=False the filter then removes them (for 2015 it kept all 95 "
+        "oil-palm blocks at Twifo Praso, Ghana)",
     ),
 }
 

@@ -614,14 +614,14 @@ ENTRIES: list[Entry] = [
                 ("twifo", 2020, "Twifo Praso, Ghana: oil palm estate", 2000),
                 ("oro", 2021, "Oro, Papua New Guinea: oil palm smallholders", 1000),
                 ("madera", 2022, "Madera, California: almonds, pistachios", 2000),
-                ("jaen", 2023, "Ubeda, Spain: olive groves", 1000),
+                ("jaen", 2023, "Úbeda, Spain: olive groves", 1000),
             ]
         ],
         multi_area=True,
         per_layer_background=True,
         crop_m=2000,
         crop_on_reference=True,  # per panel: the square with the most reference polygons
-        reference_label="Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+        reference_label="Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
         ncols=2,
         inset_pad_deg=(16.0, 16.0),  # a wide, short view: room above 3 and 4, right of 2
     ),
@@ -733,7 +733,7 @@ ENTRIES: list[Entry] = [
                 ("twifo", 2020, "Twifo Praso", 2000),
                 ("oro", 2021, "Oro", 1000),
                 ("madera", 2022, "Madera", 2000),
-                ("jaen", 2023, "Ubeda", 1000),
+                ("jaen", 2023, "Úbeda", 1000),
             ]
             for run, model in [
                 ("da", "DA v2 released"),
@@ -745,7 +745,7 @@ ENTRIES: list[Entry] = [
         per_layer_background=True,
         crop_m=2000,
         crop_on_reference=True,  # per area: the square with the most reference polygons
-        reference_label="Reference (RSPO GeoRSPO; DWR / Land IQ; SIGPAC)",
+        reference_label="Reference (RSPO GeoRSPO, member-declared; DWR / Land IQ; SIGPAC)",
         ncols=3,
         inset_pad_deg=(16.0, 16.0),
         model_notes=[

@@ -81,8 +81,8 @@ Approaches (each a separate agribound run with ``lulc_filter=False``):
       SIGPAC references (121 of the 122 Madera reference fields and 166 of the
       225 Ubeda recintos), while it has no patches in Ghana or Papua New
       Guinea (checked against the public patch list, images and labels on
-      2026-10-06). So at Madera and Ubeda Delineate-Anything has seen the
-      evaluated fields and DINOv3 has not;
+      2026-10-06). So at Madera and Ubeda Delineate-Anything has seen most of
+      the evaluated fields (at Madera nearly all) and DINOv3 has not;
     - Delineate-Anything v2 on Landsat 8/9 panchromatic 15 m (``landsat-pan``;
       outside the model's 0.25-10 m training range) and on Sentinel-2 10 m;
       at Madera also on NAIP (1 m);
@@ -275,7 +275,9 @@ SITES = {
         "year": 2021,
         "reference": ("rspo", {"MemberNum": "1-0008-04-000-00", "SupplyBase": "HOP_SH"}),
         "strata": None,
-        "spot": {"cloud_cover_max": 15},  # one scene, 2021-06-15, 5.1 % cloud
+        # 2 images pass the filters, but no pixel of the square has both: the square is
+        # the 2021-06-15 scene (5.1 % cloud).
+        "spot": {"cloud_cover_max": 15},
         "landsat_pan": {"cloud_cover_max": 20},
         "s2": {"cloud_cover_max": 80, "s2_cloud_mask": "cloud_score_plus"},
         "ftw_window_dates": None,  # FTW's crop calendar

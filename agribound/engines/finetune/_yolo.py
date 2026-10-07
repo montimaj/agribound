@@ -53,9 +53,9 @@ Training settings: ``seed=config.seed`` and ``deterministic=True``,
 ``mosaic=0.0`` (as in the Delineate Anything v2 recipe), ``optimizer="AdamW"``
 with ``lr0`` 0.002 (the value Ultralytics' ``optimizer="auto"`` picks for one
 class and at most 10,000 iterations; ``engine_params["yolo_lr0"]``
-overrides) and ``warmup_bias_lr=0`` (what ``optimizer="auto"`` sets for AdamW;
-Ultralytics' default of 0.1 is meant for SGD; ``yolo_warmup_bias_lr``
-overrides), horizontal and vertical flips with probability 0.5,
+overrides) and ``warmup_bias_lr=0`` (what ``optimizer="auto"`` sets;
+Ultralytics' default of 0.1 applies only to a named optimizer;
+``yolo_warmup_bias_lr`` overrides), horizontal and vertical flips with probability 0.5,
 ``plots=False``, ``epochs=config.fine_tune_epochs``, ``batch`` 16
 (``yolo_batch``), ``workers=config.n_workers``. Ultralytics selects the
 checkpoint with the best validation fitness (``best.pt``).
@@ -97,9 +97,9 @@ DEFAULT_MIN_INSTANCE_PX = 4.0
 DEFAULT_LR0 = 0.002
 
 #: Default warmup learning rate of the bias parameters. Ultralytics'
-#: ``optimizer="auto"`` sets 0 for AdamW ("no higher than 0.01 for Adam"); its
-#: default of 0.1 is meant for SGD and, with AdamW, perturbs the pretrained
-#: biases during warmup (agribound <= 1.0.1 used it).
+#: ``optimizer="auto"`` sets 0 ("no higher than 0.01 for Adam"); its default of
+#: 0.1, which applies to a named optimizer, perturbs the pretrained biases during
+#: warmup with AdamW (agribound <= 1.0.1 used it).
 DEFAULT_WARMUP_BIAS_LR = 0.0
 
 #: Version of the fine-tuning recipe (part of the cache keys). 2: ``warmup_bias_lr=0``.
@@ -472,8 +472,10 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
 
     lr0 = float(params.get("yolo_lr0", DEFAULT_LR0))
     warmup_bias_lr = float(params.get("yolo_warmup_bias_lr", DEFAULT_WARMUP_BIAS_LR))
-    if warmup_bias_lr < 0:
-        raise ValueError(f"engine_params['yolo_warmup_bias_lr'] must be >= 0, got {warmup_bias_lr}")
+    if not 0 <= warmup_bias_lr <= 1:  # Ultralytics' range for this key; also rejects NaN
+        raise ValueError(
+            f"engine_params['yolo_warmup_bias_lr'] must be between 0 and 1, got {warmup_bias_lr}"
+        )
     batch = int(params.get("yolo_batch", 16))
     min_px = float(params.get("yolo_min_instance_px", DEFAULT_MIN_INSTANCE_PX))
     device = config.resolve_device()

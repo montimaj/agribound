@@ -140,13 +140,14 @@ and SIGPAC polygons (cyan): object F1 (IoU ≥ 0.5; precision among the
 predictions that overlap a reference polygon) 0.29 for oil palm estate
 blocks and one polygon among 302 oil palm smallholder parcels (68 matched after
 fine-tuning on parcels of the same scheme in a square 13.6 km from the Oro
-square, a run added after the released model's result there); 0.86 for almond
-and pistachio blocks, whose fields are in the model's training data
-(FBIS-73M). DINOv3, fine-tuned on the same labels near each site (never on the
-evaluated squares), merges neighbouring fields (merge rates 0.80 to 1.00). The
-default crop filter removes every oil palm polygon; `lulc_tree_crops=True` keeps
-every oil palm Delineate-Anything polygon and all but 8 of the 2,720 oil palm
-embedding segments. The [gallery](gallery.md) compares the sources and engines.
+square, a run added after the released model's result there and kept after
+its own score was seen); 0.86 for almond and pistachio blocks, whose fields
+are in the model's training data (FBIS-73M). DINOv3, fine-tuned on the same
+labels near each site (never on the evaluated squares), merges neighbouring
+fields (merge rates 0.80 to 1.00). The default crop filter removes every oil
+palm polygon; `lulc_tree_crops=True` keeps every oil palm Delineate-Anything
+polygon and all but 8 of the 2,720 oil palm embedding segments. The
+[gallery](gallery.md) compares the sources and engines.
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Tree_Crops_SPOT_Pan_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Tree_Crops_SPOT_Pan_example.webp" alt="Tree crops — Delineate-Anything v2 on SPOT 6/7 panchromatic" width="800"></a>
 

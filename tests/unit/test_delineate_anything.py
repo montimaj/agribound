@@ -970,7 +970,7 @@ def test_finetune_yolo_training_arguments(tmp_path, fake_ultralytics, fake_weigh
     assert kwargs["mosaic"] == 0.0 and kwargs["optimizer"] == "AdamW"
     assert kwargs["fliplr"] == 0.5 and kwargs["flipud"] == 0.5
     assert kwargs["imgsz"] == 512 and kwargs["epochs"] == 3 and kwargs["lr0"] == 0.002
-    # Ultralytics' optimizer="auto" uses warmup_bias_lr=0 with AdamW (0.1 is for SGD).
+    # Ultralytics' optimizer="auto" sets warmup_bias_lr=0 (its 0.1 is for a named optimizer).
     assert kwargs["warmup_bias_lr"] == 0.0
     assert Path(best).is_file() and Path(best).name == "best.pt"
     assert str(Path(best)).startswith(str(tmp_path / "run"))
@@ -1013,7 +1013,10 @@ def test_finetune_yolo_warmup_and_learning_rate_overrides(tmp_path, fake_ultraly
     assert len(set(roots)) == 3
 
 
-def test_finetune_yolo_rejects_negative_warmup_bias_lr(tmp_path, fake_ultralytics, fake_weights):
+@pytest.mark.parametrize("value", [-0.1, 1.5, float("nan"), float("inf")])
+def test_finetune_yolo_rejects_invalid_warmup_bias_lr(
+    tmp_path, fake_ultralytics, fake_weights, value
+):
     from agribound.engines.finetune._yolo import _finetune_yolo
 
     train_dir, ref_path = _training_dir(tmp_path, chip=256)
@@ -1026,7 +1029,7 @@ def test_finetune_yolo_rejects_negative_warmup_bias_lr(tmp_path, fake_ultralytic
         lulc_filter=False,
         device="cpu",
         cache_dir=str(tmp_path / "run"),
-        engine_params={"yolo_warmup_bias_lr": -0.1},
+        engine_params={"yolo_warmup_bias_lr": value},
     )
     with pytest.raises(ValueError, match="yolo_warmup_bias_lr"):
         _finetune_yolo(train_dir, config, "DA-large_v2")

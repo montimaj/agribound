@@ -58,8 +58,8 @@ and 81). The minimum field area is given in each entry.
     fine-tuned models of 12 they are also the training labels, so those scores
     are in-sample; example 23 against RSPO, DWR / Land IQ and SIGPAC polygons,
     with its fine-tuned models trained elsewhere; Delineate Anything v2's own
-    training data (FBIS-73M) cover the Madera and Úbeda squares, so its scores
-    there are on fields it has seen).
+    training data (FBIS-73M) cover the Madera square and 87 % of the Úbeda
+    square, so its scores there are mostly on fields it has seen).
 
 The images are rendered at 3000 px by
 [`tools/make_gallery.py`](https://github.com/montimaj/agribound/blob/main/tools/make_gallery.py)
@@ -77,7 +77,7 @@ evaluation metrics files and
 | SAM 2 | `facebook/sam2-hiera-large` (SAM 2.0 Hiera-L, not 2.1), through segment-geospatial 1.4.2 and the `sam2` 1.1.0 package; one box prompt per field |
 | Prithvi | `ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL` at revision `63adbd3`, terratorch 1.2.13 |
 | GeoAI | torchvision Mask R-CNN ResNet50-FPN via geoai-py 0.43.1, fine-tuned on the reference polygons (no published field weights); chips sized from the reference fields; instances split at the inference-window edges joined |
-| DINOv3 | `dinov3_vitl16` (ViT-L/16) with the SAT-493M weights `giswqs/geoai/dinov3_vitl16_sat493m.pth` at revision `aa2b25d`, geoai-py 0.43.1; full fine-tuning on the reference polygons (no published field weights) |
+| DINOv3 | `dinov3_vitl16` (ViT-L/16) with the SAT-493M weights `giswqs/geoai/dinov3_vitl16_sat493m.pth` at revision `aa2b25d`, geoai-py 0.43.1; full fine-tuning on the reference polygons (in example 23, on the labels of a training area near each study area, never on the evaluated square; no published field weights) |
 | Embeddings | Google Satellite Embedding (`GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL`, AlphaEarth Foundations, 64-D) and TESSERA v1 (128-D, geotessera 0.10.2); PCA to 16 components, then scikit-learn `KMeans` with ten restarts (`n_init=10`); k chosen by silhouette score among 5, 10, 15, 20, 30 and 50 unless stated (in every automatic choice here the score was highest at k = 5, the smallest candidate, and smaller k were not tested). agribound 1.0.0 used `MiniBatchKMeans` on rasters of more than 100,000 valid pixels, as all of these are |
 
 **SAM size rule.** SAM is prompted only when a field's bounding box, padded
@@ -533,14 +533,14 @@ predictions that overlap a reference polygon, because the RSPO maps of Twifo
 Praso and Oro do not map every field in their squares; in Madera and Úbeda,
 whose references map all fields, the scores are those of the tree-crop fields.
 
-Only Twifo Praso and Oro are fields the model has not seen. Delineate Anything
-v2 was trained on FBIS-73M, which has no patches in Ghana or Papua New Guinea,
-but whose training patches cover the Madera square, with field labels that
-match the DWR / Land IQ polygons (121 of the 122 reference fields appear as
-training labels at IoU ≥ 0.5), and 87 % of the Úbeda square, with labels that
-follow SIGPAC (166 of the 225 recintos). This was checked against the public
-FBIS-73M patch list, images and labels (patch footprints and label polygons);
-the dataset does not name its sources.
+Only at Twifo Praso and Oro has the model seen none of the fields. Delineate
+Anything v2 was trained on FBIS-73M, which has no patches in Ghana or Papua New
+Guinea, but whose training patches cover the Madera square, with field labels
+that match the DWR / Land IQ polygons (121 of the 122 reference fields appear
+as training labels at IoU ≥ 0.5), and 87 % of the Úbeda square, with labels
+that follow SIGPAC (166 of the 225 recintos). This was checked against the
+public FBIS-73M patch list, images and labels (patch footprints and label
+polygons); the dataset does not name its sources.
 
 | # | Study area | Year | Reference (tree crops) | Fields | Recall | Precision | F1 | Crop filter kept: default / tree crops |
 |---|---|---|---|---:|---:|---:|---:|---:|
@@ -552,16 +552,17 @@ the dataset does not name its sources.
 Where the trees grow in blocks separated by roads, the released model finds
 the blocks: 83 % of the Madera orchards, and 45 % of the Twifo estate blocks.
 At Twifo it also splits about half of the blocks (split rate 0.49), so most of
-its other polygons lie on reference blocks. A few blocks are split along a
-path inside them, but most cuts are the straight north-south and east-west
-lines on the map, on the edges of the engine's 768 m inference tiles (every
-384 m): 54 of the 55 blocks are longer than a tile, and the engine does not
-join pieces of a field that meet at a tile edge without overlapping. Where
-the parcels are stands of trees among other trees, it finds almost nothing:
-one polygon at Oro, where the parcels show the planting grid of the palms.
-At Úbeda the recintos follow cadastral lines that cross uniform groves; after
-dropping recintos under 2,500 m² and joining touching recintos of the same
-land use (46 tree-crop groves of 57) recall is 0.20 and precision 0.26.
+its other polygons lie on reference blocks. Many blocks are cut along the
+straight north-south and east-west edges of the engine's 768 m inference
+tiles (every 384 m): 54 of the 55 blocks are longer than a tile, and the
+engine does not join pieces of a field that meet at a tile edge without
+overlapping. About as many split blocks are cut along a road or track that
+runs through the block, and some along lines that follow nothing in the
+image. Where the parcels are stands of trees among other trees, it finds almost
+nothing: one polygon at Oro, where the parcels show the planting grid of the
+palms. At Úbeda the recintos follow cadastral lines that cross uniform groves;
+after dropping recintos under 2,500 m² and joining touching recintos of the
+same land use (46 tree-crop groves of 57) recall is 0.20 and precision 0.26.
 
 The crop filter runs as a separate step in the example, twice. The default
 rule (Dynamic World outside the conterminous US, NLCD inside) removes every
@@ -611,29 +612,29 @@ and split when two predictions each cover a tenth of it. The blocks are
 separated by gaps of about 4 m along the roads, sharp on SPOT-Pan and less
 than a pixel wide on Sentinel-2 and Landsat PAN. On SPOT-Pan the released
 model follows the roads, but about half of the blocks come out in pieces
-(split rate 0.49): a few are cut along a path inside the block, most along
-the straight edges of the 768 m inference tiles (every 384 m), because a
-block of about 1 km is longer than a tile and the engine does not join pieces
-that meet at a tile edge without overlapping. SAM 2
-refined 102 of the 128 polygons; it raised the mean IoU of the matched blocks
-and lowered recall. The fine-tuned model was trained on the blocks of the
-NORPALM estate, 69 km from the Twifo square (centres 81 km apart), on SPOT-Pan
-of the same year (62 training chips,
-20 epochs, `yolo_lr0=1e-4`; validation mask mAP50 0.47, where the released
-weights scored 0.17 on the same chips in a separate test); on Twifo it merges
-60 % of the blocks with a neighbour and finds fewer blocks than the released
-model. The Landsat 8 PAN composite (3 images) shows the road grid, but the
-model draws only 17 polygons. FTW predicted no field pixels from its two
-Sentinel-2 windows (2019-12-16 to 2020-02-14 and 2020-07-16 to 2020-09-14, 12
-and 7 images, set to clear months because oil palm has no crop season), and
-the embedding clusters are land-cover segments that match no block. Against
-the estate outline (the blocks joined), the 128 SPOT-Pan polygons of the
-released model cover 73 % of the estate's area in the square and put 3.5 % of
-their area (61 ha) outside it; the 121 with their representative point in the
-estate put 0.2 % of their area outside it. The default crop filter
-removes every polygon of every panel; `lulc_tree_crops=True` keeps all but
-three Google and four TESSERA segments. The embedding panels are drawn on the
-Sentinel-2 composite of the same year.
+(split rate 0.49). Many are cut along the straight edges of the 768 m
+inference tiles (every 384 m), because a block of about 1 km is longer than a
+tile and the engine does not join pieces that meet at a tile edge without
+overlapping. About as many are cut along a road or track that runs through
+the block, which the model follows too, and some along lines that follow
+nothing in the image. SAM 2 refined 102 of the 128 polygons; it raised the mean
+IoU of the matched blocks and lowered recall. The fine-tuned model was trained
+on the blocks of the NORPALM estate, 69 km from the Twifo square (centres 81 km
+apart), on SPOT-Pan of the same year (62 training chips, 20 epochs,
+`yolo_lr0=1e-4`; validation mask mAP50 0.47, where the released weights scored
+0.17 on the same chips in a separate test); on Twifo it merges 60 % of the
+blocks with a neighbour and finds fewer blocks than the released model. The
+Landsat 8 PAN composite (3 images) shows the road grid, but the model draws
+only 17 polygons. FTW predicted no field pixels from its two Sentinel-2 windows
+(2019-12-16 to 2020-02-14 and 2020-07-16 to 2020-09-14, 12 and 7 images, set to
+clear months because oil palm has no crop season), and the embedding clusters
+are land-cover segments that match no block. Against the estate outline (the
+blocks joined), the 128 SPOT-Pan polygons of the released model cover 73 % of
+the estate's area in the square and put 3.5 % of their area (61 ha) outside it;
+the 121 with their representative point in the estate put 0.2 % of their area
+outside it. The default crop filter removes every polygon of every panel;
+`lulc_tree_crops=True` keeps all but three Google and four TESSERA segments.
+The embedding panels are drawn on the Sentinel-2 composite of the same year.
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Tree_Crops_Twifo_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Tree_Crops_Twifo_example.webp" alt="Twifo Praso, Ghana — oil palm estate blocks: Delineate-Anything v2 on SPOT-Pan, Sentinel-2 and Landsat PAN, SAM 2, a fine-tuned model, FTW and embeddings" width="800" loading="lazy"></a>
 
@@ -729,11 +730,12 @@ around Ibros, 10.8 km from the Úbeda square (centres 16.1 km apart). The last
 two squares were chosen by a fixed rule from the labels and the imagery before
 any model was trained on them, and no model's settings were changed after it
 was scored. The Delineate-Anything fine-tuning for Oro was added after the
-released model's Oro result (see the Oro entry). Each model uses agribound's
-default recipe, except `yolo_lr0=1e-4` for Delineate-Anything (the default is
-0.002), set on the NORPALM validation chips: Delineate-Anything with
-Ultralytics' augmentation, DINOv3 with full fine-tuning, no augmentation and at
-most 20 epochs (early stopping on the validation loss).
+released model's Oro result and kept after its own Oro score was seen (see the
+Oro entry). Each model uses agribound's default recipe, except `yolo_lr0=1e-4`
+for Delineate-Anything (the default is 0.002), set on the NORPALM validation
+chips: Delineate-Anything with Ultralytics' augmentation, DINOv3 with full
+fine-tuning, no augmentation and at most 20 epochs (early stopping on the
+validation loss).
 
 | Study area | Model | Fields | Recall | Precision | F1 | Mean IoU | Boundary F1 (10 m) | Merged | Split |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -744,7 +746,7 @@ most 20 epochs (early stopping on the validation loss).
 | | Delineate-Anything v2, fine-tuned | 392 | 0.23 | 0.19 | 0.21 | 0.61 | 0.41 | 0.17 | 0.34 |
 | | DINOv3, fine-tuned | 159 | 0.18 | 0.35 | 0.23 | 0.64 | 0.60 | 0.80 | 0.04 |
 | 3 Madera | Delineate-Anything v2, released | 150 | 0.83 | 0.89 | 0.86 | 0.90 | 0.89 | 0.29 | 0.03 |
-| | Delineate-Anything v2, fine-tuned | 197 | 0.85 | 0.69 | 0.76 | 0.87 | 0.85 | 0.19 | 0.13 |
+| | Delineate-Anything v2, fine-tuned | 197 | 0.85 | 0.69 | 0.76 | 0.87 | 0.85 | 0.19 | 0.12 |
 | | DINOv3, fine-tuned | 50 | 0.16 | 0.72 | 0.26 | 0.76 | 0.78 | 0.88 | 0 |
 | 4 Úbeda (recintos) | Delineate-Anything v2, released | 59 | 0.04 | 0.19 | 0.07 | 0.71 | 0.34 | 0.81 | 0.10 |
 | | Delineate-Anything v2, fine-tuned | 53 | 0.005 | 0.02 | 0.008 | 0.61 | 0.03 | 0.01 | 0 |
@@ -752,9 +754,10 @@ most 20 epochs (early stopping on the validation loss).
 
 Scores as in the first tree-crop entry (precision among the predictions that
 overlap a reference polygon; at Madera and Úbeda, the tree-crop fields). At
-Madera and Úbeda, Delineate Anything v2 has seen the evaluated fields in its
-own training data (FBIS-73M); DINOv3, whose backbone was pre-trained without
-labels, has not. At Twifo Praso and Oro neither has.
+Madera and Úbeda, Delineate Anything v2 has seen most of the evaluated fields
+in its own training data (FBIS-73M covers the Madera square and 87 % of the
+Úbeda square); DINOv3, whose backbone was pre-trained without labels, has not.
+At Twifo Praso and Oro neither has.
 
 DINOv3 merges neighbouring fields: its merge rate is 0.80 to 1.00 at every site, and at
 Twifo Praso it draws one polygon over 96 % of the estate. The boundary class
