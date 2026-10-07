@@ -191,6 +191,11 @@ All notable changes to agribound will be documented in this file.
   `agribound tiles make --overwrite`, then `tiles run --overwrite` (their
   tiles show as `stale`) and `tiles merge --overwrite`; agent plans get a new
   plan directory.
+- Jacob C. Abramowitz (Earth System Science Center, The University of Alabama
+  in Huntsville) added to the project authors and the software citation
+  (CITATION.cff, pyproject.toml, README, docs), before Samapriya Roy. Jeremy
+  Rapp's affiliation in CITATION.cff is now the Earth System Science Center,
+  The University of Alabama in Huntsville.
 
 ## [1.0.1] - 2026-09-30
 
