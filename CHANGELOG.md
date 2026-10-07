@@ -4,10 +4,186 @@ All notable changes to agribound will be documented in this file.
 
 ## [Unreleased]
 
+### Results produced with agribound 1.0.1 that are affected
+
+- **Delineate-Anything fine-tuning (`engine="delineate-anything"` with
+  `fine_tune=True`).** The training recipe changed (see Fixed), so the
+  fine-tuned weights, and the polygons delineated with them, change. Such
+  outputs now raise `FileExistsError` instead of being reused (results
+  version `delineate_anything_finetune` 2; pass `overwrite=True`, CLI
+  `--overwrite`), and cached fine-tuning runs are trained again (the recipe
+  version is part of their cache key). Runs that load a fine-tuned checkpoint
+  through `engine_params["checkpoint_path"]` are unaffected. Agent plans for
+  such runs get a new plan directory (it includes the results versions).
+  `engine_params={"yolo_warmup_bias_lr": 0.1}` restores the 1.0.1 recipe.
+  The other trainers (GeoAI, DINOv3, Prithvi) are unchanged.
+
 ### Added
 
+- Example 23 (`examples/23_tree_crops.py`): how agribound does on tree crops,
+  in four study areas with reference boundaries: the Twifo Oil Palm
+  Plantations estate in Ghana and Higaturu oil palm smallholders in Papua New
+  Guinea (RSPO GeoRSPO concession maps, downloaded at run time and pinned by
+  SHA-256), almond and pistachio orchards in Madera County, California
+  (DWR / Land IQ 2022) and olive groves near Úbeda, Spain (SIGPAC).
+  Delineate-Anything v2 on SPOT 6/7 panchromatic (with and without SAM 2), on
+  Landsat 8/9 panchromatic, Sentinel-2 and NAIP; Delineate-Anything v2 and
+  DINOv3 each fine-tuned on the same labels and SPOT-Pan composite of a
+  training area near each study area (another estate for Twifo Praso, other
+  parcels of the same Higaturu scheme for Oro, and squares near Madera and
+  Úbeda chosen by a fixed rule from the labels and the imagery),
+  never on the evaluated squares; FTW; and Google Satellite Embedding and
+  TESSERA clusters. The LULC crop filter runs as a separate step, with the
+  default rule and with `lulc_tree_crops=True`. The released Delineate-Anything
+  v2 has not seen the Ghana and Papua New Guinea fields, but its training data
+  (FBIS-73M) cover the Madera square and 87 % of the Úbeda square, with labels
+  that match 121 of the 122 DWR / Land IQ reference fields and 166 of the 225
+  SIGPAC recintos. Gallery entries. Thanks to Jacob
+  Abramowitz (The University of Alabama in Huntsville), who asked about tree
+  crops and pointed to the RSPO concession maps and the subdivided Twifo
+  estate.
+- `engine_params["yolo_warmup_bias_lr"]` (Delineate-Anything fine-tuning): the
+  warmup learning rate of the bias parameters (default 0; see Fixed).
 - `landsat-pan`: native 15 m Landsat 7/8/9 B8 TOA imagery through the existing
-  source interfaces, with sensor QA masks, scene cloud filtering and RGB replication.
+  source interfaces, with sensor QA masks, scene cloud filtering and RGB
+  replication. By default a composite uses one PAN bandpass: Landsat 8/9, or
+  Landsat 7 for date windows before 2013-03-18 (see `landsat_pan_missions`)
+  (contributed by Jeremy Rapp, The University of Alabama in Huntsville).
+- `landsat_pan_missions` (CLI `--landsat-pan-missions`): the missions whose
+  PAN band `source="landsat-pan"` uses; the other sources ignore it. `"auto"`
+  (default) uses Landsat 8 (`LC08`, from 2013-03-18) and Landsat 9 (`LC09`,
+  from 2021-10-31) whenever the date window overlaps their record, else
+  Landsat 7 (`LE07`, 1999-05-28 to 2024-01-19), so the two bandpasses are
+  never mixed. A list of `LE07`, `LC08` and `LC09` (or a comma-separated
+  string) uses exactly those missions; a list with Landsat 7 and Landsat 8 or
+  9 mixes the two bandpasses in one median, and a WARNING is logged when
+  images of both contribute. For `landsat-pan`, a setting none of whose
+  missions has a record overlapping the year or `date_range` (for example
+  `LE07` with 2025, or `LC09` with 2020) is rejected when the configuration is
+  created (`ValueError`), so `--dry-run`, agent plans and `agribound tiles
+  make` refuse it instead of every tile ending as no-data. Agent plans warn
+  when it is not `"auto"`.
+- `landsat-pan` composite tags `AGRIBOUND_LANDSAT_PAN_MISSIONS` (the setting),
+  `AGRIBOUND_MISSIONS_SELECTED` (the missions searched for the window),
+  `AGRIBOUND_SENSORS` and `AGRIBOUND_SENSOR_IMAGES` (the missions with images
+  after the bounds, date and scene cloud filters, and the number of images of
+  each, counted by `SPACECRAFT_ID` in the image-count request) and
+  `AGRIBOUND_SPECTRAL_RESPONSE` (the PAN bandpasses of those missions). The
+  provenance record keeps them (`facts.composite`), and `tools/make_gallery.py`
+  labels a Landsat PAN background from `AGRIBOUND_SENSORS` (for example
+  "Landsat 8/9 PAN TOA").
+- `lulc_tree_crops` (CLI `--lulc-tree-crops/--no-lulc-tree-crops`, default
+  False): count tree cover as crop in the LULC filter, for orchards and
+  plantations. Dynamic World files plantations under `trees` (Brown et al.
+  2022, Table 1: "Plantations such as apples, bananas, citrus, and rubber"),
+  so the default filter can remove tree crops: with Dynamic World it kept 0
+  (2020) and 1 (2023) of 95 oil-palm blocks at Twifo Praso, Ghana (RSPO
+  GeoRSPO concession boundaries). With the option, the Dynamic World value is
+  the annual median of the per-image sum of the `crops` and `trees`
+  probabilities, and C3S also counts its tree-cover classes (50, 60-62, 70-72,
+  80-82, 90); all 95 blocks were kept for both years (C3S 2015 kept all 95
+  with and without the option). With Dynamic World or C3S the filter then no
+  longer removes forest. NLCD and CDL are unchanged (NLCD class 82 already
+  includes "perennial woody crops such as orchards and vineyards"), so with
+  them it still removes forest. `lulc_stats["tree_crops"]` records the
+  setting. Dynamic World and C3S rasters made with the option are cached
+  separately and tagged `AGRIBOUND_LULC_TREE_CROPS=True`; other LULC rasters
+  are tagged `False`, including the NLCD and CDL rasters that runs with and
+  without the option share. Agent plans warn when it is set, and, when it is
+  not, where the filter uses Dynamic World or C3S (`lulc_dataset`
+  `"dynamic_world"` or `"c3s"`, or `"auto"` for a study area outside the
+  conterminous-US envelope); `recommend_configurations` notes the same for
+  such study areas, and the agent's system prompt lists tree crops among the
+  limitations to report. Thanks to Jacob Abramowitz (The University of
+  Alabama in Huntsville) for asking about tree crops and pointing to the RSPO
+  GeoRSPO concession boundaries.
+- **Documentation:** [Satellite Sources](https://montimaj.github.io/agribound/user-guide/satellite-sources/#landsat-panchromatic-landsat-pan)
+  describes the `landsat-pan` mission rule and composite tags, and
+  [Tree crops](https://montimaj.github.io/agribound/user-guide/satellite-sources/#tree-crops)
+  the new LULC option, its measurements and its trade-off.
+  [Fine-Tuning](https://montimaj.github.io/agribound/user-guide/fine-tuning/)
+  describes the Delineate-Anything recipe change and recommends a smaller
+  `yolo_lr0` for small training sets.
+- `tools/make_gallery.py`: multi-area entries draw a reference per panel
+  (`Layer.reference`), the polygons the crop filter removed (`removed_vs`) and,
+  with `crop_on_reference`, the square with the most reference polygons; a
+  panel can take its background from another output's provenance
+  (`Layer.background_from`, e.g. the Sentinel-2 composite for embedding
+  clusters); long panel titles are set smaller to fit, and counts read
+  "1 field", "1 image". Panels of one study area (`Layer.area`, e.g. several
+  models on one area) share a number, a locator dot and the window of the
+  area's first panel. A DINOv3 run that loads a checkpoint fine-tuned in
+  another run is credited to that checkpoint in the footer.
+
+### Fixed
+
+- Delineate-Anything fine-tuning used Ultralytics' default
+  `warmup_bias_lr=0.1`, which is meant for SGD, with AdamW. Ultralytics'
+  `optimizer="auto"`, whose AdamW choice the recipe follows (as documented),
+  sets 0 for AdamW, and so does agribound now. On 62 training chips of an oil
+  palm estate (example 23), where the released weights score a validation
+  mask mAP50 of 0.17, a test at `lr0=1e-4` (momentum 0.9) scored 0.46 after 20
+  epochs without the bias warmup and 0.32 with it; with `yolo_lr0=1e-4` the
+  new recipe scores 0.47 after 20 epochs. At the default `lr0` (0.002) the
+  pretrained weights are wrecked with either setting: the run scored 0.00 with
+  the 1.0.1 recipe, and with the new one 0.02 after the first epoch (the
+  checkpoint Ultralytics keeps) and 0.00 from the third epoch on. The
+  fine-tuning guide now recommends a smaller `yolo_lr0` for small training
+  sets.
+
+### Changed
+
+- `landsat-pan` no longer mixes Landsat 7 and Landsat 8/9 PAN by default.
+  Landsat 7 ETM+ PAN (0.52-0.90 µm) includes the near infrared and Landsat
+  8/9 OLI PAN (0.50-0.68 µm) does not, so their values differ, most over
+  vegetation: over the oil-palm blocks of Twifo Praso, Ghana, in 2023, the
+  median TOA reflectance was 0.220 (Landsat 7) against 0.096 (Landsat 8) and
+  0.081 (Landsat 9). The source merged every
+  mission whose record overlapped the window into one median; it now follows
+  `landsat_pan_missions`, whose default `"auto"` uses Landsat 8/9 whenever the
+  window overlaps their record and Landsat 7 only for earlier windows. For a
+  2023 composite of Lost Hills, California, it used 16 Landsat 8 and 16
+  Landsat 9 images; the merged median had 52, 20 of them from Landsat 7. When
+  a window has no images, the `NoDataError` lists the years that have images
+  of the missions searched, labelled with those missions, and names the
+  missions; with `"auto"`, when Landsat 7 has images in the window that pass
+  the same filters, it also gives their number and says that
+  `landsat_pan_missions="LE07"` uses them (one extra Earth Engine request, on
+  that failure path only).
+- `AGRIBOUND_SENSORS` of a `landsat-pan` composite names only the missions
+  that contributed images (it named every mission whose record overlapped the
+  window).
+- The `landsat-pan` composite cache key includes `landsat_pan_missions`.
+- `landsat-pan` follows `landsat` in `SOURCE_REGISTRY` and
+  `agribound list-sources`, and its registry coverage text (shown by
+  `list-sources` and the agent tools) states the default mission rule. The
+  agent's live `check_availability` counts, for `landsat-pan`, only the
+  collections of the missions `"auto"` uses for the year, and names the other
+  missions' image counts in its message; it counted all three, including
+  Landsat 7 in 2013-2024.
+- Delineate-Anything has a `landsat-pan` source note (`engine_notes`, used by
+  the agent tools): 15 m Landsat PAN composites are outside its 0.25-10 m
+  training range, and the single band is replicated to grey R, G, B.
+- Fields added after 1.0.1 enter `config_hash` only where they apply
+  (`agribound.provenance.HASH_CONDITIONAL_FIELDS`): `lulc_tree_crops` only
+  when it is True, `landsat_pan_missions` always for `source="landsat-pan"`
+  (even at `"auto"`) and never for the other sources. Other configurations
+  keep their hashes, so their outputs are still reused. The signature of HPC
+  tile manifests and the agent's plan directories follow the same rule,
+  except that a field that does not apply still counts when it is set to a
+  non-default value (`agribound.provenance.drop_inapplicable_fields`), so
+  `agribound tiles make` keeps a manifest written by 1.0.x for the same
+  configuration without `--overwrite` (and `tiles merge` reuses the merged
+  output), and an agent plan finds the output of the same earlier proposal.
+  Agent plan IDs change, because a plan hashes every field of its
+  configuration.
+- **If you ran `landsat-pan` before this change** (it was only on the main
+  branch): those outputs now raise `FileExistsError` instead of being reused;
+  recompute them with `overwrite=True` (CLI `--overwrite`). Their composites
+  are rebuilt, because the composite cache key changed. Tiled runs need
+  `agribound tiles make --overwrite`, then `tiles run --overwrite` (their
+  tiles show as `stale`) and `tiles merge --overwrite`; agent plans get a new
+  plan directory.
 
 ## [1.0.1] - 2026-09-30
 

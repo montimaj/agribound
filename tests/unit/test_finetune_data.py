@@ -835,3 +835,22 @@ def test_chip_size_rule_is_part_of_the_fine_tuning_cache_key(tmp_path, monkeypat
     second = finetune._run_dir(cfg, "geoai", "maskrcnn")
     assert first != second
     assert _data.chip_size_rule("geoai") == "fields-q0.9x1.25-256-2048"
+
+
+def test_yolo_recipe_version_is_part_of_the_delineate_anything_cache_key(tmp_path, monkeypatch):
+    """A new Delineate-Anything training recipe must not reuse earlier checkpoints."""
+    from agribound.engines import finetune
+    from agribound.engines.finetune import _yolo
+
+    (tmp_path / "ref.gpkg").write_text("x")
+    cfg = _config(
+        tmp_path, engine="delineate-anything", reference_boundaries=str(tmp_path / "ref.gpkg")
+    )
+    first = finetune._run_dir(cfg, "delineate-anything", "large_v2")
+    monkeypatch.setattr(_yolo, "RECIPE_VERSION", _yolo.RECIPE_VERSION + 1)
+    assert finetune._run_dir(cfg, "delineate-anything", "large_v2") != first
+    # Other engines' keys do not depend on it (their cached checkpoints stay valid).
+    geo = _config(tmp_path, engine="geoai", reference_boundaries=str(tmp_path / "ref.gpkg"))
+    before = finetune._run_dir(geo, "geoai", "maskrcnn")
+    monkeypatch.setattr(_yolo, "RECIPE_VERSION", _yolo.RECIPE_VERSION + 1)
+    assert finetune._run_dir(geo, "geoai", "maskrcnn") == before

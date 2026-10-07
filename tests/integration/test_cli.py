@@ -139,11 +139,16 @@ class TestCliHelp:
             "--config",
             "--aoi-selection",
             "--embedding-cache-dir",
+            "--landsat-pan-missions",
+            "--lulc-tree-crops / --no-lulc-tree-crops",
         ):
             assert flag in text, flag
         composite_text = runner.invoke(main, ["composite", "--help"]).output
         assert "--embedding-cache-dir" in composite_text
         assert "--aoi-selection" not in composite_text  # applied after delineation only
+        # Stage-A options: they decide the composite and the prefetched LULC raster.
+        assert "--landsat-pan-missions" in composite_text
+        assert "--lulc-tree-crops / --no-lulc-tree-crops" in composite_text
 
     def test_composite_has_no_engine_only_flags(self, runner):
         text = runner.invoke(main, ["composite", "--help"]).output
@@ -158,6 +163,10 @@ class TestCliHelp:
         cfg_defaults = AgriboundConfig.__dataclass_fields__
         assert f"[default: {cfg_defaults['seed'].default}]" in text
         assert f"[default: {cfg_defaults['min_field_area_m2'].default}]" in text
+        missions = text.split("--landsat-pan-missions", 1)[1].split("--export-crs", 1)[0]
+        assert "LE07, LC08, LC09. [default: auto]" in missions
+        tree = text.split("--lulc-tree-crops / --no-lulc-tree-crops", 1)[1].split("--seed", 1)[0]
+        assert "[default: False]" in tree and "Dynamic World crops+trees" in tree
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +380,92 @@ class TestDelineateConfig:
         assert data["gee_max_requests"] == 4
         assert data["gee_high_volume"] is True
         assert data["tile_size"] == 2048
+
+    def test_landsat_pan_missions_and_lulc_tree_crops(self, runner, tmp_path):
+        args = [
+            "delineate",
+            "--study-area",
+            "a.geojson",
+            "--gee-project",
+            "p",
+            "--source",
+            "landsat-pan",
+            "--year",
+            "2015",
+            "--output",
+            str(tmp_path / "x.gpkg"),
+        ]
+        data = _dry_run(runner, args)
+        assert data["landsat_pan_missions"] == "auto"
+        assert data["lulc_tree_crops"] is False
+        data = _dry_run(
+            runner, [*args, "--landsat-pan-missions", "lc08, LE07", "--lulc-tree-crops"]
+        )
+        assert data["landsat_pan_missions"] == ["LE07", "LC08"]
+        assert data["lulc_tree_crops"] is True
+        data = _dry_run(runner, [*args, "--landsat-pan-missions", "AUTO", "--no-lulc-tree-crops"])
+        assert data["landsat_pan_missions"] == "auto"
+        assert data["lulc_tree_crops"] is False
+        data = _dry_run(runner, ["composite", *args[1:], "--landsat-pan-missions", "LE07"])
+        assert data["landsat_pan_missions"] == ["LE07"]
+
+    @pytest.mark.parametrize("value", ["LT05", "LC08,L9", ""])
+    def test_invalid_landsat_pan_missions_is_usage_error(self, runner, value):
+        result = runner.invoke(
+            main,
+            [
+                "delineate",
+                "--study-area",
+                "a.geojson",
+                "--gee-project",
+                "p",
+                "--source",
+                "landsat-pan",
+                "--landsat-pan-missions",
+                value,
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "Invalid configuration" in result.output
+        assert "landsat_pan_missions" in result.output
+
+    def test_new_flags_override_yaml_and_round_trip(self, runner, tmp_path):
+        cfg = _write_yaml(
+            tmp_path / "lp.yaml",
+            {
+                "study_area": "a.geojson",
+                "source": "landsat-pan",
+                "year": 2015,
+                "gee_project": "p",
+                "output_path": str(tmp_path / "f.gpkg"),
+                "landsat_pan_missions": ["LC08", "LE07"],
+                "lulc_tree_crops": True,
+            },
+        )
+        data = _dry_run(runner, ["delineate", "--config", str(cfg)])
+        assert data["landsat_pan_missions"] == ["LE07", "LC08"]
+        assert data["lulc_tree_crops"] is True
+        data = _dry_run(
+            runner,
+            [
+                "delineate",
+                "--config",
+                str(cfg),
+                "--landsat-pan-missions",
+                "LC08",
+                "--no-lulc-tree-crops",
+            ],
+        )
+        assert data["landsat_pan_missions"] == ["LC08"]
+        assert data["lulc_tree_crops"] is False
+        # The resolved YAML reads back unchanged.
+        first = runner.invoke(main, ["delineate", "--config", str(cfg), "--dry-run"])
+        resolved = tmp_path / "resolved.yaml"
+        resolved.write_text(first.stdout)
+        second = runner.invoke(main, ["delineate", "--config", str(resolved), "--dry-run"])
+        assert second.exit_code == 0, second.output
+        assert second.stdout == first.stdout
 
     def test_aoi_selection_and_embedding_cache_dir(self, runner, base_yaml, tmp_path):
         data = _dry_run(runner, ["delineate", "--config", str(base_yaml)])

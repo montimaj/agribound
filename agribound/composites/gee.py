@@ -20,7 +20,11 @@ Radiometry of the written composites (``value_scale`` in
   renamed to the HLSL30 names ``B1`` ... ``B7`` (so ``B5`` is NIR narrow and
   ``B6``/``B7`` are SWIR1/SWIR2 for both sensors).
 - **Landsat PAN**: native 15 m B8 TOA reflectance from Landsat 7/8/9,
-  exported as float32 without scaling (``unit``).
+  exported as float32 without scaling (``unit``). The two PAN bandpasses
+  (Landsat 7 0.52-0.90 um, Landsat 8/9 0.50-0.68 um) are not mixed unless
+  ``landsat_pan_missions`` names both (see
+  :func:`landsat_pan_missions_for_window`); ``AGRIBOUND_SENSORS`` and
+  ``AGRIBOUND_SENSOR_IMAGES`` record the missions whose images were used.
 - **NAIP** (``USDA/NAIP/DOQQ``): 8-bit digital numbers (``R, G, B, N``),
   mosaicked (not composited), exported as uint8 with nodata 0 at
   ``config.naip_resolution_m``. Only 4-band images are used (some early years
@@ -986,13 +990,28 @@ def _years_of(collection: Any) -> Any:
     )
 
 
-def collection_summary(collection: Any, context: str = "collection") -> dict[str, Any]:
-    """Return ``{"n_images": int, "years": [int, ...]}`` for a collection (one request)."""
+def collection_summary(
+    collection: Any, context: str = "collection", count_property: str | None = None
+) -> dict[str, Any]:
+    """Return ``{"n_images": int, "years": [int, ...]}`` for a collection (one request).
+
+    With *count_property*, the result also has ``"counts"``: the number of
+    images per value of that image property (``aggregate_histogram``).
+    """
     import ee
 
+    query = {"n": collection.size(), "years": _years_of(collection)}
+    if count_property:
+        query["counts"] = collection.aggregate_histogram(count_property)
     with ee_warning_monitor(context):
-        info = ee.Dictionary({"n": collection.size(), "years": _years_of(collection)}).getInfo()
-    return {"n_images": int(info["n"]), "years": [int(y) for y in info["years"]]}
+        info = ee.Dictionary(query).getInfo()
+    summary: dict[str, Any] = {
+        "n_images": int(info["n"]),
+        "years": [int(y) for y in info["years"]],
+    }
+    if count_property:
+        summary["counts"] = {str(k): int(v) for k, v in (info.get("counts") or {}).items()}
+    return summary
 
 
 def available_years(collection: Any, context: str = "collection") -> list[int]:
@@ -1096,6 +1115,14 @@ class CollectionSpec:
         Extra facts written to the GeoTIFF tags.
     history_all_bands : ee.ImageCollection or None
         NAIP only: *history* without the 4-band filter (to report RGB-only years).
+    count_property : str or None
+        Image property whose values are counted in *raw* (one histogram in the
+        image-count request), e.g. ``"SPACECRAFT_ID"`` for ``landsat-pan``. The
+        counts are written to the ``AGRIBOUND_SENSORS`` and
+        ``AGRIBOUND_SENSOR_IMAGES`` tags.
+    count_labels : dict
+        Property value -> label in those tags (e.g. ``"LANDSAT_8"`` -> ``"LC08"``),
+        in the order the tags list them.
     """
 
     raw: Any
@@ -1107,6 +1134,8 @@ class CollectionSpec:
     collections: list[str]
     notes: dict[str, Any] = field(default_factory=dict)
     history_all_bands: Any = None
+    count_property: str | None = None
+    count_labels: dict[str, str] = field(default_factory=dict)
 
 
 def export_resolution_m(config: AgriboundConfig) -> float:
@@ -1164,6 +1193,54 @@ LANDSAT_PAN_COLLECTIONS = {
     for mission, (cid, first, last) in LANDSAT_COLLECTIONS.items()
     if mission != "LT05"
 }
+#: Landsat 8/9 OLI missions; their PAN band (0.50-0.68 um) excludes the near infrared
+#: that Landsat 7 ETM+ PAN (0.52-0.90 um) includes.
+LANDSAT_PAN_OLI_MISSIONS = ("LC08", "LC09")
+#: ``SPACECRAFT_ID`` of the TOA images -> mission ID (the order of the composite tags).
+LANDSAT_PAN_SPACECRAFT = {"LANDSAT_7": "LE07", "LANDSAT_8": "LC08", "LANDSAT_9": "LC09"}
+LANDSAT_PAN_BANDPASS = {"LE07": "L7 PAN 0.52-0.90 um", "OLI": "L8/9 PAN 0.50-0.68 um"}
+
+
+def landsat_pan_missions_for_window(
+    setting: str | tuple[str, ...], window: tuple[str, str]
+) -> tuple[str, ...]:
+    """Return the missions a ``landsat-pan`` composite of *window* uses.
+
+    Parameters
+    ----------
+    setting : str or tuple[str, ...]
+        ``config.landsat_pan_missions``: ``"auto"`` or mission IDs.
+    window : tuple[str, str]
+        ``(start, end_exclusive)`` dates (:func:`date_window`).
+
+    Returns
+    -------
+    tuple[str, ...]
+        With ``"auto"``, the OLI missions (``LC08``, ``LC09``) whose
+        acquisition period overlaps the window, else ``LE07`` if its period
+        does, so the two PAN bandpasses are never mixed. With mission IDs,
+        those of them whose period overlaps the window. Empty when no mission
+        applies.
+    """
+    overlapping = [
+        mission
+        for mission, (_, first, last) in LANDSAT_PAN_COLLECTIONS.items()
+        if _overlaps(window, first, last)
+    ]
+    if setting == "auto":
+        oli = [m for m in overlapping if m in LANDSAT_PAN_OLI_MISSIONS]
+        return tuple(oli or [m for m in overlapping if m == "LE07"])
+    return tuple(m for m in overlapping if m in setting)
+
+
+def landsat_pan_bandpass(missions: Any) -> str:
+    """Spectral response of the PAN bands of *missions* (e.g. ``"L8/9 PAN 0.50-0.68 um"``)."""
+    parts = []
+    if "LE07" in missions:
+        parts.append(LANDSAT_PAN_BANDPASS["LE07"])
+    if any(m in missions for m in LANDSAT_PAN_OLI_MISSIONS):
+        parts.append(LANDSAT_PAN_BANDPASS["OLI"])
+    return "; ".join(parts)
 
 
 def prepare_landsat_pan_image(image: Any, mission: str) -> Any:
@@ -1178,31 +1255,56 @@ def prepare_landsat_pan_image(image: Any, mission: str) -> Any:
 
 
 def _build_landsat_pan(config: AgriboundConfig, region: Any) -> CollectionSpec:
-    """Merge the date-overlapping Landsat 7/8/9 native PAN collections."""
+    """Merge the native PAN collections of the missions chosen for the date window.
+
+    The missions follow ``config.landsat_pan_missions``
+    (:func:`landsat_pan_missions_for_window`); the history used to list years
+    with images covers the same missions. A window that no selected mission's
+    record overlaps raises :class:`ValueError` (not :class:`NoDataError`): it
+    is a configuration error, which ``AgriboundConfig`` already rejects.
+    """
     import ee
 
     window = date_window(config)
-    raw_parts, prepared_parts, history_parts, ids, missions = [], [], [], [], []
-    for mission, (cid, first, last) in LANDSAT_PAN_COLLECTIONS.items():
+    setting = config.landsat_pan_missions
+    missions = landsat_pan_missions_for_window(setting, window)
+    setting_text = setting if isinstance(setting, str) else ",".join(setting)
+    if not missions:
+        if setting == "auto":
+            raise ValueError(
+                "No Landsat PAN mission overlaps the date window; available from 1999-05-28."
+            )
+        raise ValueError(
+            f"None of landsat_pan_missions={setting_text!r} acquired images between "
+            f"{window[0]} and {window[1]} (Landsat 7 1999-05-28 to 2024-01-19, Landsat 8 "
+            "from 2013-03-18, Landsat 9 from 2021-10-31)."
+        )
+    raw_parts, prepared_parts, history_parts, ids = [], [], [], []
+    for mission in missions:
+        cid = LANDSAT_PAN_COLLECTIONS[mission][0]
         base = (
             ee.ImageCollection(cid)
             .filterBounds(region)
             .filter(ee.Filter.lte("CLOUD_COVER", config.cloud_cover_max))
         )
         history_parts.append(base)
-        if not _overlaps(window, first, last):
-            continue
         raw = base.filterDate(*window)
         raw_parts.append(raw)
         prepared_parts.append(
             raw.map(lambda img, mission=mission: prepare_landsat_pan_image(img, mission))
         )
         ids.append(cid)
-        missions.append(mission)
-    if not raw_parts:
-        raise NoDataError(
-            "No Landsat PAN mission overlaps the date window; available from 1999-05-28."
-        )
+    notes = {
+        "landsat_pan_missions": setting_text,
+        "missions_selected": ",".join(missions),
+        "cloud_mask": (
+            "QA_PIXEL bits 0,1,3,4 on Landsat 7; bits 0-4 (bit 2 cirrus) on Landsat 8/9"
+        ),
+        "scaling": "as stored (unit TOA reflectance)",
+        "spectral_response": landsat_pan_bandpass(missions),
+    }
+    if "LE07" in missions:
+        notes["slc_off"] = "Landsat 7 gaps after 2003 retained; no special gap filling"
     return CollectionSpec(
         raw=_merge(raw_parts),
         prepared=_merge(prepared_parts),
@@ -1211,13 +1313,9 @@ def _build_landsat_pan(config: AgriboundConfig, region: Any) -> CollectionSpec:
         resolution_m=export_resolution_m(config),
         dtype="float32",
         collections=ids,
-        notes={
-            "sensors": ",".join(missions),
-            "cloud_mask": "QA_PIXEL bits 0,1,3,4; bit 2 (cirrus) on Landsat 8/9",
-            "scaling": "as stored (unit TOA reflectance)",
-            "spectral_response": "L7 PAN 0.52-0.90 um; L8/9 PAN 0.50-0.68 um",
-            "slc_off": "Landsat 7 gaps after 2003 retained; no special gap filling",
-        },
+        notes=notes,
+        count_property="SPACECRAFT_ID",
+        count_labels=dict(LANDSAT_PAN_SPACECRAFT),
     )
 
 
@@ -1433,7 +1531,41 @@ def _warn_low_coverage(fraction: float, what: str, advice: str) -> None:
         )
 
 
-def _years_error(config: AgriboundConfig, years: list[int], window: tuple[str, str]) -> NoDataError:
+def _sensor_tags(
+    config: AgriboundConfig, label: str, counts: dict[str, int], labels: dict[str, str]
+) -> dict[str, str]:
+    """``AGRIBOUND_SENSORS`` and ``AGRIBOUND_SENSOR_IMAGES`` from per-property image counts.
+
+    The tags name only the sensors with images that passed the bounds, date and
+    scene cloud filters. For ``landsat-pan``, a WARNING is logged when both PAN
+    bandpasses contribute, and ``AGRIBOUND_SPECTRAL_RESPONSE`` names the
+    bandpasses of those sensors.
+    """
+    named = {labels.get(key, key): n for key, n in counts.items() if n > 0}
+    order = [v for v in labels.values() if v in named] + sorted(set(named) - set(labels.values()))
+    images = ", ".join(f"{m} {named[m]}" for m in order)
+    logger.info("%s: images per sensor: %s", label, images or "none")
+    tags = {
+        "AGRIBOUND_SENSORS": ",".join(order),
+        "AGRIBOUND_SENSOR_IMAGES": ",".join(f"{m}:{named[m]}" for m in order),
+    }
+    if config.source == "landsat-pan":
+        tags["AGRIBOUND_SPECTRAL_RESPONSE"] = landsat_pan_bandpass(order)
+        if "LE07" in named and any(m in named for m in LANDSAT_PAN_OLI_MISSIONS):
+            logger.warning(
+                "%s: the median mixes Landsat 7 ETM+ PAN (0.52-0.90 um) with Landsat 8/9 "
+                "OLI PAN (0.50-0.68 um), whose values differ, most over vegetation (images: "
+                "%s). Use landsat_pan_missions='auto' or one bandpass to avoid this.",
+                label,
+                images,
+            )
+    return tags
+
+
+def _years_error(
+    config: AgriboundConfig, years: list[int], window: tuple[str, str], of: str | None = None
+) -> NoDataError:
+    """The no-image error; *of* names what the listed years cover (e.g. ``"LC08,LC09"``)."""
     filters = []
     if config.source in ("landsat", "landsat-pan", "sentinel2", "hls", "spot", "spot-pan"):
         filters.append(f"scene cloud cover <= {config.cloud_cover_max}%")
@@ -1445,18 +1577,62 @@ def _years_error(config: AgriboundConfig, years: list[int], window: tuple[str, s
     else:
         period = f"{window[0]} to {window[1]} (end exclusive)"
     listed = ", ".join(str(y) for y in years) if years else "none"
+    images = f"images of {of}" if of else "images"
     return NoDataError(
         f"No {config.source} images{where} intersect the study-area extent for {period}. "
-        f"Years with images over the study-area extent: {listed}."
+        f"Years with {images} over the study-area extent: {listed}."
+    )
+
+
+def _landsat7_pan_images(config: AgriboundConfig, region: Any, window: tuple[str, str]) -> int:
+    """Landsat 7 PAN images over *region* in *window* that pass the scene cloud filter."""
+    import ee
+
+    collection = (
+        ee.ImageCollection(LANDSAT_PAN_COLLECTIONS["LE07"][0])
+        .filterBounds(region)
+        .filter(ee.Filter.lte("CLOUD_COVER", config.cloud_cover_max))
+        .filterDate(*window)
+    )
+    with ee_warning_monitor(f"landsat-pan {config.year} Landsat 7 image count"):
+        return int(collection.size().getInfo())
+
+
+def _landsat7_hint(
+    config: AgriboundConfig, region: Any, window: tuple[str, str], searched: Sequence[str]
+) -> str:
+    """Hint for a ``landsat-pan`` window without Landsat 8/9 images that Landsat 7 has.
+
+    Only for ``landsat_pan_missions="auto"`` when Landsat 7 was not searched
+    although its record overlaps the window; counts its images (one request,
+    on this failure path only) and returns ``""`` when there are none or the
+    count fails, so the no-data error is never replaced by another one.
+    """
+    if config.landsat_pan_missions != "auto" or "LE07" in searched:
+        return ""
+    if not _overlaps(window, *LANDSAT_PAN_COLLECTIONS["LE07"][1:]):
+        return ""
+    try:
+        n = _landsat7_pan_images(config, region, window)
+    except Exception as exc:  # the hint is optional; keep the no-data error
+        logger.debug("Landsat 7 image count for the no-data message failed: %s", exc)
+        return ""
+    if n <= 0:
+        return ""
+    return (
+        f" Landsat 7 (LE07) has {n} image(s) with scene cloud cover <= "
+        f"{config.cloud_cover_max}% over the study-area extent in this window, which 'auto' "
+        "does not use because the window overlaps the Landsat 8/9 record and Landsat 7 PAN "
+        "(0.52-0.90 um) includes the near infrared; landsat_pan_missions='LE07' uses them."
     )
 
 
 class GEECompositeBuilder(CompositeBuilder):
     """Composite builder for the Earth Engine imagery sources.
 
-    Handles ``landsat``, ``sentinel2``, ``hls``, ``naip``, ``spot`` and
-    ``spot-pan`` (see the module docstring for masks, radiometry and the
-    export grid). The result is cached under
+    Handles ``landsat``, ``landsat-pan``, ``sentinel2``, ``hls``, ``naip``,
+    ``spot`` and ``spot-pan`` (see the module docstring for masks, radiometry
+    and the export grid). The result is cached under
     ``cache_path(config, f"{source}_composite", ".tif", ...)``, whose key
     includes the study area, year, date range, compositing and export
     settings, so different windows (e.g. FTW's two windows) get different
@@ -1544,10 +1720,22 @@ class GEECompositeBuilder(CompositeBuilder):
         window = date_window(config)
 
         label = f"{config.source} {config.year}"
-        summary = collection_summary(spec.raw, context=f"{label} image count")
+        summary = collection_summary(
+            spec.raw, context=f"{label} image count", count_property=spec.count_property
+        )
         if summary["n_images"] == 0:
             years = available_years(spec.history, context=f"{label} available years")
-            error = _years_error(config, years, window)
+            if config.source == "landsat-pan":
+                # The history covers the missions searched, so the years are labelled with them.
+                searched = spec.notes["missions_selected"]
+                hint = _landsat7_hint(config, region, window, searched.split(","))
+                error = NoDataError(
+                    f"{_years_error(config, years, window, of=searched)} Missions searched: "
+                    f"{searched} (landsat_pan_missions={spec.notes['landsat_pan_missions']!r})."
+                    f"{hint}"
+                )
+            else:
+                error = _years_error(config, years, window)
             if config.source == "naip":
                 all_years = available_years(spec.history_all_bands, context="naip available years")
                 rgb_only = sorted(set(all_years) - set(years))
@@ -1608,6 +1796,8 @@ class GEECompositeBuilder(CompositeBuilder):
         for key, value in spec.notes.items():
             if isinstance(value, str | int | float):
                 tags[f"AGRIBOUND_{key.upper()}"] = value
+        if spec.count_property:
+            tags.update(_sensor_tags(config, label, summary.get("counts", {}), spec.count_labels))
         self.last_metadata = dict(tags)
 
         if config.export_method != "local":
@@ -1746,11 +1936,14 @@ __all__ = [
     "export_resolution_m",
     "export_task_marker",
     "grid_footprint_4326",
+    "landsat_pan_bandpass",
+    "landsat_pan_missions_for_window",
     "mask_s2_cloud_score",
     "mask_s2_scl",
     "naip_order_key",
     "prepare_hls_image",
     "prepare_landsat_image",
+    "prepare_landsat_pan_image",
     "raster_valid_fraction",
     "read_composite_tags",
     "recorded_export_task",

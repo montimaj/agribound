@@ -561,12 +561,12 @@ def test_resolvability_from_published_ftw_uses_one_year(ctx, fake_query_ftw):
     assert explicit["published_ftw_year_used"] == 2024 and explicit["n_fields"] == 2
 
 
-def test_live_gee_check_counts_each_collection(ctx, monkeypatch):
+def _fake_live_ee(monkeypatch, ctx, counts: dict[str, int]) -> list:
+    """Fake ``ee`` for live checks: ``size()`` of a collection is ``counts[collection]``."""
     import sys
     from types import SimpleNamespace
 
     seen = []
-    counts = {"NASA/HLS/HLSL30/v002": 11, "NASA/HLS/HLSS30/v002": 29}
 
     class FakeCollection:
         def __init__(self, cid):
@@ -590,6 +590,12 @@ def test_live_gee_check_counts_each_collection(ctx, monkeypatch):
     monkeypatch.setitem(sys.modules, "ee", fake_ee)
     monkeypatch.setattr(tools_mod, "_init_gee", lambda ctx: None)
     ctx.allow_network = True
+    return seen
+
+
+def test_live_gee_check_counts_each_collection(ctx, monkeypatch):
+    counts = {"NASA/HLS/HLSL30/v002": 11, "NASA/HLS/HLSS30/v002": 29}
+    seen = _fake_live_ee(monkeypatch, ctx, counts)
     out = _call(
         ToolRegistry(ctx),
         "check_availability",
@@ -598,10 +604,50 @@ def test_live_gee_check_counts_each_collection(ctx, monkeypatch):
     live = out["results"][0]["live"]
     assert live["status"] == "ok"
     assert live["per_collection"] == counts and live["image_count"] == 40
+    assert live["message"] is None
     dates = {s[1]: s[2:] for s in seen if s[0] == "date"}
     assert dates == {cid: ("2023-01-01", "2024-01-01") for cid in counts}
     region = next(s[2] for s in seen if s[0] == "bounds")
     assert region[0] == pytest.approx(list(CA_BBOX)) and region[1:] == ("EPSG:4326", False)
+
+
+def _pan_collection(mission: str) -> str:
+    return f"LANDSAT/{mission}/C02/T1_TOA"
+
+
+@pytest.mark.parametrize(
+    ("year", "counts", "used"),
+    [
+        (2012, {"LE07": 23, "LC08": 0, "LC09": 0}, ["LE07"]),
+        (2013, {"LE07": 23, "LC08": 18, "LC09": 0}, ["LC08"]),  # 'auto' never mixes
+        (2022, {"LE07": 27, "LC08": 23, "LC09": 22}, ["LC08", "LC09"]),
+        (2025, {"LE07": 0, "LC08": 20, "LC09": 21}, ["LC08", "LC09"]),
+    ],
+)
+def test_live_gee_check_of_landsat_pan_counts_the_missions_auto_uses(
+    ctx, monkeypatch, year, counts, used
+):
+    seen = _fake_live_ee(monkeypatch, ctx, {_pan_collection(m): n for m, n in counts.items()})
+    out = _call(
+        ToolRegistry(ctx),
+        "check_availability",
+        {"year": year, "sources": ["landsat-pan"], "live": True},
+    )
+    live = out["results"][0]["live"]
+    assert live["status"] == "ok"
+    # Every collection is still queried, but only the default missions are counted.
+    assert {s[1] for s in seen if s[0] == "date"} == {_pan_collection(m) for m in counts}
+    assert live["per_collection"] == {_pan_collection(m): counts[m] for m in used}
+    assert live["image_count"] == sum(counts[m] for m in used)
+    assert "landsat_pan_missions='auto'" in live["method"]
+    message = live["message"]
+    assert message.startswith(
+        f"image_count counts {', '.join(used)}: the missions that the default"
+    )
+    unused = [m for m in counts if m not in used and counts[m] > 0]
+    for m in unused:
+        assert f"{_pan_collection(m)} ({counts[m]} images)" in message
+    assert ("Not used by default" in message) is bool(unused)
 
 
 def test_plan_network_services(monkeypatch):
@@ -749,6 +795,7 @@ def test_propose_run_flags_threshold_changes(registry):
     [
         ({"lulc_on_error": "warn"}, "lulc_on_error", "which polygons are kept"),
         ({"sam_refine": True}, "sam_refine", "which polygons are kept"),
+        ({"lulc_tree_crops": True}, "lulc_tree_crops", "which polygons are kept"),
         ({"lulc_mode": "raster"}, "lulc_mode", "input data or the method"),
         ({"s2_cloud_mask": "cloud_score_plus"}, "s2_cloud_mask", "input data or the method"),
         ({"composite_method": "greenest"}, "composite_method", "input data or the method"),
@@ -758,6 +805,195 @@ def test_propose_run_flags_method_and_filter_changes(registry, config, field, ki
     out = _propose(registry, config=config)
     assert out.ok, out.error
     assert any(w.startswith(f"{field} is") and kind in w for w in out.output["warnings"])
+
+
+def test_propose_run_flags_landsat_pan_missions(registry):
+    out = _propose(registry, source="landsat-pan", config={"landsat_pan_missions": ["LC08"]})
+    assert out.ok, out.error
+    assert any(
+        w.startswith("landsat_pan_missions is ['LC08'] (package default 'auto')")
+        and "input data or the method" in w
+        for w in out.output["warnings"]
+    )
+    assert out.output["config"]["landsat_pan_missions"] == ["LC08"]
+    default = _propose(registry, source="landsat-pan")
+    assert default.ok, default.error
+    assert not any("landsat_pan_missions" in w for w in default.output["warnings"])
+
+
+def test_propose_run_rejects_landsat_pan_missions_outside_the_year(registry):
+    out = _propose(
+        registry, source="landsat-pan", year=2020, config={"landsat_pan_missions": "LC09"}
+    )
+    assert not out.ok
+    assert "Invalid configuration" in out.error
+    assert "has no mission whose record overlaps year=2020" in out.error
+
+
+def _run_key_1_0_1(config: dict) -> str:
+    """The plan-directory key that agribound 1.0.1 computed for a frozen plan configuration."""
+    from agribound._results import results_versions
+    from agribound.agent.plans import canonical_json, compute_plan_hash, input_fingerprints
+
+    cfg = AgriboundConfig.from_dict(config)
+    key = {
+        k: v
+        for k, v in cfg.to_dict().items()
+        if k not in ("output_path", "landsat_pan_missions", "lulc_tree_crops")
+    }
+    versions = results_versions(cfg)
+    if versions:
+        key["results_versions"] = versions
+    return compute_plan_hash(canonical_json(key), canonical_json(input_fingerprints(cfg)))[:10]
+
+
+def _plan_dir_name(out) -> str:
+    assert out.ok, out.error
+    from pathlib import Path
+
+    return Path(out.output["output_path"]).parent.name
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"source": "landsat", "year": 2020},
+        {"engine": "ftw", "config": {"lulc_dataset": "c3s"}},
+        {"config": {"sam_refine": True}},  # with results versions
+        {"config": {"lulc_tree_crops": False, "landsat_pan_missions": "auto"}},
+    ],
+)
+def test_plan_directory_of_a_proposal_that_1_0_1_could_make_is_unchanged(registry, extra):
+    """Fields added after 1.0.1 at their defaults do not move the plan directory (or output)."""
+    out = _propose(registry, **extra)
+    cfg = out.output["config"]
+    expected = f"{cfg['source']}_{cfg['year']}_{cfg['engine']}_{_run_key_1_0_1(cfg)}"
+    assert _plan_dir_name(out) == expected
+
+
+def test_plan_directory_changes_with_the_new_fields(registry):
+    default = _plan_dir_name(_propose(registry))
+    assert _plan_dir_name(_propose(registry, config={"lulc_tree_crops": True})) != default
+    # Ignored by sentinel2 (not in config_hash), but an explicit value gets its own directory,
+    # so two plans never share one plan YAML.
+    le07 = _plan_dir_name(_propose(registry, config={"landsat_pan_missions": ["LE07"]}))
+    assert le07 != default
+    # landsat-pan always keys its missions: an output of the code that mixed Landsat 7 and
+    # 8/9 PAN (keyed without them) is never found, so it cannot block the run.
+    pan = _propose(registry, source="landsat-pan")
+    cfg = pan.output["config"]
+    assert _plan_dir_name(pan) != f"landsat-pan_2023_delineate-anything_{_run_key_1_0_1(cfg)}"
+    lc08 = _propose(registry, source="landsat-pan", config={"landsat_pan_missions": "LC08"})
+    assert _plan_dir_name(lc08) != _plan_dir_name(pan)
+
+
+GHANA_BBOX = "bbox:-1.60,5.58,-1.57,5.61"  # Twifo Praso, Ghana (oil palm)
+
+
+def _tree_crop_warnings(out) -> list[str]:
+    assert out.ok, out.error
+    return [w for w in out.output["warnings"] if w.startswith("Tree crops:")]
+
+
+def test_tree_crop_risk_covers_the_tree_crop_datasets():
+    from agribound.postprocess.lulc_filter import TREE_CROP_DATASETS
+
+    assert set(tools_mod._TREE_CROP_RISK) == set(TREE_CROP_DATASETS)
+
+
+def test_propose_run_warns_that_the_lulc_filter_can_remove_tree_crops(registry):
+    (warning,) = _tree_crop_warnings(_propose(registry, study_area=GHANA_BBOX))
+    assert warning.startswith(
+        "Tree crops: the study area is outside the conterminous US, so the LULC crop filter "
+        "(lulc_dataset='auto') uses Dynamic World;"
+    )
+    assert "0 of 95 oil-palm blocks" in warning
+    assert "the user can ask for lulc_tree_crops=True" in warning and "lulc_filter=False" in warning
+    # Before Dynamic World's first year the filter uses C3S.
+    (old,) = _tree_crop_warnings(
+        _propose(registry, study_area=GHANA_BBOX, source="landsat", year=2010)
+    )
+    assert "(lulc_dataset='auto') uses C3S; it can map orchards" in old
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},  # California: NLCD, whose class 82 includes orchards
+        {"study_area": GHANA_BBOX, "config": {"lulc_tree_crops": True}},
+        {"study_area": GHANA_BBOX, "config": {"lulc_filter": False}},
+        {"study_area": GHANA_BBOX, "config": {"lulc_dataset": "nlcd"}},
+        {"study_area": GHANA_BBOX, "config": {"lulc_dataset": "cdl"}},
+    ],
+)
+def test_no_tree_crop_warning_where_the_filter_keeps_tree_crops(registry, extra):
+    assert _tree_crop_warnings(_propose(registry, **extra)) == []
+
+
+@pytest.mark.parametrize(("dataset", "name"), [("dynamic_world", "Dynamic World"), ("c3s", "C3S")])
+def test_tree_crop_warning_for_an_explicit_dataset(registry, dataset, name):
+    (warning,) = _tree_crop_warnings(_propose(registry, config={"lulc_dataset": dataset}))
+    assert warning.startswith(
+        f"Tree crops: the LULC crop filter uses {name} (lulc_dataset={dataset!r});"
+    )
+
+
+def test_tree_crop_warning_when_the_study_area_cannot_be_read(registry, monkeypatch):
+    # A GEE-asset study area cannot be read offline: the warning names the condition.
+    monkeypatch.setattr(tools_mod, "_init_gee", lambda ctx: ctx.require_network("Earth Engine"))
+    (warning,) = _tree_crop_warnings(_propose(registry, study_area="projects/p/assets/aoi"))
+    assert warning.startswith(
+        "Tree crops: outside the conterminous US the LULC crop filter (lulc_dataset='auto') "
+        "uses Dynamic World;"
+    )
+
+
+def test_tree_crop_warning_uses_the_local_raster_footprint(tmp_path, ctx):
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    ctx.study_area = None
+    registry = ToolRegistry(ctx)
+
+    def raster(name, bounds):
+        path = tmp_path / name
+        profile = {
+            "driver": "GTiff",
+            "width": 8,
+            "height": 8,
+            "count": 3,
+            "dtype": "uint8",
+            "crs": "EPSG:4326",
+            "transform": from_bounds(*bounds, 8, 8),
+        }
+        with rasterio.open(path, "w", **profile) as dst:
+            dst.write(np.ones((3, 8, 8), dtype="uint8"))
+        return str(path)
+
+    ghana = _propose(
+        registry, source="local", local_tif_path=raster("gh.tif", (-1.6, 5.58, -1.57, 5.61))
+    )
+    (warning,) = _tree_crop_warnings(ghana)
+    assert "the study area is outside the conterminous US" in warning
+    california = _propose(registry, source="local", local_tif_path=raster("ca.tif", CA_BBOX))
+    assert _tree_crop_warnings(california) == []
+
+
+def test_recommendations_note_the_tree_crop_risk_outside_the_us(tmp_path, ctx):
+    def tree_crop_notes(year):
+        out = _call(ToolRegistry(ctx), "recommend_configurations", {"year": year})
+        return [n for n in out["notes"] if n.startswith("Tree crops:")]
+
+    assert tree_crop_notes(2023) == []  # California
+    ctx.study_area = _aoi_file(tmp_path, bbox=AU_BBOX, name="au.geojson")
+    (note,) = tree_crop_notes(2023)
+    assert "(lulc_dataset='auto') uses Dynamic World rather than NLCD" in note
+    assert "Candidates keep the default lulc_tree_crops=False" in note
+    assert "set them only if the user asks" in note
+    (old,) = tree_crop_notes(2010)
+    assert "uses C3S rather than NLCD" in old
 
 
 def test_propose_run_returns_the_frozen_config(registry, ctx):

@@ -876,7 +876,11 @@ def write_tile_manifest(
 
     Writing is idempotent: an existing manifest with the same signature
     (output directory, grid, tile entries, base configuration and cache
-    root) is kept, and a different one is refused unless *overwrite*.
+    root) is kept, and a different one is refused unless *overwrite*. Fields
+    added after agribound 1.0.1 enter the signature's base configuration only
+    where they apply or are set to a non-default value
+    (:func:`agribound.provenance.drop_inapplicable_fields`), so a manifest
+    written by 1.0.x for the same configuration is still up to date.
 
     Parameters
     ----------
@@ -926,7 +930,7 @@ def write_tile_manifest(
         configuration fine-tunes and *allow_fine_tune_per_tile* is False.
     """
     from agribound._version import __version__
-    from agribound.provenance import config_hash, to_jsonable
+    from agribound.provenance import config_hash, drop_inapplicable_fields, to_jsonable
 
     grid = tiles.attrs.get("grid")
     if not grid or len(tiles) == 0:
@@ -1019,12 +1023,15 @@ def write_tile_manifest(
     base_dict = to_jsonable(config.to_dict())
     # cache_dir is excluded from the configuration hash, so the cache root is
     # part of the signature explicitly (a different root must not be ignored).
+    # Fields added after 1.0.1 are signed only where they apply or are set to a
+    # non-default value, so a 1.0.x manifest of the same configuration stays up
+    # to date; the manifest's base_config keeps every field.
     signature = _sha1_json(
         {
             "out_dir": str(out_dir),
             "grid": grid,
             "tiles": tile_entries,
-            "base": base_dict,
+            "base": drop_inapplicable_fields(base_dict, keep_non_default=True),
             "cache_root": str(cache_root_path) if cache_root_path else None,
         }
     )
@@ -1332,15 +1339,18 @@ def _stage_engine_inputs(config: Any, raster_path: str) -> dict[str, Any] | None
 
 
 def _lulc_marker_path(config: Any) -> Path:
-    """Stage marker for the LULC raster, keyed by the stage-A fields and ``lulc_dataset``.
+    """Stage marker for the LULC raster, keyed by the stage-A fields, ``lulc_dataset`` and
+    ``lulc_tree_crops``.
 
     The LULC raster depends on the study area, year, export CRS and the
     dataset choice, not on the composite settings alone, so configurations
-    that share a composite but select another LULC dataset do not share it.
+    that share a composite but select another LULC dataset (or count tree
+    crops) do not share it.
     """
     from agribound._cache import cache_key
 
-    key = cache_key(config, "stage-lulc", config.lulc_dataset)
+    parts = ("tree-crops",) if config.lulc_tree_crops else ()
+    key = cache_key(config, "stage-lulc", config.lulc_dataset, *parts)
     return _working_dir(config) / f"stage_{key}.json"
 
 

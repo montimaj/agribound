@@ -972,14 +972,53 @@ def _live_gee(ctx: ToolContext, source: str, bbox: list[float], year: int) -> Li
     for cid in _gee_collections(source):
         n = ee.ImageCollection(cid).filterBounds(region).filterDate(start, end).size().getInfo()
         counts[cid] = int(n)
+    method = (
+        "ee.ImageCollection(...).filterBounds(study-area bbox).filterDate(year).size(), "
+        "before cloud filtering"
+    )
+    if source == "landsat-pan":
+        return _landsat_pan_live_check(counts, year, method)
+    return LiveCheck(
+        status="ok", method=method, image_count=sum(counts.values()), per_collection=counts
+    )
+
+
+def _landsat_pan_live_check(counts: dict[str, int], year: int, method: str) -> LiveCheck:
+    """Live check of ``landsat-pan``: the missions the default ``"auto"`` uses for *year*.
+
+    ``image_count`` and ``per_collection`` cover only the collections of the
+    missions ``landsat_pan_missions="auto"`` selects for the calendar year
+    (:func:`agribound.composites.gee.landsat_pan_missions_for_window`); the
+    other collections' counts are named in ``message``, so the images of a
+    mission that only an explicit list would use stay visible.
+    """
+    from agribound.composites.gee import LANDSAT_PAN_COLLECTIONS, landsat_pan_missions_for_window
+
+    missions = landsat_pan_missions_for_window("auto", (f"{year}-01-01", f"{year + 1}-01-01"))
+    used_ids = [LANDSAT_PAN_COLLECTIONS[m][0] for m in missions]
+    used = {cid: counts.get(cid, 0) for cid in used_ids}
+    unused = {cid: n for cid, n in counts.items() if cid not in used and n > 0}
+    message = (
+        f"image_count counts {', '.join(missions) or 'no mission'}: the missions that the "
+        f"default landsat_pan_missions='auto' uses for {year} (Landsat 8/9 when the date window "
+        "overlaps their record, from 2013-03-18, else Landsat 7; the Landsat 7 and Landsat 8/9 "
+        "PAN bandpasses are never mixed)."
+    )
+    if unused:
+        listed = ", ".join(f"{cid} ({n} images)" for cid, n in unused.items())
+        message += (
+            f" Not used by default: {listed}; only a landsat_pan_missions list that names the "
+            "mission uses them."
+        )
     return LiveCheck(
         status="ok",
         method=(
-            "ee.ImageCollection(...).filterBounds(study-area bbox).filterDate(year).size(), "
-            "before cloud filtering"
+            f"{method}; image_count sums the collections of the missions that "
+            "landsat_pan_missions='auto' uses for the year"
         ),
-        image_count=sum(counts.values()),
-        per_collection=counts,
+        image_count=sum(used.values()),
+        per_collection=used,
+        message=message,
     )
 
 
@@ -1555,8 +1594,43 @@ def recommend_configurations_tool(ctx: ToolContext, inp: RecommendInput) -> Reco
             "engine_params mode='embed' (label-free runs) and, for tessera-embedding, the "
             "requested non-default tessera_version.",
             f"{len(candidates)} candidates before truncation to max_candidates.",
+            *_tree_crop_note(aoi.geometry.union_all(), inp.year),
         ],
     )
+
+
+#: What the tree-crop note and warning say about each LULC dataset whose default crop
+#: value leaves out tree crops (``agribound.postprocess.lulc_filter.TREE_CROP_DATASETS``).
+_TREE_CROP_RISK = {
+    "dynamic_world": (
+        "Dynamic World",
+        "it files orchards and plantations under 'trees', not 'crops', so with "
+        "lulc_tree_crops=False the filter removes most tree-crop fields (it kept 0 of 95 "
+        "oil-palm blocks at Twifo Praso, Ghana, for 2020)",
+    ),
+    "c3s": (
+        "C3S",
+        "it can map orchards and plantations as tree cover rather than cropland, and with "
+        "lulc_tree_crops=False the filter removes such polygons",
+    ),
+}
+
+
+def _tree_crop_note(area_4326: Any, year: int) -> list[str]:
+    """recommend_configurations' tree-crop note (none inside the conterminous-US envelope)."""
+    from agribound.postprocess.lulc_filter import _intersects_conus_envelope, dataset_year_range
+
+    if _intersects_conus_envelope(area_4326):
+        return []
+    dataset = "dynamic_world" if year >= dataset_year_range("dynamic_world")[0] else "c3s"
+    name, risk = _TREE_CROP_RISK[dataset]
+    return [
+        "Tree crops: the study area is outside the conterminous US, so the default LULC crop "
+        f"filter (lulc_dataset='auto') uses {name} rather than NLCD; {risk}. Candidates keep the "
+        "default lulc_tree_crops=False. If the fields are tree crops (orchards, plantations), "
+        "report this as a limitation and list lulc_tree_crops=True (which also keeps forest) "
+        "or lulc_filter=False as alternatives; set them only if the user asks."
+    ]
 
 
 def _query_ftw(
@@ -1775,7 +1849,68 @@ def preflight_execution(ctx: ToolContext, plan: Any) -> None:
     _require_plan_network(ctx, plan)
 
 
-def _plan_warnings(config: Any, changes: dict[str, Any], gsd: float | None) -> list[str]:
+def _lulc_tree_crop_warning(config: Any, area_4326: Any | None) -> str | None:
+    """Warn that the LULC filter will (or may) remove tree crops; None when it does not apply.
+
+    The default crop value of Dynamic World and C3S leaves out tree crops,
+    while NLCD and CDL count orchards as crops. For ``lulc_dataset="auto"``
+    only the first, offline routing gate of the filter (the conterminous-US
+    envelope) is applied: a study area that intersects it gets no warning,
+    although areas inside the envelope without NLCD pixels (northern Mexico,
+    southern Canada) are routed to Dynamic World at run time. *area_4326* is
+    the study area (or the local raster's footprint) in EPSG:4326; when it is
+    *None* the warning names the condition. No Earth Engine request is made.
+    """
+    if not config.lulc_filter or config.lulc_tree_crops:
+        return None
+    from agribound.postprocess.lulc_filter import _intersects_conus_envelope, dataset_year_range
+
+    dataset = config.lulc_dataset
+    if dataset == "auto":
+        if area_4326 is not None and _intersects_conus_envelope(area_4326):
+            return None
+        dataset = (
+            "dynamic_world" if config.year >= dataset_year_range("dynamic_world")[0] else "c3s"
+        )
+    if dataset not in _TREE_CROP_RISK:
+        return None
+    name, risk = _TREE_CROP_RISK[dataset]
+    if config.lulc_dataset != "auto":
+        used = f"the LULC crop filter uses {name} (lulc_dataset={dataset!r})"
+    elif area_4326 is None:
+        used = f"outside the conterminous US the LULC crop filter (lulc_dataset='auto') uses {name}"
+    else:
+        used = (
+            "the study area is outside the conterminous US, so the LULC crop filter "
+            f"(lulc_dataset='auto') uses {name}"
+        )
+    return (
+        f"Tree crops: {used}; {risk}. If the fields are tree crops (orchards, plantations), the "
+        "user can ask for lulc_tree_crops=True, which counts tree cover as crop (forest is then "
+        "kept too), or for lulc_filter=False."
+    )
+
+
+def _lulc_area_4326(config: Any, aoi: Any | None) -> Any | None:
+    """Area the LULC filter routes on: the study area, else the local raster's footprint."""
+    if aoi is not None:
+        return aoi.geometry.union_all()
+    if config.study_area or config.source != "local" or not config.local_tif_path:
+        return None
+    try:
+        import rasterio
+        from rasterio.warp import transform_bounds
+        from shapely.geometry import box
+
+        with rasterio.open(config.local_tif_path) as src:
+            return box(*transform_bounds(src.crs, "EPSG:4326", *src.bounds, densify_pts=21))
+    except Exception:  # unreadable raster: the warning names the condition instead
+        return None
+
+
+def _plan_warnings(
+    config: Any, changes: dict[str, Any], gsd: float | None, lulc_area_4326: Any | None = None
+) -> list[str]:
     from agribound.agent.plans import destination_warnings, method_warnings, threshold_warnings
 
     warnings = (
@@ -1794,6 +1929,9 @@ def _plan_warnings(config: Any, changes: dict[str, Any], gsd: float | None) -> l
         if config.lulc_filter:
             reasons.append(f"the LULC filter (lulc_mode={config.lulc_mode!r})")
         warnings.append(f"Earth Engine is used for {' and '.join(reasons)}.")
+    tree_crops = _lulc_tree_crop_warning(config, lulc_area_4326)
+    if tree_crops:
+        warnings.append(tree_crops)
     if config.sam_refine and gsd is not None:
         is_refinable = _load_is_refinable()
         if is_refinable is not None:
@@ -1810,7 +1948,7 @@ def _plan_warnings(config: Any, changes: dict[str, Any], gsd: float | None) -> l
     return warnings
 
 
-def _plan_cost(config: Any, ctx: ToolContext) -> dict[str, Any]:
+def _plan_cost(config: Any, ctx: ToolContext, aoi: Any | None = None) -> dict[str, Any]:
     cost: dict[str, Any] = {
         "requires_gee": config.requires_gee(),
         "gpu_recommended": ENGINE_REGISTRY[config.engine]["gpu_recommended"],
@@ -1819,7 +1957,8 @@ def _plan_cost(config: Any, ctx: ToolContext) -> dict[str, Any]:
     }
     if config.study_area and config.source != "local":
         try:
-            aoi = _read_aoi(ctx, config.study_area)
+            if aoi is None:
+                aoi = _read_aoi(ctx, config.study_area)
             _, utm_bounds = _utm_extent(aoi)
             res = float(config.naip_resolution_m) if config.source == "naip" else None
             est = _composite_estimate(config.source, utm_bounds, config.tile_size, res)
@@ -1928,10 +2067,14 @@ def propose_run_tool(ctx: ToolContext, inp: ProposeRunInput) -> ProposeRunOutput
     # The run directory is named after a hash of the configuration (without its
     # output path) and of the input fingerprints: the same proposal on the same
     # inputs maps to the same directory, while a changed study-area geometry or
-    # input file gets a new one (so a stale output is never reused).
+    # input file gets a new one (so a stale output is never reused). Fields added
+    # after 1.0.1 enter the key only where they apply or are set to a non-default
+    # value, so a proposal that 1.0.1 could make keeps its directory and output;
+    # landsat-pan plans (whose config_hash changed) get a new one.
     from agribound.agent.plans import canonical_json, compute_plan_hash, input_fingerprints
+    from agribound.provenance import drop_inapplicable_fields
 
-    key_config = draft.to_dict()
+    key_config = drop_inapplicable_fields(draft.to_dict(), keep_non_default=True)
     key_config.pop("output_path")
     try:
         inputs_json = canonical_json(input_fingerprints(draft))
@@ -1952,14 +2095,22 @@ def propose_run_tool(ctx: ToolContext, inp: ProposeRunInput) -> ProposeRunOutput
         raise AgentToolError(f"Invalid configuration: {exc}") from exc
 
     changes = non_default_fields(config.to_dict())
+    aoi = None
+    if config.study_area:
+        try:
+            aoi = _read_aoi(ctx, config.study_area)
+        except AgentToolError:
+            aoi = None  # the cost estimate reads it again and reports why it failed
     try:
         plan = make_plan(
             config,
             rationale=inp.rationale,
             limitations=inp.limitations,
             alternatives=inp.alternatives,
-            warnings=_plan_warnings(config, changes, _export_resolution(config.source)),
-            estimated_cost=_plan_cost(config, ctx),
+            warnings=_plan_warnings(
+                config, changes, _export_resolution(config.source), _lulc_area_4326(config, aoi)
+            ),
+            estimated_cost=_plan_cost(config, ctx, aoi),
             yaml_path=str(plan_dir / f"{output_name.rsplit('.', 1)[0]}.plan.yaml"),
         )
     except (FileNotFoundError, ValueError, OSError) as exc:

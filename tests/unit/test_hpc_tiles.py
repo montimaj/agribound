@@ -946,6 +946,23 @@ class TestLulcStaging:
         assert hpc_tiles.run_tile(b, 0, stage="composite")["status"] == "done"
         assert fake_pipeline.composite_calls == 2 and fake_lulc["calls"] == 2
 
+    def test_lulc_marker_depends_on_tree_crops(self, tmp_path, fake_pipeline, fake_lulc):
+        shared = str(tmp_path / "cache")
+        a = self._manifest(tmp_path, "a", cache_dir=shared, lulc_dataset="dynamic_world")
+        b = self._manifest(
+            tmp_path, "b", cache_dir=shared, lulc_dataset="dynamic_world", lulc_tree_crops=True
+        )
+        cfg_a, cfg_b = hpc_tiles.load_tile_config(a, 0), hpc_tiles.load_tile_config(b, 0)
+        assert cfg_b.lulc_tree_crops is True
+        assert hpc_tiles._lulc_marker_path(cfg_a) != hpc_tiles._lulc_marker_path(cfg_b)
+        assert hpc_tiles._lulc_marker_path(cfg_b) == hpc_tiles._lulc_marker_path(cfg_b.merged())
+        hpc_tiles.run_tile(a, 0, stage="composite")
+        # Same composite and dataset, tree crops counted: its own LULC raster is needed.
+        assert hpc_tiles.tile_status(b).set_index("index").loc[0, "composite"] == "pending"
+        assert hpc_tiles.run_tile(b, 0, stage="composite")["status"] == "done"
+        assert fake_lulc["calls"] == 2
+        assert hpc_tiles.run_tile(a, 0, stage="composite")["status"] == "skipped"
+
     def test_stage_all_records_lulc_raster_from_facts(self, tmp_path, monkeypatch, fake_pipeline):
         m = self._manifest(tmp_path)
         cfg = hpc_tiles.load_tile_config(m, 0)
@@ -968,6 +985,111 @@ class TestLulcStaging:
         marker = hpc_tiles._lulc_marker(cfg)
         assert marker is not None and marker["lulc_raster_path"] == str(lulc_path)
         assert hpc_tiles.tile_status(m).set_index("index").loc[0, "composite"] == "done"
+
+
+def test_manifest_keeps_landsat_pan_missions_and_tree_crops(tmp_path):
+    """Tile configurations round-trip the new fields with the recorded configuration hash."""
+    tiles = hpc_tiles.make_tiles(SEAM_BBOX, tile_size_m=20000, halo_m=1000)
+    base = _base_config(
+        tmp_path,
+        source="landsat-pan",
+        gee_project="test-project",
+        year=2015,
+        landsat_pan_missions="LC08,LE07",
+        lulc_tree_crops=True,
+    )
+    m = hpc_tiles.load_manifest(hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run"))
+    assert m["base_config"]["landsat_pan_missions"] == ["LE07", "LC08"]
+    assert m["base_config"]["lulc_tree_crops"] is True
+    for entry in m["tiles"]:
+        cfg = hpc_tiles.load_tile_config(m, entry["index"])
+        assert cfg.landsat_pan_missions == ("LE07", "LC08") and cfg.lulc_tree_crops is True
+        assert config_hash(cfg) == entry["config_hash"]
+
+
+#: Configuration fields added after agribound 1.0.1.
+NEW_FIELDS = ("landsat_pan_missions", "lulc_tree_crops")
+
+
+def _as_written_by_1_0_1(path: Path) -> str:
+    """Rewrite a manifest as agribound 1.0.1 wrote it (its base had no new field); return it."""
+    data = json.loads(path.read_text())
+    for name in NEW_FIELDS:
+        del data["base_config"][name]
+    data["signature"] = hpc_tiles._sha1_json(
+        {
+            "out_dir": str(path.parent),
+            "grid": data["grid"],
+            "tiles": data["tiles"],
+            "base": data["base_config"],
+            "cache_root": data["cache_root"],
+        }
+    )
+    path.write_text(json.dumps(data))
+    return path.read_text()
+
+
+class TestManifestFromEarlierVersions:
+    """Fields added after 1.0.1 enter the signature only where they apply or are set."""
+
+    def _tiles(self):
+        return hpc_tiles.make_tiles(SEAM_BBOX, tile_size_m=20000, halo_m=1000)
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [{}, {"lulc_filter": True, "lulc_dataset": "dynamic_world", "lulc_mode": "raster"}],
+    )
+    def test_manifest_written_by_1_0_1_is_up_to_date(self, tmp_path, caplog, overrides):
+        tiles, base = self._tiles(), _base_config(tmp_path, **overrides)
+        path = hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run")
+        signature = json.loads(path.read_text())["signature"]
+        text = _as_written_by_1_0_1(path)
+        # A configuration that 1.0.1 could express is signed as 1.0.1 signed it.
+        assert json.loads(text)["signature"] == signature
+        with caplog.at_level("INFO", logger="agribound.hpc.tiles"):
+            assert hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run") == path
+        assert any("is up to date" in r.getMessage() for r in caplog.records)
+        assert path.read_text() == text  # kept as it is
+
+    @pytest.mark.parametrize(
+        "changes",
+        [
+            {"lulc_tree_crops": True},
+            # Ignored by this source (and by its configuration hash), but a change of the base.
+            {"landsat_pan_missions": "LE07"},
+        ],
+    )
+    def test_new_fields_set_on_a_1_0_1_manifest_are_refused(self, tmp_path, changes):
+        tiles, base = self._tiles(), _base_config(tmp_path)
+        _as_written_by_1_0_1(hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run"))
+        with pytest.raises(FileExistsError, match="describes different tiles"):
+            hpc_tiles.write_tile_manifest(tiles, base.merged(**changes), tmp_path / "run")
+
+    def test_landsat_pan_manifest_from_before_the_mission_rule_is_refused(self, tmp_path):
+        tiles = self._tiles()
+        base = _base_config(tmp_path, source="landsat-pan", gee_project="test-project", year=2023)
+        path = hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run")
+        assert json.loads(path.read_text())["base_config"]["landsat_pan_missions"] == "auto"
+        _as_written_by_1_0_1(path)  # that code had no landsat_pan_missions (it mixed L7 and L8/9)
+        with pytest.raises(FileExistsError):
+            hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run")
+        hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run", overwrite=True)
+        text = path.read_text()
+        assert hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run") == path
+        assert path.read_text() == text
+
+    def test_explicit_values_are_signed_and_the_base_keeps_every_field(self, tmp_path):
+        tiles = self._tiles()
+        base = _base_config(tmp_path, landsat_pan_missions="LE07")
+        path = hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run")
+        m = json.loads(path.read_text())
+        assert m["base_config"]["landsat_pan_missions"] == ["LE07"]
+        assert m["base_config"]["lulc_tree_crops"] is False
+        assert hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run") == path
+        with pytest.raises(FileExistsError):
+            hpc_tiles.write_tile_manifest(
+                tiles, base.merged(landsat_pan_missions="auto"), path.parent
+            )
 
 
 class TestManifestPaths:

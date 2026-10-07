@@ -12,6 +12,13 @@ the ``crops`` band over one calendar year** (``[year-01-01,
 (:mod:`agribound.postprocess.lulc_filter`): 2016 onwards (the collection
 starts mid-2015).
 
+Dynamic World files plantations and orchards under ``trees`` (Brown et al.
+2022, Table 1: "Plantations such as apples, bananas, citrus, and rubber"), so
+their ``crops`` probability is low. With ``lulc_tree_crops=True`` the LULC
+filter uses the annual median of the per-image sum of the ``crops`` and
+``trees`` probabilities instead (``classes=("crops", "trees")``); the class
+probabilities sum to 1, so the sum is the probability of crops or trees.
+
 The GEE catalogue notes that crop probabilities can be comparatively low in the
 absence of obvious distinguishing features, and that high-return surfaces in
 arid climates behave similarly, so thresholds tuned elsewhere may remove real
@@ -34,12 +41,28 @@ logger = logging.getLogger(__name__)
 
 DYNAMIC_WORLD_COLLECTION = "GOOGLE/DYNAMICWORLD/V1"
 DYNAMIC_WORLD_CROP_BAND = "crops"
+#: Dynamic World class that holds plantations and orchards (added by ``lulc_tree_crops``).
+DYNAMIC_WORLD_TREE_BAND = "trees"
+#: The nine Dynamic World class probability bands.
+DYNAMIC_WORLD_CLASSES = (
+    "water",
+    "trees",
+    "grass",
+    "flooded_vegetation",
+    "crops",
+    "shrub_and_scrub",
+    "built",
+    "bare",
+    "snow_and_ice",
+)
 #: First complete calendar year of Dynamic World (the collection starts 2015-06-27).
 DYNAMIC_WORLD_FIRST_FULL_YEAR = 2016
 
 
-def dynamic_world_crop_probability(region: Any, year: int) -> Any:
-    """Return the annual median Dynamic World ``crops`` probability as an ``ee.Image``.
+def dynamic_world_crop_probability(
+    region: Any, year: int, classes: tuple[str, ...] = (DYNAMIC_WORLD_CROP_BAND,)
+) -> Any:
+    """Return the annual median Dynamic World crop probability as an ``ee.Image``.
 
     Parameters
     ----------
@@ -47,25 +70,42 @@ def dynamic_world_crop_probability(region: Any, year: int) -> Any:
         Area used to select the Dynamic World images (``filterBounds``).
     year : int
         Calendar year.
+    classes : tuple[str, ...]
+        Dynamic World classes counted as crop (default ``("crops",)``).
+        With several classes, each image's probabilities of these classes are
+        summed before the annual median, e.g. ``("crops", "trees")`` for tree
+        crops (``lulc_tree_crops``).
 
     Returns
     -------
     ee.Image
         Single band ``"crop"`` (float, 0-1), masked where no image has a
         valid pixel.
+
+    Raises
+    ------
+    ValueError
+        If *classes* is empty or names a band that Dynamic World does not have.
     """
     import ee
 
+    classes = tuple(classes)
+    unknown = sorted(set(classes) - set(DYNAMIC_WORLD_CLASSES))
+    if not classes or unknown:
+        raise ValueError(
+            f"Invalid Dynamic World classes {classes!r}. Choose from {DYNAMIC_WORLD_CLASSES}"
+        )
     year = int(year)
-    return (
+    collection = (
         ee.ImageCollection(DYNAMIC_WORLD_COLLECTION)
         .filterDate(f"{year}-01-01", f"{year + 1}-01-01")
         .filterBounds(region)
-        .select(DYNAMIC_WORLD_CROP_BAND)
-        .median()
-        .rename("crop")
-        .toFloat()
     )
+    if len(classes) == 1:
+        probability = collection.select(classes[0])
+    else:
+        probability = collection.map(lambda img: img.select(list(classes)).reduce(ee.Reducer.sum()))
+    return probability.median().rename("crop").toFloat()
 
 
 def download_dynamic_world_crop_prob(
@@ -78,6 +118,7 @@ def download_dynamic_world_crop_prob(
     config: Any | None = None,
     crs: str | None = None,
     max_requests: int = 8,
+    classes: tuple[str, ...] = (DYNAMIC_WORLD_CROP_BAND,),
 ) -> str:
     """Download the annual median Dynamic World crop probability for a bounding box.
 
@@ -102,6 +143,9 @@ def download_dynamic_world_crop_prob(
         Output CRS. *None* uses the WGS 84 / UTM zone of the box centre.
     max_requests : int
         Concurrent download requests (ignored when *config* is given).
+    classes : tuple[str, ...]
+        Dynamic World classes counted as crop (see
+        :func:`dynamic_world_crop_probability`).
 
     Returns
     -------
@@ -133,7 +177,7 @@ def download_dynamic_world_crop_prob(
         setup_gee(project=gee_project)
 
     geom = box(*(float(v) for v in bbox))
-    image = dynamic_world_crop_probability(ee_geometry(geom), year)
+    image = dynamic_world_crop_probability(ee_geometry(geom), year, classes)
     grid = compute_export_grid(geom, crs or resolve_export_crs("utm", geom), float(scale))
     logger.info("Downloading Dynamic World crop probability (year=%d)", int(year))
     export_ee_image(
@@ -147,7 +191,11 @@ def download_dynamic_world_crop_prob(
             "AGRIBOUND_LULC_DATASET": "dynamic_world",
             "AGRIBOUND_LULC_ASSET": DYNAMIC_WORLD_COLLECTION,
             "AGRIBOUND_LULC_YEAR": int(year),
-            "AGRIBOUND_LULC_VALUE": "annual median crop probability",
+            "AGRIBOUND_LULC_VALUE": (
+                "annual median crop probability"
+                if tuple(classes) == (DYNAMIC_WORLD_CROP_BAND,)
+                else f"annual median {'+'.join(classes)} probability"
+            ),
         },
         label=f"Dynamic World crops {year}",
     )

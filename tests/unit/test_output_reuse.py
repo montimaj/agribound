@@ -122,6 +122,34 @@ class TestResultsVersions:
         assert all(isinstance(v, int) and v >= 1 for v in RESULTS_VERSIONS.values())
         # agribound 1.0.1 changed the embedding clustering and the SAM refinement.
         assert RESULTS_VERSIONS["embedding"] >= 2 and RESULTS_VERSIONS["sam_refine"] >= 2
+        # The Delineate-Anything fine-tuning recipe changed after 1.0.1 (warmup_bias_lr=0).
+        assert RESULTS_VERSIONS["delineate_anything_finetune"] >= 2
+
+    @pytest.mark.parametrize(
+        ("engine", "fine_tune", "expected"),
+        [
+            ("delineate-anything", True, True),
+            ("delineate-anything", False, False),  # a checkpoint_path is in the config hash
+            ("geoai", True, False),  # other trainers are unchanged
+        ],
+    )
+    def test_delineate_anything_fine_tuning(self, tmp_path, engine, fine_tune, expected):
+        ref = tmp_path / "ref.geojson"
+        ref.write_text('{"type": "FeatureCollection", "features": []}')
+        config = AgriboundConfig(
+            source="local",
+            local_tif_path="x.tif",
+            engine=engine,
+            fine_tune=fine_tune,
+            reference_boundaries=str(ref),
+        )
+        versions = results_versions(config)
+        assert ("delineate_anything_finetune" in versions) is expected
+        if expected:
+            assert (
+                versions["delineate_anything_finetune"]
+                == RESULTS_VERSIONS["delineate_anything_finetune"]
+            )
 
     @pytest.mark.parametrize(
         ("fields", "components"),

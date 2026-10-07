@@ -53,10 +53,27 @@ Training settings: ``seed=config.seed`` and ``deterministic=True``,
 ``mosaic=0.0`` (as in the Delineate Anything v2 recipe), ``optimizer="AdamW"``
 with ``lr0`` 0.002 (the value Ultralytics' ``optimizer="auto"`` picks for one
 class and at most 10,000 iterations; ``engine_params["yolo_lr0"]``
+overrides) and ``warmup_bias_lr=0`` (what ``optimizer="auto"`` sets for AdamW;
+Ultralytics' default of 0.1 is meant for SGD; ``yolo_warmup_bias_lr``
 overrides), horizontal and vertical flips with probability 0.5,
 ``plots=False``, ``epochs=config.fine_tune_epochs``, ``batch`` 16
 (``yolo_batch``), ``workers=config.n_workers``. Ultralytics selects the
 checkpoint with the best validation fitness (``best.pt``).
+
+Small training sets. With few chips there are few optimizer steps (Ultralytics
+accumulates gradients over 64 images: about one step per epoch after the
+warmup for a few dozen chips), and the default ``lr0`` can move the pretrained
+weights too far for them to recover. On 62 training chips of 512 px (SPOT 6/7
+panchromatic, an oil palm estate in Ghana; example 23), the validation mask
+mAP50 at the default ``lr0`` was 0.02 after the first epoch (the checkpoint
+Ultralytics kept) and 0.00 from the third epoch on, and 0.47 after 20 epochs
+with ``yolo_lr0=1e-4``, against 0.17 for the released weights (2026-10-05;
+with the ``warmup_bias_lr`` of 0.1 that agribound <= 1.0.1 used, the default
+``lr0`` scored 0.00). Use a smaller ``yolo_lr0`` for small training sets, and compare
+the validation scores with those of the released weights.
+
+``RECIPE_VERSION`` is part of the fine-tuning cache keys, so checkpoints
+trained with an earlier recipe are not reused.
 """
 
 from __future__ import annotations
@@ -78,6 +95,15 @@ DEFAULT_MIN_INSTANCE_PX = 4.0
 
 #: Default AdamW learning rate (Ultralytics ``optimizer="auto"`` for nc=1).
 DEFAULT_LR0 = 0.002
+
+#: Default warmup learning rate of the bias parameters. Ultralytics'
+#: ``optimizer="auto"`` sets 0 for AdamW ("no higher than 0.01 for Adam"); its
+#: default of 0.1 is meant for SGD and, with AdamW, perturbs the pretrained
+#: biases during warmup (agribound <= 1.0.1 used it).
+DEFAULT_WARMUP_BIAS_LR = 0.0
+
+#: Version of the fine-tuning recipe (part of the cache keys). 2: ``warmup_bias_lr=0``.
+RECIPE_VERSION = 2
 
 
 # ---------------------------------------------------------------------------
@@ -379,8 +405,8 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
     config : AgriboundConfig
         Configuration whose working directory is the fine-tuning run
         directory. Relevant ``engine_params``: ``da_model``/``model_size``
-        (base model), ``super_resolution``, ``yolo_lr0``, ``yolo_batch``,
-        ``yolo_min_instance_px``.
+        (base model), ``super_resolution``, ``yolo_lr0``,
+        ``yolo_warmup_bias_lr``, ``yolo_batch``, ``yolo_min_instance_px``.
     model_key : str
         Name the dispatcher uses for this model variant (logged and recorded
         as ``dispatcher_model_key``; the base weights follow
@@ -445,6 +471,9 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
     sr = select_super_resolution(gsd, opts.super_resolution)
 
     lr0 = float(params.get("yolo_lr0", DEFAULT_LR0))
+    warmup_bias_lr = float(params.get("yolo_warmup_bias_lr", DEFAULT_WARMUP_BIAS_LR))
+    if warmup_bias_lr < 0:
+        raise ValueError(f"engine_params['yolo_warmup_bias_lr'] must be >= 0, got {warmup_bias_lr}")
     batch = int(params.get("yolo_batch", 16))
     min_px = float(params.get("yolo_min_instance_px", DEFAULT_MIN_INSTANCE_PX))
     device = config.resolve_device()
@@ -462,6 +491,8 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         batch,
         min_px,
         config.seed,
+        f"warmup_bias_lr={warmup_bias_lr}",
+        f"recipe={RECIPE_VERSION}",
     )
     run_root.mkdir(parents=True, exist_ok=True)
     dataset = prepare_yolo_dataset(Path(train_dir), config, run_root / "dataset", sr, min_px)
@@ -480,6 +511,7 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         "deterministic": True,
         "optimizer": "AdamW",
         "lr0": lr0,
+        "warmup_bias_lr": warmup_bias_lr,
         "mosaic": 0.0,
         "fliplr": 0.5,
         "flipud": 0.5,
@@ -501,12 +533,14 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         )
     logger.info(
         "Fine-tuning Delineate-Anything %s (%s) for %d epochs: imgsz=%d (super_resolution=%d), "
-        "%d train / %d val chips, %d / %d instances",
+        "lr0=%g, warmup_bias_lr=%g, %d train / %d val chips, %d / %d instances",
         spec.key,
         model_key,
         config.fine_tune_epochs,
         dataset["imgsz"],
         sr,
+        lr0,
+        warmup_bias_lr,
         dataset["n_train_images"],
         dataset["n_val_images"],
         dataset["n_train_instances"],
@@ -547,6 +581,7 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
             "imgsz_matches_model_input": imgsz_matches,
             "labels": "reference polygons clipped per chip; holes bridged",
             "min_instance_px": min_px,
+            "recipe_version": RECIPE_VERSION,
             "train_kwargs": {k: v for k, v in train_kwargs.items() if k not in ("data", "project")},
             "dataset": {k: v for k, v in dataset.items() if k != "data_yaml"},
             "split": chips_meta.get("split"),

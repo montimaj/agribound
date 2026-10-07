@@ -484,10 +484,20 @@ def stub_builder(monkeypatch):
         "summary": {"n_images": 3, "years": [2023]},
         "years": [2019, 2021],
         "nan_fraction": 0.0,  # share of grid columns the fake download leaves NaN
+        "le07_images": 0,  # Landsat 7 count of a landsat-pan no-data message (or an exception)
+        "le07_windows": [],
     }
 
     monkeypatch.setattr("agribound.auth.ensure_gee", lambda config: None)
     monkeypatch.setattr(gee, "ee_geometry", lambda geom: "REGION")
+
+    def fake_le07_images(config, region, window):
+        calls["le07_windows"].append((region, window))
+        if isinstance(calls["le07_images"], Exception):
+            raise calls["le07_images"]
+        return calls["le07_images"]
+
+    monkeypatch.setattr(gee, "_landsat7_pan_images", fake_le07_images)
 
     def fake_spec(config, region):
         img = FakeImage({b: np.ones((1, 1)) for b in gee.S2_BANDS})
@@ -502,7 +512,12 @@ def stub_builder(monkeypatch):
         )
 
     monkeypatch.setitem(gee._COLLECTION_BUILDERS, "sentinel2", fake_spec)
-    monkeypatch.setattr(gee, "collection_summary", lambda col, context="": calls["summary"])
+
+    def fake_summary(col, context="", count_property=None):
+        calls["count_property"] = count_property
+        return calls["summary"]
+
+    monkeypatch.setattr(gee, "collection_summary", fake_summary)
     monkeypatch.setattr(gee, "available_years", lambda col, context="": calls["years"])
 
     def fake_export(image, out_path, *, grid, dtype, band_names, tags=None, **kwargs):
@@ -545,26 +560,227 @@ def _patch_task_status(monkeypatch, fn):
     monkeypatch.setattr(ee.data, "getTaskStatus", fn, raising=False)
 
 
+def _landsat_pan_build(tmp_path, aoi, monkeypatch, summary, calls, year=2023, **kwargs):
+    """Build a landsat-pan composite with the stubbed Earth Engine layer; return the tags.
+
+    The collection spec is made by the real ``_build_landsat_pan`` (recording ee);
+    *summary* is what the image-count request returns.
+    """
+    cfg = _cfg("landsat-pan", year=year, **kwargs).merged(
+        study_area=aoi, output_path=str(tmp_path / "out.gpkg")
+    )
+    spec = gee._build_landsat_pan(cfg, "REGION")
+    spec.prepared = FakeCollection([FakeImage({"B8": [[0.25]]})])
+    monkeypatch.setitem(gee._COLLECTION_BUILDERS, "landsat-pan", lambda cfg, region: spec)
+    calls["summary"] = summary
+    builder = gee.GEECompositeBuilder()
+    path = builder.build(cfg)
+    with rasterio.open(path) as src:
+        assert src.count == 1
+        assert src.res == (15, 15)
+        tags = src.tags()
+    assert calls["count_property"] == "SPACECRAFT_ID"
+    assert tags["AGRIBOUND_COLLECTIONS"] == ",".join(spec.collections)
+    assert builder.last_metadata["AGRIBOUND_SENSORS"] == tags["AGRIBOUND_SENSORS"]
+    return tags
+
+
+def _landsat_pan_no_data(tmp_path, aoi, monkeypatch, calls, **kwargs):
+    """Build a landsat-pan composite whose image count is 0; return the NoDataError message.
+
+    The collection spec is made by the real ``_build_landsat_pan`` (recording ee);
+    the stubbed history lists 2019 and 2021.
+    """
+    from agribound.composites import NoDataError
+
+    kwargs.setdefault("year", 2023)
+    cfg = _cfg("landsat-pan", **kwargs).merged(
+        study_area=aoi, output_path=str(tmp_path / "out.gpkg")
+    )
+    spec = gee._build_landsat_pan(cfg, "REGION")
+    monkeypatch.setitem(gee._COLLECTION_BUILDERS, "landsat-pan", lambda cfg, region: spec)
+    calls["summary"] = {"n_images": 0, "years": [], "counts": {}}
+    with pytest.raises(NoDataError) as info:
+        gee.GEECompositeBuilder().build(cfg)
+    assert calls["export"] == []
+    return str(info.value)
+
+
+def _pan_warnings(caplog):
+    return [r for r in caplog.records if r.levelname == "WARNING" and "mixes" in r.getMessage()]
+
+
 class TestBuilder:
     def test_landsat_pan_export_and_provenance(
-        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch, caplog
     ):
-        cfg = _cfg("landsat-pan", year=2023).merged(
-            study_area=sample_aoi_geojson, output_path=str(tmp_path / "out.gpkg")
-        )
-        spec = gee._build_landsat_pan(cfg, "REGION")
-        spec.prepared = FakeCollection([FakeImage({"B8": [[0.25]]})])
-        monkeypatch.setitem(gee._COLLECTION_BUILDERS, "landsat-pan", lambda cfg, region: spec)
-        path = gee.GEECompositeBuilder().build(cfg)
-        with rasterio.open(path) as src:
-            assert src.count == 1
-            assert src.res == (15, 15)
-            tags = src.tags()
+        summary = {"n_images": 32, "years": [2023], "counts": {"LANDSAT_9": 16, "LANDSAT_8": 16}}
+        with caplog.at_level("INFO", logger="agribound.composites.gee"):
+            tags = _landsat_pan_build(
+                tmp_path, sample_aoi_geojson, monkeypatch, summary, stub_builder
+            )
         assert tags["AGRIBOUND_SOURCE"] == "landsat-pan"
         assert tags["AGRIBOUND_VALUE_SCALE"] == "unit"
-        assert tags["AGRIBOUND_SENSORS"] == "LE07,LC08,LC09"
-        assert tags["AGRIBOUND_COLLECTIONS"] == ",".join(spec.collections)
+        # 'auto' uses the OLI missions only when they overlap the window (no Landsat 7).
+        assert tags["AGRIBOUND_COLLECTIONS"] == "LANDSAT/LC08/C02/T1_TOA,LANDSAT/LC09/C02/T1_TOA"
+        assert tags["AGRIBOUND_LANDSAT_PAN_MISSIONS"] == "auto"
+        assert tags["AGRIBOUND_MISSIONS_SELECTED"] == "LC08,LC09"
+        assert tags["AGRIBOUND_SENSORS"] == "LC08,LC09"
+        assert tags["AGRIBOUND_SENSOR_IMAGES"] == "LC08:16,LC09:16"
+        assert tags["AGRIBOUND_SPECTRAL_RESPONSE"] == "L8/9 PAN 0.50-0.68 um"
+        assert "AGRIBOUND_SLC_OFF" not in tags
+        assert not _pan_warnings(caplog)
+        assert any("images per sensor: LC08 16, LC09 16" in r.getMessage() for r in caplog.records)
+
+    def test_landsat_pan_explicit_mix_warns_and_is_tagged(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch, caplog
+    ):
+        summary = {"n_images": 50, "years": [2015], "counts": {"LANDSAT_7": 20, "LANDSAT_8": 30}}
+        with caplog.at_level("WARNING", logger="agribound.composites.gee"):
+            tags = _landsat_pan_build(
+                tmp_path,
+                sample_aoi_geojson,
+                monkeypatch,
+                summary,
+                stub_builder,
+                year=2015,
+                landsat_pan_missions="LC08,LE07",
+            )
+        assert tags["AGRIBOUND_LANDSAT_PAN_MISSIONS"] == "LE07,LC08"
+        assert tags["AGRIBOUND_SENSORS"] == "LE07,LC08"
+        assert tags["AGRIBOUND_SENSOR_IMAGES"] == "LE07:20,LC08:30"
+        assert tags["AGRIBOUND_SPECTRAL_RESPONSE"] == "L7 PAN 0.52-0.90 um; L8/9 PAN 0.50-0.68 um"
         assert "no special gap filling" in tags["AGRIBOUND_SLC_OFF"]
+        (warning,) = _pan_warnings(caplog)
+        assert "landsat-pan 2015" in warning.getMessage()
+        assert "LE07 20, LC08 30" in warning.getMessage()
+
+    def test_landsat_pan_tags_name_only_sensors_with_images(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch, caplog
+    ):
+        # Both missions were selected but every Landsat 7 scene failed the filters.
+        summary = {"n_images": 9, "years": [2015], "counts": {"LANDSAT_8": 9}}
+        with caplog.at_level("WARNING", logger="agribound.composites.gee"):
+            tags = _landsat_pan_build(
+                tmp_path,
+                sample_aoi_geojson,
+                monkeypatch,
+                summary,
+                stub_builder,
+                year=2015,
+                landsat_pan_missions=["LE07", "LC08"],
+            )
+        assert tags["AGRIBOUND_MISSIONS_SELECTED"] == "LE07,LC08"
+        assert tags["AGRIBOUND_SENSORS"] == "LC08"
+        assert tags["AGRIBOUND_SENSOR_IMAGES"] == "LC08:9"
+        assert tags["AGRIBOUND_SPECTRAL_RESPONSE"] == "L8/9 PAN 0.50-0.68 um"
+        assert not _pan_warnings(caplog)
+
+    def test_landsat_pan_before_landsat_8_uses_landsat_7(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch
+    ):
+        summary = {"n_images": 11, "years": [2012], "counts": {"LANDSAT_7": 11}}
+        tags = _landsat_pan_build(
+            tmp_path, sample_aoi_geojson, monkeypatch, summary, stub_builder, year=2012
+        )
+        assert tags["AGRIBOUND_COLLECTIONS"] == "LANDSAT/LE07/C02/T1_TOA"
+        assert tags["AGRIBOUND_SENSORS"] == "LE07"
+        assert tags["AGRIBOUND_SPECTRAL_RESPONSE"] == "L7 PAN 0.52-0.90 um"
+        assert "AGRIBOUND_SLC_OFF" in tags
+
+    @pytest.mark.parametrize(
+        ("missions", "searched"), [("auto", "LC08,LC09"), ("LE07", "LE07"), ("LC08", "LC08")]
+    )
+    def test_landsat_pan_without_images_names_the_missions_searched(
+        self,
+        tmp_path,
+        sample_aoi_geojson,
+        stub_builder,
+        recording_ee,
+        monkeypatch,
+        missions,
+        searched,
+    ):
+        message = _landsat_pan_no_data(
+            tmp_path, sample_aoi_geojson, monkeypatch, stub_builder, landsat_pan_missions=missions
+        )
+        assert "No landsat-pan images (scene cloud cover <= 20%)" in message
+        # The history covers the missions searched, so the years are labelled with them.
+        assert f"Years with images of {searched} over the study-area extent: 2019, 2021." in message
+        assert f"Missions searched: {searched} (landsat_pan_missions={missions!r})." in message
+        assert message.endswith(f"(landsat_pan_missions={missions!r}).")  # no Landsat 7 images
+        assert stub_builder["export"] == []
+        # Only 'auto' without Landsat 7 among the missions searched counts Landsat 7 images.
+        assert len(stub_builder["le07_windows"]) == (missions == "auto")
+
+    @pytest.mark.parametrize(
+        ("kwargs", "le07_images", "searched", "window", "hint"),
+        [
+            # Landsat 8's record starts on 2013-03-18: 'auto' searches Landsat 8 only.
+            (
+                {"year": 2013, "date_range": ("2013-01-01", "2013-03-20")},
+                3,
+                "LC08",
+                ("2013-01-01", "2013-03-21"),
+                True,
+            ),
+            (
+                {"year": 2013, "date_range": ("2013-01-01", "2013-03-20")},
+                0,
+                "LC08",
+                ("2013-01-01", "2013-03-21"),
+                False,
+            ),
+            ({"year": 2016}, 1, "LC08", ("2016-01-01", "2017-01-01"), True),
+            ({"year": 2023}, 2, "LC08,LC09", ("2023-01-01", "2024-01-01"), True),
+            # Landsat 7's record ended on 2024-01-19 / Landsat 7 was searched / explicit list.
+            ({"year": 2025}, 5, "LC08,LC09", None, False),
+            ({"year": 2005}, 5, "LE07", None, False),
+            ({"year": 2015, "landsat_pan_missions": "LC08"}, 5, "LC08", None, False),
+        ],
+    )
+    def test_landsat_pan_without_images_counts_landsat_7_for_auto(
+        self,
+        tmp_path,
+        sample_aoi_geojson,
+        stub_builder,
+        recording_ee,
+        monkeypatch,
+        kwargs,
+        le07_images,
+        searched,
+        window,
+        hint,
+    ):
+        stub_builder["le07_images"] = le07_images
+        message = _landsat_pan_no_data(
+            tmp_path, sample_aoi_geojson, monkeypatch, stub_builder, **kwargs
+        )
+        # One request on the no-data path, with the composite's region and window.
+        assert stub_builder["le07_windows"] == ([] if window is None else [("REGION", window)])
+        setting = kwargs.get("landsat_pan_missions", "auto")
+        searched_text = f"Missions searched: {searched} (landsat_pan_missions={setting!r})."
+        if not hint:
+            assert message.endswith(searched_text)
+            assert "Landsat 7 (LE07) has" not in message
+            return
+        assert (
+            f"{searched_text} Landsat 7 (LE07) has {le07_images} image(s) with scene cloud cover "
+            "<= 20% over the study-area extent in this window, which 'auto' does not use because "
+            "the window overlaps the Landsat 8/9 record and Landsat 7 PAN (0.52-0.90 um) "
+            "includes the near infrared; landsat_pan_missions='LE07' uses them."
+        ) in message
+        assert message.endswith("landsat_pan_missions='LE07' uses them.")
+
+    def test_landsat_pan_no_data_survives_a_failed_landsat_7_count(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch
+    ):
+        stub_builder["le07_images"] = RuntimeError("Earth Engine: too many concurrent requests")
+        message = _landsat_pan_no_data(
+            tmp_path, sample_aoi_geojson, monkeypatch, stub_builder, year=2016
+        )
+        assert len(stub_builder["le07_windows"]) == 1
+        assert message.endswith("(landsat_pan_missions='auto').")  # no hint, still no-data
 
     def test_build_exports_utm_grid_and_tags(self, tmp_path, sample_aoi_geojson, stub_builder):
         path = gee.GEECompositeBuilder().build(_s2_config(tmp_path, sample_aoi_geojson))
@@ -872,13 +1088,252 @@ def test_landsat_pan_rejects_ndvi_composites(method):
         gee.apply_composite_method(None, method, "landsat-pan")
 
 
+# ---------------------------------------------------------------------------
+# landsat-pan missions: one PAN bandpass per composite unless asked otherwise
+# ---------------------------------------------------------------------------
+
+_YEAR_2023 = ("2023-01-01", "2024-01-01")
+_YEAR_2015 = ("2015-01-01", "2016-01-01")
+
+
+class TestLandsatPanMissionsForWindow:
+    @pytest.mark.parametrize(
+        ("window", "missions"),
+        [
+            (("1999-01-01", "2000-01-01"), ("LE07",)),
+            (("2012-01-01", "2013-01-01"), ("LE07",)),
+            (("2013-01-01", "2014-01-01"), ("LC08",)),
+            (("2013-01-01", "2013-03-18"), ("LE07",)),  # ends (exclusive) on LC08's first day
+            (("2013-01-01", "2013-03-19"), ("LC08",)),  # includes it
+            (("2021-06-01", "2021-10-31"), ("LC08",)),  # LC09 starts 2021-10-31
+            (("2021-06-01", "2021-12-01"), ("LC08", "LC09")),
+            (_YEAR_2023, ("LC08", "LC09")),
+            (("2024-01-01", "2025-01-01"), ("LC08", "LC09")),
+            (("1990-01-01", "1991-01-01"), ()),
+            (("1999-01-01", "1999-05-28"), ()),  # LE07 starts 1999-05-28
+        ],
+    )
+    def test_auto(self, window, missions):
+        assert gee.landsat_pan_missions_for_window("auto", window) == missions
+
+    @pytest.mark.parametrize(
+        ("setting", "window", "missions"),
+        [
+            (("LE07",), _YEAR_2023, ("LE07",)),
+            (("LE07", "LC08", "LC09"), _YEAR_2023, ("LE07", "LC08", "LC09")),
+            (("LC09", "LE07"), _YEAR_2023, ("LE07", "LC09")),  # canonical order
+            (("LE07", "LC08"), _YEAR_2015, ("LE07", "LC08")),
+            (("LE07", "LC09"), _YEAR_2015, ("LE07",)),
+            (("LC09",), _YEAR_2015, ()),
+            (("LE07",), ("2025-01-01", "2026-01-01"), ()),
+            (("LE07",), ("2024-01-19", "2024-02-01"), ("LE07",)),  # last day included
+            (("LE07",), ("2024-01-20", "2024-02-01"), ()),
+            (("LC08", "LC09"), ("2012-01-01", "2013-01-01"), ()),
+        ],
+    )
+    def test_explicit_missions(self, setting, window, missions):
+        assert gee.landsat_pan_missions_for_window(setting, window) == missions
+
+    def test_auto_never_mixes_the_bandpasses(self):
+        for year in range(1995, 2027):
+            for window in ((f"{year}-01-01", f"{year + 1}-01-01"), (f"{year}-06-01", "2027-01-01")):
+                missions = gee.landsat_pan_missions_for_window("auto", window)
+                assert missions in ((), ("LE07",)) or "LE07" not in missions, window
+
+    def test_constants(self):
+        assert gee.LANDSAT_PAN_OLI_MISSIONS == ("LC08", "LC09")
+        assert gee.LANDSAT_PAN_SPACECRAFT == {
+            "LANDSAT_7": "LE07",
+            "LANDSAT_8": "LC08",
+            "LANDSAT_9": "LC09",
+        }
+        assert list(gee.LANDSAT_PAN_COLLECTIONS) == ["LE07", "LC08", "LC09"]
+        assert all(
+            cid.endswith("/C02/T1_TOA") for cid, _, _ in gee.LANDSAT_PAN_COLLECTIONS.values()
+        )
+        for name in (
+            "landsat_pan_bandpass",
+            "landsat_pan_missions_for_window",
+            "prepare_landsat_pan_image",
+        ):
+            assert name in gee.__all__
+
+
+@pytest.mark.parametrize(
+    ("missions", "bandpass"),
+    [
+        (("LE07",), "L7 PAN 0.52-0.90 um"),
+        (("LC08",), "L8/9 PAN 0.50-0.68 um"),
+        (["LC09"], "L8/9 PAN 0.50-0.68 um"),
+        (("LC08", "LC09"), "L8/9 PAN 0.50-0.68 um"),
+        (("LE07", "LC09"), "L7 PAN 0.52-0.90 um; L8/9 PAN 0.50-0.68 um"),
+        ((), ""),
+    ],
+)
+def test_landsat_pan_bandpass(missions, bandpass):
+    assert gee.landsat_pan_bandpass(missions) == bandpass
+
+
+class TestSensorTags:
+    LABELS = gee.LANDSAT_PAN_SPACECRAFT
+
+    def _tags(self, counts, source="landsat-pan"):
+        cfg = _cfg(source, year=2023)
+        return gee._sensor_tags(cfg, f"{source} 2023", counts, self.LABELS)
+
+    def test_labels_in_label_order(self, caplog):
+        with caplog.at_level("INFO", logger="agribound.composites.gee"):
+            tags = self._tags({"LANDSAT_9": 5, "LANDSAT_8": 7})
+        assert tags == {
+            "AGRIBOUND_SENSORS": "LC08,LC09",
+            "AGRIBOUND_SENSOR_IMAGES": "LC08:7,LC09:5",
+            "AGRIBOUND_SPECTRAL_RESPONSE": "L8/9 PAN 0.50-0.68 um",
+        }
+        assert any(
+            r.levelname == "INFO" and "images per sensor: LC08 7, LC09 5" in r.getMessage()
+            for r in caplog.records
+        )
+        assert not _pan_warnings(caplog)
+
+    def test_zero_counts_are_dropped(self, caplog):
+        with caplog.at_level("WARNING", logger="agribound.composites.gee"):
+            tags = self._tags({"LANDSAT_7": 0, "LANDSAT_8": 4})
+        assert tags["AGRIBOUND_SENSORS"] == "LC08"
+        assert tags["AGRIBOUND_SENSOR_IMAGES"] == "LC08:4"
+        assert tags["AGRIBOUND_SPECTRAL_RESPONSE"] == "L8/9 PAN 0.50-0.68 um"
+        assert not _pan_warnings(caplog)
+
+    def test_unlabelled_values_follow_sorted(self):
+        tags = self._tags({"LANDSAT_X": 1, "LANDSAT_8": 2, "ALPHA": 3})
+        assert tags["AGRIBOUND_SENSORS"] == "LC08,ALPHA,LANDSAT_X"
+        assert tags["AGRIBOUND_SENSOR_IMAGES"] == "LC08:2,ALPHA:3,LANDSAT_X:1"
+
+    def test_no_images(self, caplog):
+        with caplog.at_level("INFO", logger="agribound.composites.gee"):
+            tags = self._tags({})
+        assert tags["AGRIBOUND_SENSORS"] == "" and tags["AGRIBOUND_SENSOR_IMAGES"] == ""
+        assert any("images per sensor: none" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "counts",
+        [
+            {"LANDSAT_7": 20, "LANDSAT_8": 16, "LANDSAT_9": 16},
+            {"LANDSAT_9": 3, "LANDSAT_7": 1},
+        ],
+    )
+    def test_mixed_bandpasses_warn(self, caplog, counts):
+        with caplog.at_level("WARNING", logger="agribound.composites.gee"):
+            tags = self._tags(counts)
+        assert tags["AGRIBOUND_SPECTRAL_RESPONSE"] == "L7 PAN 0.52-0.90 um; L8/9 PAN 0.50-0.68 um"
+        (warning,) = _pan_warnings(caplog)
+        message = warning.getMessage()
+        assert message.startswith("landsat-pan 2023: the median mixes Landsat 7 ETM+ PAN")
+        assert tags["AGRIBOUND_SENSORS"].split(",")[0] == "LE07"
+        expected = ", ".join(
+            f"{m} {counts[k]}" for k, m in self.LABELS.items() if counts.get(k, 0) > 0
+        )
+        assert f"(images: {expected})" in message
+        assert "landsat_pan_missions='auto'" in message
+
+    @pytest.mark.parametrize("counts", [{"LANDSAT_7": 9}, {"LANDSAT_8": 9, "LANDSAT_9": 2}])
+    def test_one_bandpass_does_not_warn(self, caplog, counts):
+        with caplog.at_level("WARNING", logger="agribound.composites.gee"):
+            self._tags(counts)
+        assert not _pan_warnings(caplog)
+
+    def test_other_sources_get_no_spectral_response_or_warning(self, caplog):
+        with caplog.at_level("WARNING", logger="agribound.composites.gee"):
+            tags = self._tags({"LANDSAT_7": 2, "LANDSAT_8": 2}, source="landsat")
+        assert tags == {
+            "AGRIBOUND_SENSORS": "LE07,LC08",
+            "AGRIBOUND_SENSOR_IMAGES": "LE07:2,LC08:2",
+        }
+        assert not _pan_warnings(caplog)
+
+
+class _SummaryCollection:
+    """Records the aggregations requested from a collection."""
+
+    def __init__(self, log):
+        self.log = log
+
+    def size(self):
+        self.log.append(("size",))
+        return "SIZE"
+
+    def aggregate_array(self, prop):
+        self.log.append(("aggregate_array", prop))
+        return "TIMES"
+
+    def aggregate_histogram(self, prop):
+        self.log.append(("aggregate_histogram", prop))
+        return "HISTOGRAM"
+
+
+@pytest.fixture
+def summary_ee(monkeypatch):
+    """Fake ``ee`` whose ``Dictionary(query).getInfo()`` returns ``state["info"]``."""
+    state = {"queries": [], "log": [], "info": None}
+    module = types.ModuleType("ee")
+    module.List = lambda value: Chain("List", state["log"])
+
+    class Dictionary:
+        def __init__(self, query):
+            state["queries"].append(dict(query))
+
+        def getInfo(self):  # noqa: N802 - ee API name
+            return state["info"]
+
+    module.Dictionary = Dictionary
+    monkeypatch.setitem(sys.modules, "ee", module)
+    return state
+
+
+class TestCollectionSummary:
+    def test_without_count_property(self, summary_ee):
+        summary_ee["info"] = {"n": 3, "years": [2022.0, 2023]}
+        collection = _SummaryCollection(summary_ee["log"])
+        assert gee.collection_summary(collection, "unit") == {"n_images": 3, "years": [2022, 2023]}
+        (query,) = summary_ee["queries"]
+        assert set(query) == {"n", "years"}
+        assert ("aggregate_histogram", "SPACECRAFT_ID") not in summary_ee["log"]
+
+    def test_counts_in_the_same_request(self, summary_ee):
+        summary_ee["info"] = {
+            "n": 32,
+            "years": [2023],
+            "counts": {"LANDSAT_8": 16.0, "LANDSAT_9": 16},
+        }
+        collection = _SummaryCollection(summary_ee["log"])
+        summary = gee.collection_summary(collection, "unit", count_property="SPACECRAFT_ID")
+        assert summary == {
+            "n_images": 32,
+            "years": [2023],
+            "counts": {"LANDSAT_8": 16, "LANDSAT_9": 16},
+        }
+        assert all(isinstance(v, int) for v in summary["counts"].values())
+        (query,) = summary_ee["queries"]  # one request
+        assert query["counts"] == "HISTOGRAM"
+        assert ("aggregate_histogram", "SPACECRAFT_ID") in summary_ee["log"]
+
+    @pytest.mark.parametrize("counts", [None, {}])
+    def test_missing_counts_give_an_empty_mapping(self, summary_ee, counts):
+        summary_ee["info"] = {"n": 0, "years": [], "counts": counts}
+        summary = gee.collection_summary(
+            _SummaryCollection(summary_ee["log"]), "unit", count_property="SPACECRAFT_ID"
+        )
+        assert summary == {"n_images": 0, "years": [], "counts": {}}
+
+
 class TestCollectionSpecs:
     @pytest.mark.parametrize(
         ("year", "missions"),
         [
             (1999, ["LE07"]),
-            (2015, ["LE07", "LC08"]),
-            (2023, ["LE07", "LC08", "LC09"]),
+            (2012, ["LE07"]),
+            (2013, ["LC08"]),  # Landsat 7 still flies, but 'auto' never mixes the bandpasses
+            (2015, ["LC08"]),
+            (2023, ["LC08", "LC09"]),
             (2025, ["LC08", "LC09"]),
         ],
     )
@@ -887,19 +1342,131 @@ class TestCollectionSpecs:
         assert spec.collections == [gee.LANDSAT_PAN_COLLECTIONS[m][0] for m in missions]
         assert spec.bands == ["B8"]
         assert spec.resolution_m == 15 and spec.dtype == "float32"
-        assert spec.notes["sensors"] == ",".join(missions)
+        assert spec.notes["landsat_pan_missions"] == "auto"
+        assert spec.notes["missions_selected"] == ",".join(missions)
+        assert spec.notes["spectral_response"] == gee.landsat_pan_bandpass(missions)
+        assert ("slc_off" in spec.notes) is (missions == ["LE07"])
+        assert spec.count_property == "SPACECRAFT_ID"
+        assert spec.count_labels == gee.LANDSAT_PAN_SPACECRAFT
+        # Only the selected missions are queried, for the images and for the history.
+        queried = {name[: name.index(")") + 1] for name, *_ in recording_ee}
+        assert queried == {f"IC({c})" for c in spec.collections}
         filters = _calls(recording_ee, "IC(LANDSAT", "filter")
-        assert len(filters) == 3
+        assert len(filters) == len(missions)
         assert all(args == (("lte", "CLOUD_COVER", 20),) for _, args in filters)
+
+    def test_landsat_pan_prepares_each_image_with_its_mission_mask(self, recording_ee):
+        gee._build_landsat_pan(
+            _cfg("landsat-pan", year=2015, landsat_pan_missions="LE07,LC08"), "R"
+        )
+        maps = {
+            name.split("/")[1]: args[0]
+            for name, attr, args, _ in recording_ee
+            if attr == "map" and name.endswith("filterDate")
+        }
+        assert set(maps) == {"LE07", "LC08"}
+        qa = np.array([[0, 4]])  # bit 2: cirrus, used on Landsat 8/9 only
+        image = FakeImage({"B8": [[0.3, 0.4]], "QA_PIXEL": qa})
+        assert maps["LE07"](image).masks["B8"].tolist() == [[True, True]]
+        assert maps["LC08"](image).masks["B8"].tolist() == [[True, False]]
 
     def test_landsat_pan_date_range(self, recording_ee):
         cfg = _cfg("landsat-pan", date_range=("2012-12-01", "2013-04-01"))
         spec = gee._build_landsat_pan(cfg, "REGION")
-        assert len(spec.collections) == 2
-        assert all(
-            args == ("2012-12-01", "2013-04-02")
-            for _, args in _calls(recording_ee, "IC(LANDSAT", "filterDate")
-        )
+        assert spec.collections == [gee.LANDSAT_PAN_COLLECTIONS["LC08"][0]]
+        both = gee._build_landsat_pan(cfg.merged(landsat_pan_missions="LE07,LC08"), "REGION")
+        assert both.collections == [gee.LANDSAT_PAN_COLLECTIONS[m][0] for m in ("LE07", "LC08")]
+        dated = _calls(recording_ee, "IC(LANDSAT", "filterDate")
+        assert len(dated) == 3
+        assert all(args == ("2012-12-01", "2013-04-02") for _, args in dated)
+
+    @pytest.mark.parametrize(
+        ("setting", "year", "missions"),
+        [
+            ("LE07", 2023, ["LE07"]),
+            ("LE07,LC08,LC09", 2023, ["LE07", "LC08", "LC09"]),
+            (["LC09", "LE07"], 2015, ["LE07"]),  # Landsat 9 had not launched
+            (["LC08"], 2024, ["LC08"]),
+        ],
+    )
+    def test_landsat_pan_explicit_missions(self, recording_ee, setting, year, missions):
+        cfg = _cfg("landsat-pan", year=year, landsat_pan_missions=setting)
+        spec = gee._build_landsat_pan(cfg, "REGION")
+        assert spec.collections == [gee.LANDSAT_PAN_COLLECTIONS[m][0] for m in missions]
+        assert spec.notes["landsat_pan_missions"] == ",".join(cfg.landsat_pan_missions)
+        assert spec.notes["missions_selected"] == ",".join(missions)
+        assert ("slc_off" in spec.notes) is ("LE07" in missions)
+        assert len(_calls(recording_ee, "IC(LANDSAT", "filter")) == len(missions)
+
+    @pytest.mark.parametrize(
+        ("changes", "match"),
+        [
+            (
+                {"year": 2015, "landsat_pan_missions": ("LC09",)},
+                r"None of landsat_pan_missions='LC09' acquired images between 2015-01-01 and "
+                r"2016-01-01 \(Landsat 7 1999-05-28 to 2024-01-19",
+            ),
+            (
+                {"year": 2025, "landsat_pan_missions": ("LE07",)},
+                r"None of landsat_pan_missions='LE07' acquired images between 2025-01-01",
+            ),
+            (
+                {"year": 1999, "date_range": ("1999-01-01", "1999-05-01")},
+                r"No Landsat PAN mission overlaps the date window; available from 1999-05-28",
+            ),
+        ],
+    )
+    def test_landsat_pan_no_selected_mission_raises(self, recording_ee, changes, match):
+        """A configuration changed after validation fails as a configuration error.
+
+        ``AgriboundConfig`` rejects these windows; the builder's own check is the
+        safety net. It raises a plain ValueError, not NoDataError, so an HPC tile
+        is recorded as failed, not as a no-data tile.
+        """
+        from agribound.composites import NoDataError
+
+        cfg = _cfg("landsat-pan", year=2023)
+        for name, value in changes.items():
+            setattr(cfg, name, value)
+        with pytest.raises(ValueError, match=match) as info:
+            gee._build_landsat_pan(cfg, "REGION")
+        assert not isinstance(info.value, NoDataError)
+        assert recording_ee == []  # raised before any Earth Engine request
+
+    def test_landsat7_pan_image_count_uses_the_composite_filters(self, monkeypatch):
+        log = []
+
+        class Collection:
+            def __init__(self, cid):
+                log.append(("collection", cid))
+
+            def filterBounds(self, region):  # noqa: N802 - Earth Engine API name
+                log.append(("bounds", region))
+                return self
+
+            def filter(self, value):
+                log.append(("filter", value))
+                return self
+
+            def filterDate(self, start, end):  # noqa: N802 - Earth Engine API name
+                log.append(("date", start, end))
+                return self
+
+            def size(self):
+                return types.SimpleNamespace(getInfo=lambda: 4.0)
+
+        module = types.ModuleType("ee")
+        module.ImageCollection = Collection
+        module.Filter = types.SimpleNamespace(lte=lambda prop, value: ("lte", prop, value))
+        monkeypatch.setitem(sys.modules, "ee", module)
+        cfg = _cfg("landsat-pan", year=2016, cloud_cover_max=35)
+        assert gee._landsat7_pan_images(cfg, "REGION", ("2016-01-01", "2017-01-01")) == 4
+        assert log == [
+            ("collection", "LANDSAT/LE07/C02/T1_TOA"),
+            ("bounds", "REGION"),
+            ("filter", ("lte", "CLOUD_COVER", 35)),
+            ("date", "2016-01-01", "2017-01-01"),
+        ]
 
     def test_naip_band_filter_year_window_and_order(self, recording_ee):
         spec = gee._build_naip(_cfg("naip", naip_resolution_m=0.6), "REGION")

@@ -29,7 +29,12 @@ from pathlib import Path
 from typing import Any
 
 PLAN_SCHEMA = "agribound-agent-plan/1"
-"""Identifier mixed into every plan hash; bump if the hashed content changes."""
+"""Identifier mixed into every plan hash and into ``propose_run``'s plan-directory key.
+
+Bump it only when the hashing scheme itself changes: a bump renames every plan
+directory, so the outputs of earlier agent runs are no longer reused. A new
+configuration field changes plan hashes (and so plan IDs) without a bump.
+"""
 
 THRESHOLD_FIELDS: tuple[str, ...] = (
     "lulc_filter",
@@ -37,6 +42,7 @@ THRESHOLD_FIELDS: tuple[str, ...] = (
     "lulc_nodata_policy",
     "lulc_dataset",
     "lulc_on_error",
+    "lulc_tree_crops",
     "aoi_selection",
     "min_field_area_m2",
     "simplify_tolerance",
@@ -62,6 +68,7 @@ METHOD_FIELDS: tuple[str, ...] = (
     "date_range",
     "s2_cloud_mask",
     "naip_resolution_m",
+    "landsat_pan_missions",
     "bands",
     "tessera_version",
     "tessera_variant",

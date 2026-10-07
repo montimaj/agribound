@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,6 +11,7 @@ import yaml
 
 from agribound.config import (
     VALID_ENGINES,
+    VALID_LANDSAT_PAN_MISSIONS,
     VALID_SOURCES,
     AgriboundConfig,
 )
@@ -446,6 +448,219 @@ class TestDateRange:
             _local(date_range=value)
 
 
+class TestLandsatPanMissions:
+    """landsat_pan_missions: 'auto' or distinct mission IDs in canonical order."""
+
+    def _landsat_pan(self, **kwargs):
+        return AgriboundConfig(source="landsat-pan", gee_project="p", year=2023, **kwargs)
+
+    def test_default_and_choices(self):
+        assert VALID_LANDSAT_PAN_MISSIONS == ("LE07", "LC08", "LC09")
+        assert _local().landsat_pan_missions == "auto"
+        assert self._landsat_pan().landsat_pan_missions == "auto"
+
+    @pytest.mark.parametrize("value", ["auto", "AUTO", " Auto "])
+    def test_auto_in_any_case(self, value):
+        assert self._landsat_pan(landsat_pan_missions=value).landsat_pan_missions == "auto"
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("lc09, LC08", ("LC08", "LC09")),
+            ("LE07", ("LE07",)),
+            ("LC08,,LC09,", ("LC08", "LC09")),  # empty parts are ignored
+            (["lc09", "le07"], ("LE07", "LC09")),
+            (("LC08",), ("LC08",)),
+            (["LC09", " lc08 ", "LE07"], ("LE07", "LC08", "LC09")),
+        ],
+    )
+    def test_strings_and_lists_become_a_canonical_tuple(self, value, expected):
+        assert self._landsat_pan(landsat_pan_missions=value).landsat_pan_missions == expected
+
+    @pytest.mark.parametrize("value", [["LC08", "lc08", " LC08 "], "LC09,LC09", ("LE07", "le07")])
+    def test_duplicates_are_removed(self, value):
+        missions = self._landsat_pan(landsat_pan_missions=value).landsat_pan_missions
+        assert len(missions) == 1
+
+    @pytest.mark.parametrize("value", ["", " , ", [], ()])
+    def test_empty_raises(self, value):
+        with pytest.raises(ValueError, match="landsat_pan_missions is empty"):
+            self._landsat_pan(landsat_pan_missions=value)
+
+    @pytest.mark.parametrize(
+        ("value", "unknown"),
+        [
+            ("LT05", "['LT05']"),
+            (["LC08", "L8"], "['L8']"),
+            ("auto,LC08", "['AUTO']"),  # 'auto' cannot be combined with missions
+            (["landsat_8"], "['LANDSAT_8']"),
+        ],
+    )
+    def test_unknown_mission_raises(self, value, unknown):
+        with pytest.raises(ValueError, match=rf"Invalid landsat_pan_missions {re.escape(unknown)}"):
+            self._landsat_pan(landsat_pan_missions=value)
+
+    @pytest.mark.parametrize("value", [["LC08", 8], [None], ("LC09", ("LC08",))])
+    def test_non_string_entries_raise(self, value):
+        with pytest.raises(TypeError, match="entries must be strings"):
+            self._landsat_pan(landsat_pan_missions=value)
+
+    @pytest.mark.parametrize("value", [8, None, 1.5, {"LC08": 1}])
+    def test_wrong_type_raises(self, value):
+        with pytest.raises(TypeError, match="must be 'auto' or a list of mission IDs"):
+            self._landsat_pan(landsat_pan_missions=value)
+
+    def test_validated_but_ignored_for_other_sources(self):
+        assert _local(landsat_pan_missions="le07").landsat_pan_missions == ("LE07",)
+        with pytest.raises(ValueError, match="Invalid landsat_pan_missions"):
+            _local(landsat_pan_missions="LT05")
+
+    def test_to_dict_writes_a_list_and_from_dict_round_trips(self):
+        cfg = self._landsat_pan(landsat_pan_missions="LC09,LC08")
+        data = cfg.to_dict()
+        assert data["landsat_pan_missions"] == ["LC08", "LC09"]
+        loaded = AgriboundConfig.from_dict(data)
+        assert loaded.landsat_pan_missions == ("LC08", "LC09")
+        assert data["landsat_pan_missions"] == ["LC08", "LC09"]  # input not mutated
+        assert loaded.to_dict() == data
+        auto = self._landsat_pan().to_dict()
+        assert auto["landsat_pan_missions"] == "auto"
+        assert AgriboundConfig.from_dict(auto).landsat_pan_missions == "auto"
+
+    def test_merged(self):
+        cfg = self._landsat_pan(landsat_pan_missions=["LE07"])
+        assert cfg.merged().landsat_pan_missions == ("LE07",)
+        assert cfg.merged(landsat_pan_missions="lc08,lc09").landsat_pan_missions == (
+            "LC08",
+            "LC09",
+        )
+        assert cfg.merged(landsat_pan_missions="Auto").landsat_pan_missions == "auto"
+        assert cfg.landsat_pan_missions == ("LE07",)  # the original is unchanged
+        with pytest.raises(ValueError, match="Invalid landsat_pan_missions"):
+            cfg.merged(landsat_pan_missions=["LT05"])
+
+    @pytest.mark.parametrize(
+        ("value", "written", "loaded"),
+        [("LC09,LE07", ["LE07", "LC09"], ("LE07", "LC09")), ("AUTO", "auto", "auto")],
+    )
+    def test_yaml_round_trip(self, tmp_path, value, written, loaded):
+        path = tmp_path / "lp.yaml"
+        self._landsat_pan(landsat_pan_missions=value).to_yaml(path)
+        assert yaml.safe_load(path.read_text())["landsat_pan_missions"] == written
+        assert AgriboundConfig.from_yaml(path).landsat_pan_missions == loaded
+
+    def test_yaml_written_by_hand(self, tmp_path):
+        path = tmp_path / "hand.yaml"
+        path.write_text(
+            "source: landsat-pan\ngee_project: p\nyear: 2015\n"
+            "landsat_pan_missions: [lc08, LE07, LC08]\n"
+        )
+        assert AgriboundConfig.from_yaml(path).landsat_pan_missions == ("LE07", "LC08")
+        path.write_text("source: landsat-pan\ngee_project: p\nlandsat_pan_missions: LC09\n")
+        assert AgriboundConfig.from_yaml(path).landsat_pan_missions == ("LC09",)
+
+
+class TestLandsatPanWindow:
+    """For landsat-pan, a selected mission must have a record overlapping the window."""
+
+    def _landsat_pan(self, **kwargs):
+        return AgriboundConfig(source="landsat-pan", gee_project="p", **kwargs)
+
+    @pytest.mark.parametrize(
+        ("kwargs", "period"),
+        [
+            ({"year": 2025, "landsat_pan_missions": "LE07"}, "year=2025"),
+            ({"year": 2020, "landsat_pan_missions": ["LC09"]}, "year=2020"),
+            ({"year": 2005, "landsat_pan_missions": "LC08,LC09"}, "year=2005"),
+            # The date range decides, not the year.
+            (
+                {
+                    "year": 2022,
+                    "landsat_pan_missions": "LC09",
+                    "date_range": ("2021-06-01", "2021-09-30"),
+                },
+                "date_range 2021-06-01 to 2021-09-30",
+            ),
+            (
+                {
+                    "year": 2021,
+                    "landsat_pan_missions": "LC09",
+                    "date_range": ("2021-10-01", "2021-10-30"),
+                },
+                "date_range 2021-10-01 to 2021-10-30",
+            ),
+        ],
+    )
+    def test_missions_without_a_record_in_the_window_are_rejected(self, kwargs, period):
+        with pytest.raises(
+            ValueError, match=re.escape(f"has no mission whose record overlaps {period}")
+        ) as info:
+            self._landsat_pan(**kwargs)
+        message = str(info.value)
+        assert "Landsat 7 1999-05-28 to 2024-01-19" in message
+        assert "Use 'auto' or missions whose record overlaps the window." in message
+
+    def test_auto_before_landsat_7_is_rejected(self):
+        with pytest.raises(ValueError, match="landsat_pan_missions='auto' has no mission") as info:
+            self._landsat_pan(year=1999, date_range=("1999-01-01", "1999-05-27"))
+        assert "Landsat PAN images start on 1999-05-28." in str(info.value)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"year": 2024, "landsat_pan_missions": "LE07"},  # Landsat 7 runs to 2024-01-19
+            {"year": 2021, "landsat_pan_missions": "LC09"},  # from 2021-10-31
+            {
+                "year": 2021,
+                "landsat_pan_missions": "LC09",
+                "date_range": ("2021-10-01", "2021-10-31"),
+            },
+            {"year": 2010, "landsat_pan_missions": "LE07,LC08"},  # partial overlap: LE07 only
+            {"year": 2025, "landsat_pan_missions": ("LE07", "LC09")},  # LC09 only
+            {"year": 1999, "date_range": ("1999-01-01", "1999-05-28")},
+            {"year": 2013, "date_range": ("2013-01-01", "2013-03-18")},
+        ],
+    )
+    def test_windows_that_a_selected_mission_overlaps_are_accepted(self, kwargs):
+        self._landsat_pan(**kwargs)
+
+    def test_merged_is_validated(self):
+        cfg = self._landsat_pan(year=2015, landsat_pan_missions="LE07")
+        assert cfg.merged(year=2023).year == 2023
+        with pytest.raises(ValueError, match="has no mission whose record overlaps year=2025"):
+            cfg.merged(year=2025)
+
+    def test_other_sources_ignore_the_missions(self):
+        assert _local(year=2025, landsat_pan_missions="LE07").landsat_pan_missions == ("LE07",)
+        landsat = AgriboundConfig(
+            source="landsat", gee_project="p", year=2015, landsat_pan_missions="LC09"
+        )
+        assert landsat.landsat_pan_missions == ("LC09",)
+
+
+class TestLulcTreeCrops:
+    def test_default_false(self):
+        assert _local().lulc_tree_crops is False
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_bools_accepted(self, value):
+        cfg = _local(lulc_tree_crops=value)
+        assert cfg.lulc_tree_crops is value
+        assert AgriboundConfig.from_dict(cfg.to_dict()).lulc_tree_crops is value
+        assert cfg.merged(lulc_tree_crops=not value).lulc_tree_crops is (not value)
+
+    @pytest.mark.parametrize("value", ["yes", "True", 1, 0, None, 1.0])
+    def test_non_bool_raises(self, value):
+        with pytest.raises(TypeError, match="lulc_tree_crops must be a bool"):
+            _local(lulc_tree_crops=value)
+
+    def test_yaml_round_trip(self, tmp_path):
+        path = tmp_path / "tree.yaml"
+        _local(lulc_tree_crops=True).to_yaml(path)
+        assert yaml.safe_load(path.read_text())["lulc_tree_crops"] is True
+        assert AgriboundConfig.from_yaml(path).lulc_tree_crops is True
+
+
 class TestExportCrs:
     def test_utm_default_and_case(self):
         assert _local(export_crs="UTM").export_crs == "utm"
@@ -541,6 +756,7 @@ class TestAgriboundConfigYaml:
             s2_cloud_mask="cloud_score_plus",
             cloud_score_threshold=0.55,
             naip_resolution_m=0.6,
+            landsat_pan_missions=("LC09", "LC08"),
             tessera_version="v1.1",
             tessera_variant="cambridge",
             embedding_cache_dir="/scratch/emb",
@@ -550,6 +766,7 @@ class TestAgriboundConfigYaml:
             lulc_on_error="warn",
             lulc_mode="raster",
             lulc_nodata_policy="drop",
+            lulc_tree_crops=True,
             sam_refine=True,
             sam_backend="sam3",
             sam_model="facebook/sam3",
@@ -572,11 +789,14 @@ class TestAgriboundConfigYaml:
         original.to_yaml(path)
         raw = yaml.safe_load(path.read_text())
         assert raw["date_range"] == ["2023-06-01", "2023-09-30"]
+        assert raw["landsat_pan_missions"] == ["LC08", "LC09"]
+        assert raw["lulc_tree_crops"] is True
         loaded = AgriboundConfig.from_yaml(path)
         expected = original.to_dict()
         expected["engine_params"]["window"] = [1, 2]  # tuples are written as lists
         assert loaded.to_dict() == expected
         assert loaded.date_range == ("2023-06-01", "2023-09-30")
+        assert loaded.landsat_pan_missions == ("LC08", "LC09")
 
     def test_yaml_with_date_range(self, tmp_path):
         yaml_path = tmp_path / "config_dr.yaml"

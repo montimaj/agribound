@@ -37,11 +37,15 @@ At construction the configuration checks, among other things:
 - that the engine supports the source (for `ensemble`, every member,
   including the default members);
 - that `year` lies in the source's available years (for TESSERA, those of
-  `tessera_version`);
+  `tessera_version`), and, for `landsat-pan`, that a mission selected by
+  `landsat_pan_missions` has a record overlapping the year or `date_range`
+  (for example `LE07` with 2025 or `LC09` with 2020 is rejected);
 - that `fine_tune=True` has `reference_boundaries` and a fine-tunable engine;
 - `export_crs` (`"utm"` or a valid `EPSG:<code>`), `date_range` format and
-  order, numeric ranges, the `bands` mapping (1-based indices), and the
-  `gee_workload_tag` format;
+  order, numeric ranges, the `bands` mapping (1-based indices), the
+  `gee_workload_tag` format, and `landsat_pan_missions` (`"auto"` or mission
+  IDs from `LE07`, `LC08` and `LC09`, stored without duplicates in that
+  order);
 - that a GEE imagery source has a project (from `gee_project`, the
   `GEE_PROJECT` environment variable, `gcloud config`, or else the
   `project_id` of the service-account key or `GOOGLE_APPLICATION_CREDENTIALS`
@@ -89,6 +93,7 @@ Defaults are shown in parentheses.
 | `s2_cloud_mask` (`"scl"`) | Sentinel-2 pixel mask: `"scl"` or `"cloud_score_plus"`. |
 | `cloud_score_threshold` (`0.60`) | Minimum Cloud Score+ `cs_cdf` kept. |
 | `naip_resolution_m` (`1.0`) | NAIP export resolution in metres. |
+| `landsat_pan_missions` (`"auto"`) | Landsat missions whose panchromatic band `source="landsat-pan"` uses (ignored by the other sources). `"auto"` never mixes the two PAN bandpasses: Landsat 8/9 (`LC08`, `LC09`) when the date window overlaps their record (from 2013-03-18), else Landsat 7 (`LE07`). Or a list of `"LE07"`, `"LC08"` and `"LC09"` (a comma-separated string is also accepted): exactly those missions, where their record overlaps the window; Landsat 7 together with Landsat 8 or 9 mixes the two bandpasses in one median, with a WARNING. See [Landsat panchromatic](satellite-sources.md#landsat-panchromatic-landsat-pan). |
 | `tile_size` (`10000`) | Maximum download tile size in pixels per side (tiles are assembled into one GeoTIFF). |
 
 ### USGS NAIP Plus
@@ -177,6 +182,7 @@ provenance record is reused as it is. Pass `overwrite=True` to recompute it.
 | `lulc_filter` (`True`) | Remove polygons whose crop fraction is below the threshold. Needs Earth Engine for every source. |
 | `lulc_crop_threshold` (`0.3`) | Minimum crop fraction (0-1). |
 | `lulc_dataset` (`"auto"`) | `"auto"`, `"nlcd"`, `"cdl"`, `"dynamic_world"` or `"c3s"`. |
+| `lulc_tree_crops` (`False`) | Count tree cover as crop, for tree crops such as orchards and plantations: Dynamic World then uses the `crops` + `trees` probability and C3S adds its tree-cover classes, so with these two datasets the filter no longer removes forest. NLCD and CDL are unchanged (NLCD class 82 already includes orchards and vineyards) and still remove forest. See [Tree crops](satellite-sources.md#tree-crops). |
 | `lulc_mode` (`"server"`) | `"server"` (Earth Engine `reduceRegions`) or `"raster"` (download a LULC raster in stage A, filter locally). |
 | `lulc_on_error` (`"raise"`) | `"raise"` aborts on failure; `"warn"` keeps the unfiltered polygons and records the failure. |
 | `lulc_nodata_policy` (`"keep"`) | Polygons without valid LULC pixels are kept and flagged (`"keep"`) or dropped (`"drop"`). |

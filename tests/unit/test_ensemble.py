@@ -103,7 +103,9 @@ class TestConfiguration:
         specs = EnsembleEngine.member_specs(_config(tmp_path, raster))
         assert [s["engine"] for s in specs] == ["delineate-anything", "ftw"]
 
-    @pytest.mark.parametrize("source", ["naip", "spot", "spot-pan", "usgs-naip-plus"])
+    @pytest.mark.parametrize(
+        "source", ["naip", "spot", "spot-pan", "usgs-naip-plus", "landsat-pan"]
+    )
     def test_default_members_validated_against_source(self, tmp_path, source):
         """FTW (a default member) cannot run on these sources: raise, never drop it silently.
 

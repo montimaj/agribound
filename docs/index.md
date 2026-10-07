@@ -16,10 +16,10 @@ embeddings, through one configuration and one pipeline.
 [![GitHub stars](https://img.shields.io/github/stars/montimaj/agribound)](https://github.com/montimaj/agribound/stargazers)
 
 Agribound runs a composite → delineation → post-processing → crop-filter →
-export pipeline over ten sources (Landsat, Sentinel-2, HLS, NAIP and SPOT 6/7
-composites on Google Earth Engine, USGS NAIP Plus, local GeoTIFFs, and Google
-Satellite Embedding and TESSERA embeddings) with seven engines
-(Delineate-Anything, Fields of The World, GeoAI Mask R-CNN, DINOv3,
+export pipeline over eleven sources (Landsat, Landsat panchromatic, Sentinel-2,
+HLS, NAIP and SPOT 6/7 composites on Google Earth Engine, USGS NAIP Plus, local
+GeoTIFFs, and Google Satellite Embedding and TESSERA embeddings) with seven
+engines (Delineate-Anything, Fields of The World, GeoAI Mask R-CNN, DINOv3,
 Prithvi-EO-2.0, embedding clustering and ensembles). Every run is seeded,
 cached under content-addressed names and documented by a provenance record;
 evaluation, tiling for HPC clusters and an optional human-confirmed agent
@@ -34,15 +34,15 @@ layer are included.
 
 ## How it works
 
-<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png" alt="The agribound 1.0 workflow: an optional agent layer with a human confirmation gate and a deterministic entry point above a six-stage pipeline from ten imagery and embedding sources to field boundaries" width="900"></a>
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png" alt="The agribound 1.0 workflow: an optional agent layer with a human confirmation gate and a deterministic entry point above a six-stage pipeline from eleven imagery and embedding sources to field boundaries" width="900"></a>
 
-*The agribound 1.0 workflow (select the image for full resolution): a six-stage pipeline from ten imagery and embedding sources (0.3–30 m, 1984–present) to field boundaries, with a deterministic entry point and an optional, human-confirmed agent layer above it.*
+*The agribound 1.0 workflow (select the image for full resolution): a six-stage pipeline from eleven imagery and embedding sources (0.3–30 m, 1984–present) to field boundaries, with a deterministic entry point and an optional, human-confirmed agent layer above it.*
 
-1. **Composite.** Earth Engine builds a median or greenest-pixel (max-NDVI) composite for a year or a date window and exports it on a UTM grid. NAIP is mosaicked, and only Landsat, Sentinel-2 and HLS are cloud-masked and scaled to reflectance ×10 000. USGS NAIP Plus, TESSERA and local GeoTIFF inputs are read without Earth Engine.
+1. **Composite.** Earth Engine builds a median or greenest-pixel (max-NDVI) composite for a year or a date window and exports it on a UTM grid. NAIP is mosaicked, and only Landsat, Sentinel-2 and HLS are cloud-masked and scaled to reflectance ×10 000 (Landsat panchromatic is cloud-masked but kept as TOA reflectance). USGS NAIP Plus, TESSERA and local GeoTIFF inputs are read without Earth Engine.
 2. **Fine-tuning (optional).** Full (Delineate-Anything, GeoAI, DINOv3, Prithvi) or LoRA (DINOv3, Prithvi) fine-tuning on reference boundaries, validated by default on a spatially blocked split (5 km blocks). GeoAI, DINOv3 and Prithvi's UPerNet mode need a checkpoint, from fine-tuning or supplied by the user.
 3. **Delineation.** One of seven engines, coloured by family: task-specific segmentation, geospatial foundation model, label-free embedding clustering and multi-engine ensemble.
 4. **Refine and post-process.** Optional SAM refinement (SAM 2, 2.1 or 3; the SAM 3 backends are [untested](user-guide/sam-refinement.md#sam-3-is-untested)), then study-area selection, merging, minimum-area filtering, smoothing and simplification.
-5. **LULC crop filter.** Removes polygons whose crop fraction is below 0.3, computed on Earth Engine or locally on a downloaded crop raster. Annual NLCD, Dynamic World or C3S Land Cover is selected by coverage and year; CDL (CONUS only) is used on request.
+5. **LULC crop filter.** Removes polygons whose crop fraction is below 0.3, computed on Earth Engine or locally on a downloaded crop raster. Annual NLCD, Dynamic World or C3S Land Cover is selected by coverage and year; CDL (CONUS only) is used on request. Dynamic World files plantations and many orchards under trees, so for tree crops set `lulc_tree_crops=True`, which, with Dynamic World or C3S, counts tree cover (forest included) as crop; NLCD and CDL are unchanged.
 6. **Export.** GeoParquet (fiboa-style columns), GeoPackage or GeoJSON, with per-field area, perimeter, compactness and crop fraction, plus a `provenance.json` record.
 
 Around the pipeline:
@@ -95,10 +95,18 @@ fraction in a land-cover dataset is below 0.3:
 It reads the datasets from Earth Engine for every source and raises by default
 when it fails. See [LULC crop filter](user-guide/satellite-sources.md#lulc-crop-filter).
 
+Dynamic World counts plantations and orchards as trees, so the default filter
+can remove tree crops where it uses Dynamic World: of 95 oil-palm blocks in
+Ghana it kept none for 2020. `lulc_tree_crops=True` counts tree cover as crop
+and kept all 95; with Dynamic World or C3S the filter then also keeps forest
+(NLCD and CDL are unchanged). See
+[Tree crops](user-guide/satellite-sources.md#tree-crops).
+
 ## Example results
 
 From the agribound 1.0.1 example runs (the San Juan County map shows 1.0.0
-outputs, which 1.0.1 reuses unchanged). Each map is drawn on a composite from
+outputs, which 1.0.1 reuses unchanged; the tree-crop map comes from the
+development version that follows 1.0.1). Each map is drawn on a composite from
 the run, named under the map: usually the engine's input; for FTW, its window
 A; for the SAM-refined embedding panels, the Sentinel-2 composite SAM 2 read.
 Select an image for the full-resolution file; see the [Gallery](gallery.md)
@@ -126,6 +134,22 @@ adds the whole study area and three zoomed windows.
 
 <a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_example.webp" alt="Embeddings with SAM 2 vs Delineate-Anything v2" width="800"></a>
 
+**Tree crops (Ghana, Papua New Guinea, California, Spain).** Delineate Anything
+v2 as released on SPOT 6/7 panchromatic against RSPO GeoRSPO, DWR / Land IQ
+and SIGPAC polygons (cyan): object F1 (IoU ≥ 0.5; precision among the
+predictions that overlap a reference polygon) 0.29 for oil palm estate
+blocks and one polygon among 302 oil palm smallholder parcels (68 matched after
+fine-tuning on parcels of the same scheme in a square 13.6 km from the Oro
+square, a run added after the released model's result there); 0.86 for almond
+and pistachio blocks, whose fields are in the model's training data
+(FBIS-73M). DINOv3, fine-tuned on the same labels near each site (never on the
+evaluated squares), merges neighbouring fields (merge rates 0.80 to 1.00). The
+default crop filter removes every oil palm polygon; `lulc_tree_crops=True` keeps
+every oil palm Delineate-Anything polygon and all but 8 of the 2,720 oil palm
+embedding segments. The [gallery](gallery.md) compares the sources and engines.
+
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Tree_Crops_SPOT_Pan_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Tree_Crops_SPOT_Pan_example.webp" alt="Tree crops — Delineate-Anything v2 on SPOT 6/7 panchromatic" width="800"></a>
+
 ## Documentation
 
 | Section | Content |
@@ -143,7 +167,7 @@ adds the whole study area and three zoomed windows.
 | [Agent layer](user-guide/agent.md) | human-confirmed planning, MCP server |
 | [FTW polygon query](user-guide/ftw-query.md) and [GEE setup](user-guide/gee-setup.md) | published FTW polygons by area; Earth Engine credentials and project |
 | [API reference](api/pipeline.md) | generated from the docstrings |
-| [Gallery](gallery.md) | maps from the 1.0.0 and 1.0.1 example runs |
+| [Gallery](gallery.md) | maps from the 1.0.0 and 1.0.1 example runs (example 23: the development version that follows 1.0.1) |
 
 ## License
 

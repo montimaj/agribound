@@ -61,10 +61,12 @@ names are `<stem>_<key><suffix>`, where the 12-character key
 - `composite_method`, `cloud_cover_max`, `export_crs`, `s2_cloud_mask`,
   `naip_resolution_m`, and `cloud_score_threshold` with Cloud Score+;
 - source-specific options: `tessera_version`/`tessera_variant` (embedding
-  sources), `google_embedding_backend`, the USGS service URL, state and
-  year-fallback flag, and the local raster's path, size and modification time;
+  sources), `google_embedding_backend`, `landsat_pan_missions`
+  (`landsat-pan`), the USGS service URL, state and year-fallback flag, and the
+  local raster's path, size and modification time;
 - extra parts supplied by the caller (for example a model name, a window
-  label or a recipe version).
+  label, a recipe version, or `tree-crops` for a Dynamic World or C3S LULC
+  raster made with `lulc_tree_crops=True`).
 
 Runs over different study areas, years, windows or settings therefore never
 reuse each other's files, even when they share one cache directory (agribound
@@ -73,8 +75,10 @@ reuse each other's files, even when they share one cache directory (agribound
 A fine-tuning run's directory (`finetune_<engine>_<key>`) adds the engine, the
 base model, a fingerprint of the reference file (resolved path, modification
 time and size), the epochs, the split settings, the seed, `bands`, the
-`engine_params` other than `checkpoint_path` and `sam_*`, and the engine's
-default chip-size rule (`agribound.engines.finetune._data.chip_size_rule`).
+`engine_params` other than `checkpoint_path` and `sam_*`, the engine's
+default chip-size rule (`agribound.engines.finetune._data.chip_size_rule`)
+and, for Delineate-Anything, the version of the training recipe
+(`agribound.engines.finetune._yolo.RECIPE_VERSION`).
 When a default changes, as GeoAI's did in 1.0.0 (chips sized from the
 reference fields), a checkpoint trained on chips of another size is not
 reused (see [Fine-tuning](fine-tuning.md#caching)).
@@ -125,6 +129,34 @@ Delineate-Anything backend runs in FP16 on CUDA and MPS and in FP32 on CPU (its
 `engine_meta` records `precision` and `device`), so the same composite can give
 slightly different polygons on each.
 
+Fields added after 1.0.1 enter the hash only where they apply
+(`agribound.provenance.HASH_CONDITIONAL_FIELDS`), so the hashes of earlier
+configurations do not change and their outputs are still reused:
+`lulc_tree_crops` only when it is True, and `landsat_pan_missions` only for
+`source="landsat-pan"`. There it is always hashed, even at its default
+`"auto"`, so an output of the unreleased `landsat-pan` code that preceded
+`landsat_pan_missions` (it mixed Landsat 7 and Landsat 8/9 PAN) raises
+`FileExistsError` instead of being reused; pass `overwrite=True` to recompute
+it.
+
+The identities computed from the whole configuration follow the same rule,
+except that a field that does not apply still counts when it is set to a
+value other than its default
+(`agribound.provenance.drop_inapplicable_fields(..., keep_non_default=True)`):
+the signature of an HPC tile manifest, which `agribound tiles make` compares
+to decide whether an existing manifest is up to date, and the plan directory
+that the agent's `propose_run` names. Tile manifests and agent plan
+directories made by earlier versions therefore stay current (except, like
+their outputs, those of `landsat-pan`): re-running `tiles make` keeps the
+manifest without `--overwrite`, `tiles merge` reuses the merged output, and
+an agent plan finds the output of the same earlier proposal. The plan
+directory also includes the results versions that apply to the run (see
+below), so a proposal whose output is no longer reused because a results
+version was raised gets a new directory: after 1.0.1, a Delineate-Anything
+proposal with `fine_tune=True`. Agent plan IDs do change, because a plan
+hashes every field of its configuration; they identify plans only within a
+session.
+
 When `output_path` already exists (and is not empty), `delineate()`:
 
 | Situation | Result |
@@ -164,7 +196,12 @@ numbers differ from the current ones is not reused; a record without the fact
 coverage check of
 [SAM refinement](sam-refinement.md#masks-that-cover-too-little-of-the-polygon))
 to 2, so a 1.0.0 output of the embedding engine or of a run with `sam_refine`
-raises `FileExistsError` until it is recomputed with `overwrite=True`.
+raises `FileExistsError` until it is recomputed with `overwrite=True`. After
+1.0.1, `delineate_anything_finetune` (the Delineate-Anything fine-tuning
+recipe, see [Fine-tuning](fine-tuning.md)) is 2, so an output of agribound
+1.0.1 or earlier with `engine="delineate-anything"` and `fine_tune=True` also
+raises `FileExistsError`; a run that loads a fine-tuned checkpoint through
+`engine_params["checkpoint_path"]` is covered by the configuration hash.
 
 `overwrite=True` does not bypass the caches, but 1.0.1 also changed the cache
 key of the embedding engine's cluster rasters, so they are recomputed too.

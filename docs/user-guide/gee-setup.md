@@ -38,20 +38,20 @@ filter needs Earth Engine (it does not look at the study area).
     agribound auth --project my-gee-project
     ```
 
-For the GEE imagery sources (`landsat`, `sentinel2`, `hls`, `naip`, `spot`,
-`spot-pan`) the project is resolved when the configuration is created, from
-`gee_project` (`--gee-project`), then the `GEE_PROJECT` environment variable,
-then `gcloud config get-value project`, then the `project_id` of the
-credentials file: `gee_service_account_key` (`--gee-service-account-key`),
-else `AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY`, else `GOOGLE_APPLICATION_CREDENTIALS`
-(only the first of these that is set is read; user credentials from
-`gcloud auth application-default login` have no `project_id`). Without any of
-these the configuration raises `ValueError`. `setup_gee` resolves a missing
-project in the same order, for example for the LULC filter on a non-GEE
-source or for `agribound auth --service-account-key PATH` without
-`--project`. An earlier source wins over the key: a batch job whose
-environment sets `GEE_PROJECT` or has a gcloud project uses that project, not
-the key's `project_id`.
+For the GEE imagery sources (`landsat`, `landsat-pan`, `sentinel2`, `hls`,
+`naip`, `spot`, `spot-pan`) the project is resolved when the configuration is
+created, from `gee_project` (`--gee-project`), then the `GEE_PROJECT`
+environment variable, then `gcloud config get-value project`, then the
+`project_id` of the credentials file: `gee_service_account_key`
+(`--gee-service-account-key`), else `AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY`, else
+`GOOGLE_APPLICATION_CREDENTIALS` (only the first of these that is set is
+read; user credentials from `gcloud auth application-default login` have no
+`project_id`). Without any of these the configuration raises `ValueError`.
+`setup_gee` resolves a missing project in the same order, for example for the
+LULC filter on a non-GEE source or for
+`agribound auth --service-account-key PATH` without `--project`. An earlier
+source wins over the key: a batch job whose environment sets `GEE_PROJECT` or
+has a gcloud project uses that project, not the key's `project_id`.
 
 `agribound tiles gee-project` prints the project this lookup finds, without
 contacting Earth Engine. It takes `--project`, `--service-account-key`,

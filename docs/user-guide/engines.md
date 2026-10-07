@@ -63,9 +63,13 @@ aliases `"DelineateAnythingV2"`, `"DelineateAnything"` and
   tiles below 4 m ground sampling distance (GSD), else 256 px tiles upsampled
   2× so the model input is always 512 × 512, 50 % tile overlap, BGR channel
   order for Ultralytics, FP16 on GPU/MPS. Detections from all tiles are
-  combined at polygon level: tile-cut pieces of one field are merged
-  (`merge_tile_pieces`, default True, so fields larger than a tile are rebuilt),
-  then greedy non-maximum suppression and overlap resolution. Results are close
+  combined at polygon level: tile-cut pieces of one field that duplicate one
+  another (IoU >= 0.3 or 80 % of the smaller piece; `merge_tile_pieces`,
+  default True) are merged, so a field larger than a tile is rebuilt when its
+  pieces overlap that much; pieces that only meet at a tile edge stay separate
+  polygons, cut along the tile edge (example 23: oil palm blocks of about 1 km
+  on SPOT-Pan, with 768 m tiles). Then greedy non-maximum suppression and
+  overlap resolution. Results are close
   to, but not identical with, the `reference` backend. Returns a `confidence`
   column.
 - `"reference"`: runs the upstream Delineate-Anything pipeline
@@ -96,14 +100,16 @@ set by the pipeline after fine-tuning), `super_resolution` (1, 2 or 4),
 
 `min_field_area_m2` is applied as an absolute area computed in the equal-area
 EPSG:6933 by every backend. For rasters whose GSD lies more than 5 % outside
-the 0.25-10 m training range (for example 30 m Landsat or HLS) a WARNING is
-logged and `engine_meta["gsd_outside_training_range"]` is True. Example 20
-runs Delineate Anything v2 as released on 2018 composites of San Juan County,
-New Mexico. Against the NMOSE polygons, which were not used for training or
-fine-tuning in these runs (whether the model's training set, FBIS-73M,
-includes them was not checked), F1 was 0.15 on Landsat (30 m), 0.34 on
-Sentinel-2 (10 m), 0.33 on SPOT 6/7 (6 m) and 0.43 on NAIP (1 m); see the
-[gallery](../gallery.md).
+the 0.25-10 m training range (for example 15 m Landsat panchromatic, or 30 m
+Landsat or HLS) a WARNING is logged and
+`engine_meta["gsd_outside_training_range"]` is True. Panchromatic composites
+(`spot-pan`, `landsat-pan`) have one band, which the engine reads as R, G and
+B, a grey image. Example 20 runs Delineate Anything v2 as released on 2018
+composites of San Juan County, New Mexico. Against the NMOSE polygons, which
+were not used for training or fine-tuning in these runs (whether the model's
+training set, FBIS-73M, includes them was not checked), F1 was 0.15 on
+Landsat (30 m), 0.34 on Sentinel-2 (10 m), 0.33 on SPOT 6/7 (6 m) and 0.43 on
+NAIP (1 m); see the [gallery](../gallery.md).
 
 The Delineate-Anything model code and weights, and Ultralytics, are AGPL-3.0.
 
