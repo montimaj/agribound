@@ -49,6 +49,7 @@ import rasterio
 from shapely.geometry.base import BaseGeometry
 
 from agribound.clients.usgs_naip_plus import (
+    DEFAULT_RETRIES,
     DEFAULT_USGS_NAIPPLUS_URL,
     USGSNAIPPlusClient,
     USGSRasterCandidate,
@@ -91,8 +92,18 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
     def __init__(self) -> None:
         self.last_metadata: dict[str, Any] = {}
 
-    def build(self, config: AgriboundConfig) -> str:
+    def build(self, config: AgriboundConfig, *, resolution_m: float | None = None) -> str:
         """Download and mosaic a USGS NAIP Plus raster covering the study-area extent.
+
+        Parameters
+        ----------
+        config : AgriboundConfig
+            Configuration (``source="usgs-naip-plus"``).
+        resolution_m : float or None
+            Export resolution in metres. *None* (default, the ``usgs-naip-plus``
+            source) uses the finest resolution of the selected footprints; the
+            VHR SAR co-registration base asks for 1 m. A given value is part of
+            the cache key.
 
         Returns
         -------
@@ -125,7 +136,8 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
 
         geom_4326 = study_area_geometry_4326(config)
 
-        final_path = cache_path(config, "usgs_naip_plus", ".tif", self.SELECTION_VERSION)
+        extra = () if resolution_m is None else (f"resolution_m={float(resolution_m):g}",)
+        final_path = cache_path(config, "usgs_naip_plus", ".tif", self.SELECTION_VERSION, *extra)
         manifest_path = final_path.with_suffix(".json")
         if final_path.exists() and manifest_path.exists():
             logger.info("Using cached USGS NAIP Plus raster: %s", final_path)
@@ -134,7 +146,7 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
         client = USGSNAIPPlusClient(
             service_url=getattr(config, "usgs_service_url", DEFAULT_USGS_NAIPPLUS_URL),
             timeout_s=getattr(config, "usgs_timeout_s", 120),
-            retries=getattr(config, "usgs_retries", 3),
+            retries=getattr(config, "usgs_retries", DEFAULT_RETRIES),
         )
 
         service_metadata = client.get_service_metadata()
@@ -185,7 +197,10 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
             int(service_metadata.get("maxImageWidth", 4000)),
             int(service_metadata.get("maxImageHeight", 4000)),
         )
-        resolution_m = self._estimate_resolution_m(selected)
+        if resolution_m is None:
+            resolution_m = self._estimate_resolution_m(selected)
+        else:
+            resolution_m = float(resolution_m)
         centroid_lat = float(geom_4326.centroid.y)
         resolution_3857 = resolution_m / math.cos(math.radians(centroid_lat))
 
@@ -492,18 +507,32 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
         Tiles are merged in their own CRS (``rasterio.merge.merge``), then read
         through a ``WarpedVRT`` on *grid* block by block; pixels that no tile
         covers are set to 0 (nodata). Pixels are not masked to the study-area
-        polygons.
+        polygons. Band 4 is NIR: the mosaic and the output do not declare it as
+        alpha, which GDAL's warper and ``merge`` would use as transparency
+        (pixels whose NIR is 0 would be blanked in every band). The service's
+        tiles tag no band as alpha (two tiles checked on 2026-10-11); the alpha
+        tag of a tile that has one is changed to undefined in place first,
+        because a single tile is warped directly and ``merge`` reads each
+        tile's own mask.
 
         Returns
         -------
         int
             Number of bands written.
         """
-        from rasterio.enums import Resampling
+        from rasterio.enums import ColorInterp, Resampling
         from rasterio.merge import merge
         from rasterio.vrt import WarpedVRT
         from rasterio.windows import Window
 
+        for tile_path in tile_paths:
+            with rasterio.open(tile_path) as tile:
+                interp = list(tile.colorinterp)
+            if ColorInterp.alpha in interp:
+                with rasterio.open(tile_path, "r+") as tile:
+                    tile.colorinterp = [
+                        ColorInterp.undefined if c == ColorInterp.alpha else c for c in interp
+                    ]
         mosaic_path = out_path.with_name(out_path.stem + "_mosaic.tif")
         part = out_path.with_name(out_path.name + ".part")
         try:
@@ -513,7 +542,12 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
                 merge(
                     tile_paths,
                     dst_path=str(mosaic_path),
-                    dst_kwds={"compress": "deflate", "tiled": True, "BIGTIFF": "IF_SAFER"},
+                    dst_kwds={
+                        "compress": "deflate",
+                        "tiled": True,
+                        "BIGTIFF": "IF_SAFER",
+                        "ALPHA": "UNSPECIFIED",  # GDAL's default for 4 uint8 bands is RGBA
+                    },
                 )
                 src_path = str(mosaic_path)
 
@@ -534,6 +568,7 @@ class USGSNAIPPlusCompositeBuilder(CompositeBuilder):
                     "compress": "deflate",
                     "predictor": 2,
                     "BIGTIFF": "IF_SAFER",
+                    "ALPHA": "UNSPECIFIED",  # band 4 is NIR
                 }
                 with (
                     WarpedVRT(

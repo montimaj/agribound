@@ -15,9 +15,10 @@ from abc import ABC, abstractmethod
 
 import geopandas as gpd
 
-from agribound.config import AgriboundConfig
+from agribound.config import AgriboundConfig, effective_bands
 from agribound.registry import (
     CANONICAL_BAND_NAMES,
+    CATEGORICAL_ENGINES,
     ENGINE_CLASSES,
     ENGINE_REGISTRY,
     SOURCE_REGISTRY,
@@ -73,7 +74,13 @@ class DelineationEngine(ABC):
     def validate_input(self, raster_path: str, config: AgriboundConfig) -> None:
         """Validate that the input raster is compatible with this engine.
 
-        Checks that the raster has enough bands for the engine's
+        An engine that reads imagery (any engine not in
+        :data:`agribound.registry.CATEGORICAL_ENGINES`) refuses a raster of
+        class codes: one whose ``AGRIBOUND_VALUE_SCALE`` tag is
+        ``"categorical"``, or any raster of a crop-type map source
+        (:func:`agribound.io.raster.refuse_categorical`).
+
+        Then it checks that the raster has enough bands for the engine's
         ``requires_bands`` (class attribute, falling back to the registry
         entry): at least the highest 1-based index those canonical bands map
         to for the configured source, with ``config.bands`` taking precedence
@@ -91,27 +98,28 @@ class DelineationEngine(ABC):
         Raises
         ------
         ValueError
-            If the input is incompatible.
+            If the input is incompatible (including a class-code raster).
         """
-        from agribound.io.raster import get_raster_info
+        from agribound.io.raster import get_raster_info, refuse_categorical
 
+        if self.name not in CATEGORICAL_ENGINES:
+            refuse_categorical(raster_path, config, f"Engine {self.name!r}")
         required = list(self.requires_bands) or list(
             ENGINE_REGISTRY.get(self.name, {}).get("requires_bands", [])
         )
         info = get_raster_info(raster_path)
+        bands = effective_bands(config)
         n_needed = 0
         if required:
             try:
-                n_needed = max(
-                    get_canonical_band_indices(config.source, required, bands=config.bands)
-                )
+                n_needed = max(get_canonical_band_indices(config.source, required, bands=bands))
             except ValueError as exc:
                 raise ValueError(
                     f"Engine {self.name!r} requires bands {required}, which source "
                     f"{config.source!r} does not provide: {exc}"
                 ) from exc
         if n_needed > 0 and info.count < n_needed:
-            override = f" with bands={config.bands}" if config.bands else ""
+            override = f" with bands={bands}" if bands else ""
             raise ValueError(
                 f"Engine {self.name!r} requires bands {required}{override}, i.e. at least "
                 f"{n_needed} bands, but the raster has {info.count} bands."

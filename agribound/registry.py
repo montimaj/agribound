@@ -8,7 +8,16 @@ GDAL, torch or Earth Engine.
 Facts encoded here were checked against the upstream catalogues and packages
 on 2026-09-26 (GEE STAC entries and live collection queries, ftw-tools 2.0.0b5,
 Delineate-Anything v1/v2 model cards, geoai-py 0.43.1, terratorch 1.2.13,
-geotessera 0.10.2).
+geotessera 0.10.2); the Sentinel-1 facts on 2026-10-07 (the Earth Engine
+catalogue page and Sentinel-1 guide, and live queries of ``COPERNICUS/S1_GRD``);
+the Sentinel-1 patches of FBIS-73M and FBIS-22M on 2026-10-08 (their training
+lists, ``train.txt`` of the Hugging Face datasets ``MykolaL/FBIS-73M`` at
+9e4cdbd and ``MykolaL/FBIS-22M`` at 8713461); the Umbra and Capella open-data
+facts on 2026-10-07/08 (listings of ``s3://umbra-open-data-catalog`` and
+``s3://capella-open-data``, their STAC metadata and the AWS Registry of Open
+Data pages); the crop-type map facts on 2026-10-09 (a live listing of the
+images of ``USDA/NASS/CDL`` and ``AAFC/ACI``: system index, start date, bands
+and nominal scale).
 
 Registry entries
 ----------------
@@ -27,12 +36,24 @@ are still acquiring; *None* for local files), ``coverage`` (free text),
 
 - ``"reflectance_x10000"`` -- float32 surface reflectance multiplied by 10000
   (Sentinel-2, Landsat and HLS composites after the 1.0 harmonisation).
-- ``"uint8"`` -- 8-bit digital numbers 0-255 (NAIP, USGS NAIP Plus).
+- ``"uint8"`` -- 8-bit values 0-255: digital numbers (NAIP, USGS NAIP Plus), or
+  Sentinel-1 backscatter mapped from fixed dB ranges to 1-255, with 0 as nodata
+  (see :data:`agribound.composites.gee.S1_DB_RANGES`).
 - ``"unit"`` -- float32 TOA reflectance as stored (Landsat PAN), without x10000 scaling.
 - ``"dn"`` -- per-band medians (or greenest-pixel selections) of the scenes' raw
   integer digital numbers, exported as float32 (a median of an even number of
-  scenes can be a half-integer); radiometry unverified (SPOT 6/7).
+  scenes can be a half-integer); radiometry unverified (SPOT 6/7). For
+  ``umbra``: the median of level-normalised 8-bit GEC digital numbers, an
+  uncalibrated log-scaled amplitude (about 6.6 DN per dB), with 0 as nodata.
+- ``"db"`` -- float32 radar backscatter in decibels plus a fixed offset, so that
+  valid pixels are positive and 0 is nodata (``capella``: sigma0 dB + 50, see
+  :data:`agribound.composites.vhr_sar.CAPELLA_DB_OFFSET`).
 - ``"embedding"`` -- pre-computed embedding vectors (Google, TESSERA).
+- ``"categorical"`` -- class codes of annual crop-type maps, one uint8 band per
+  year, with 0 as nodata (``cdl-sequence``, ``aci-sequence``). The codes are
+  nominal: no distance or mean of codes is meaningful, so only the engines of
+  :data:`CATEGORICAL_ENGINES` read them; the other engines refuse a raster
+  whose ``AGRIBOUND_VALUE_SCALE`` tag is ``"categorical"``.
 - ``"unknown"`` -- user-provided rasters.
 
 ``ENGINE_REGISTRY[name]`` keys: ``name``, ``approach``, ``strengths``,
@@ -60,8 +81,10 @@ VALUE_SCALES: tuple[str, ...] = (
     "unit",
     "uint8",
     "dn",
+    "db",
     "embedding",
     "unknown",
+    "categorical",
 )
 """Allowed values of ``SOURCE_REGISTRY[...]["value_scale"]``."""
 
@@ -82,6 +105,12 @@ TESSERA_YEAR_RANGES: dict[str, tuple[int, int]] = {
 """Years with any published TESSERA tiles, per dataset version (geotessera 0.10.2 manifests)."""
 
 _OPTICAL_GEE_SOURCES = ["landsat", "landsat-pan", "sentinel2", "hls", "naip", "spot", "spot-pan"]
+_SAR_GEE_SOURCES = ["sentinel1"]
+#: Open very-high-resolution SAR on AWS (amplitude composites built locally,
+#: :mod:`agribound.composites.vhr_sar`).
+_VHR_SAR_SOURCES = ["umbra", "capella"]
+#: Stacks of annual crop-type maps on Earth Engine (class codes, not imagery).
+_CROP_SEQUENCE_SOURCES = ["cdl-sequence", "aci-sequence"]
 _ALL_IMAGERY_SOURCES = [
     "landsat",
     "landsat-pan",
@@ -91,6 +120,9 @@ _ALL_IMAGERY_SOURCES = [
     "usgs-naip-plus",
     "spot",
     "spot-pan",
+    "sentinel1",
+    "umbra",
+    "capella",
     "local",
 ]
 
@@ -294,6 +326,85 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "requires_gee": True,
         "restricted": True,
     },
+    "sentinel1": {
+        "name": "Sentinel-1 C-band SAR GRD",
+        "collection": "COPERNICUS/S1_GRD",
+        "resolution_m": 10,
+        # Pixel spacing. The IW GRD high-resolution product resolves about 20 x 22 m
+        # (range x azimuth), so the effective resolution is about 20 m.
+        "native_resolution_m": 10,
+        # VV and VH backscatter and VV - VH (dB), each mapped from a fixed dB range
+        # to 1-255 with 0 as nodata (agribound.composites.gee.S1_DB_RANGES).
+        "all_bands": ["VV", "VH", "VV_VH"],
+        "canonical_bands": {"R": "VV", "G": "VH", "B": "VV_VH"},
+        "value_scale": "uint8",
+        # Earth Engine cannot remove thermal noise from images produced before July
+        # 2015, and its Sentinel-1 guide lists GRD border-noise removal as of 2018-01-12
+        # (it does not say whether earlier images were reprocessed).
+        "year_range": (2015, None),
+        "coverage": (
+            "Global, where Interferometric Wide swath (IW) images with VV and VH exist (most "
+            "land; HH+HV areas, mainly polar, have none). In Earth Engine: Sentinel-1A "
+            "2014-10-03 to 2026-06-29, Sentinel-1B 2016-09-26 to 2021-12-23, Sentinel-1C from "
+            "2025-03-27 (preliminary calibration until 2025-05-19), Sentinel-1D from "
+            "2026-04-15. 6-12 day revisit from 2017 in most regions (12 days per satellite and "
+            "track, 6 where two satellites image a track; the observation plan decides); sparse "
+            "in 2015, and in some regions in 2016. 10 m pixels, about 20 x 22 m resolution. "
+            "Earth Engine cannot remove thermal noise from images before July 2015, and its "
+            "guide lists GRD border-noise removal as of 2018-01-12, so earlier images can keep "
+            "border noise"
+        ),
+        "requires_gee": True,
+        "restricted": False,
+    },
+    "umbra": {
+        "name": "Umbra open SAR (X-band, GEC)",
+        "collection": "s3://umbra-open-data-catalog (AWS Registry of Open Data: umbra-open-data)",
+        # Default composite grid (AgriboundConfig.vhr_sar_resolution_m).
+        "resolution_m": 1.0,
+        # Spotlight products of 0.16-1 m resolution; the GEC pixel spacing varies per collect.
+        "native_resolution_m": None,
+        # The median amplitude, copied to R, G and B (vhr_sar_bands="median"). With
+        # vhr_sar_bands="median+dates" band 2 is PAIR_MEAN and bands 3+ the single dates.
+        "all_bands": ["MEDIAN"],
+        "canonical_bands": {"R": "MEDIAN", "G": "MEDIAN", "B": "MEDIAN"},
+        "value_scale": "dn",
+        "year_range": (2023, None),
+        "coverage": (
+            "Sites of the Umbra Open Data Program and other tasked collects in "
+            "s3://umbra-open-data-catalog (CC BY 4.0), from January 2023: X-band spotlight "
+            "scenes of about 5 x 5 km, 0.16-1 m resolution, one polarization per collect (VV in "
+            "14,416 and HH in 3,388 GEC folders, listings of 2026-10-07/08). Long series "
+            "(166-204 collects) exist at a few farm sites (UC Davis CA, Purdue IN, Texas A&M, "
+            "NDSU, Johnston IA, Centerfield UT); most sites have few dates. The 8-bit GEC "
+            "amplitude is uncalibrated; collects must each cover the whole study area"
+        ),
+        "requires_gee": False,
+        "restricted": False,
+    },
+    "capella": {
+        "name": "Capella open SAR (X-band, GEO)",
+        "collection": "s3://capella-open-data (AWS Registry of Open Data: capella_opendata)",
+        "resolution_m": 1.0,
+        # Spotlight, sliding spotlight and stripmap: median GEO pixel spacing 0.34, 0.60
+        # and 0.84 m.
+        "native_resolution_m": None,
+        "all_bands": ["MEDIAN"],
+        "canonical_bands": {"R": "MEDIAN", "G": "MEDIAN", "B": "MEDIAN"},
+        "value_scale": "db",
+        "year_range": (2021, None),
+        "coverage": (
+            "Capella Space open data in s3://capella-open-data (CC BY 4.0): 2,291 X-band "
+            "collects from 2021-02-08 to 2026-09-09 (census of 2026-10-08; uploads arrive "
+            "about monthly), single polarization (HH in 2,094, VV in 197), spotlight, sliding "
+            "spotlight and stripmap, with a terrain-corrected GEO product in 2,286. 89 % of "
+            "the collects lie at sites with under 10 % cropland and no farmland site has a "
+            "long series in one geometry. About 19 % of the products are not fully calibrated "
+            "('limited' or 'partial'); collects must each cover the whole study area"
+        ),
+        "requires_gee": False,
+        "restricted": False,
+    },
     "local": {
         "name": "Local GeoTIFF",
         "collection": None,
@@ -337,6 +448,46 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "requires_gee": False,
         "restricted": False,
     },
+    "cdl-sequence": {
+        "name": "USDA NASS Cropland Data Layer, multi-year stack",
+        "collection": "USDA/NASS/CDL",
+        "resolution_m": 30,
+        # 30 m maps to 2023; the 2024 and later maps are 10 m. Earth Engine reads them at
+        # 30 m from the 20 m level of their MODE pyramid (each 20 m cell holds the most
+        # frequent class of its 2 x 2 10 m cells), then by nearest neighbour.
+        "native_resolution_m": 30,
+        # One band of class codes per year (CDL<year>), crop_sequence_years of them.
+        "all_bands": None,
+        "canonical_bands": None,
+        "value_scale": "categorical",
+        "year_range": (2008, None),
+        "coverage": (
+            "Conterminous US; one map per year in Earth Engine, 30 m for 2008-2023 and 10 m "
+            "from 2024 (read at 30 m from the 20 m level of their mode pyramid). Earlier "
+            "years are not used (two images each for 2005 and 2007, 56 m images in "
+            "2005-2007). Public domain"
+        ),
+        "requires_gee": True,
+        "restricted": False,
+    },
+    "aci-sequence": {
+        "name": "AAFC Annual Crop Inventory, multi-year stack",
+        "collection": "AAFC/ACI",
+        "resolution_m": 30,
+        "native_resolution_m": 30,
+        # One band of class codes per year (ACI<year>), crop_sequence_years of them.
+        "all_bands": None,
+        "canonical_bands": None,
+        "value_scale": "categorical",
+        "year_range": (2011, None),
+        "coverage": (
+            "Canada; one 30 m map per year in Earth Engine from 2011 (the 56 m maps of "
+            "2009-2010 are not used). Open Government Licence - Canada 2.0 (attribution "
+            "required)"
+        ),
+        "requires_gee": True,
+        "restricted": False,
+    },
 }
 
 ENSEMBLE_DEFAULT_MEMBERS: tuple[str, ...] = ("delineate-anything", "ftw")
@@ -347,11 +498,70 @@ that :mod:`agribound.config` can validate the defaults without importing the
 engine (and geopandas).
 """
 
-GEE_IMAGERY_SOURCES: tuple[str, ...] = tuple(_OPTICAL_GEE_SOURCES)
+SAR_SOURCES: tuple[str, ...] = tuple(_SAR_GEE_SOURCES + _VHR_SAR_SOURCES)
+"""Synthetic aperture radar sources (their composites hold backscatter, not reflectance).
+
+The reflectance conversions of :mod:`agribound.io.raster` refuse them unless a
+``value_scale`` is passed, and the agent's ``recommend_configurations`` ranks
+them after every other source.
+"""
+
+VHR_SAR_SOURCES: tuple[str, ...] = tuple(_VHR_SAR_SOURCES)
+"""Open very-high-resolution SAR sources (Umbra and Capella open data on AWS).
+
+Their amplitude composites are built locally, without Earth Engine, by
+:class:`agribound.composites.vhr_sar.VHRSARCompositeBuilder`; the
+``vhr_sar_*`` configuration fields apply only to them.
+"""
+
+GEE_IMAGERY_SOURCES: tuple[str, ...] = tuple(_OPTICAL_GEE_SOURCES + _SAR_GEE_SOURCES)
 """Imagery sources whose composites are built on Google Earth Engine."""
+
+SCENE_SURVEY_SOURCES: tuple[str, ...] = (
+    "sentinel2",
+    "landsat",
+    "landsat-pan",
+    "hls",
+    "spot",
+    "spot-pan",
+)
+"""Sources whose acquisitions :func:`agribound.composites.scenes.survey_scenes` ranks.
+
+They are also the sources of :func:`agribound.composites.scenes.build_date_layers`.
+``naip`` is a mosaic, ``sentinel1`` has no cloud filter or mask, and ``umbra`` and
+``capella`` select their collects themselves.
+"""
+
+SCENE_RANKED_SOURCES: tuple[str, ...] = ("sentinel2", "landsat", "landsat-pan", "hls")
+"""Of :data:`SCENE_SURVEY_SOURCES`, those with a per-pixel cloud mask.
+
+Their acquisitions are ranked by the share of the study area that is clear under
+the mask; ``spot`` and ``spot-pan`` have no pixel mask, so their clear share is the
+share of the study area their scenes cover.
+"""
 
 EMBEDDING_SOURCES: tuple[str, ...] = ("google-embedding", "tessera-embedding")
 """Pre-computed embedding sources."""
+
+CROP_SEQUENCE_SOURCES: tuple[str, ...] = tuple(_CROP_SEQUENCE_SOURCES)
+"""Stacks of annual crop-type maps (value scale ``"categorical"``).
+
+Their builder, :class:`agribound.composites.crop_sequence.CropSequenceCompositeBuilder`,
+downloads the raw class codes of ``crop_sequence_years`` annual maps ending in
+``year`` from Earth Engine, one uint8 band per year. Only the engines of
+:data:`CATEGORICAL_ENGINES` support them; ``crop_sequence_years`` applies only
+to them.
+"""
+
+CATEGORICAL_ENGINES: tuple[str, ...] = ("crop-sequence",)
+"""Engines that read class codes (rasters whose value scale is ``"categorical"``).
+
+Every other engine refuses such a raster
+(:meth:`agribound.engines.base.DelineationEngine.validate_input`), and so do
+SAM refinement and fine-tuning. The reflectance conversions of
+:mod:`agribound.io.raster` take arrays, not rasters: they refuse the sources of
+:data:`CROP_SEQUENCE_SOURCES` and ``value_scale="categorical"``.
+"""
 
 # ---------------------------------------------------------------------------
 # Engine registry
@@ -389,6 +599,63 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
                 "single band is replicated to grey R, G, B."
             ),
             "hls": "30 m HLS composites are outside the 0.25-10 m training range.",
+            "sentinel1": (
+                "Sentinel-1 SAR backscatter (VV, VH and VV-VH as R, G, B). FBIS-73M, the "
+                "training set of the v2 model (large_v2), includes Sentinel-1 patches (76,448 "
+                "S1 and 7,852 SYN-S1 of the 1,432,187 in its training list; the published "
+                "training list of FBIS-22M, of the v1 models, has none), but how their bands "
+                "were rendered is not documented, so agribound's composites may differ from "
+                "them. Zero-shot F1 (IoU >= 0.5, no LULC filter) was 0.18 and 0.39 on two 5 "
+                "km smoke squares (default settings; Lea County, NM, 2022; near Davis, CA, "
+                "2024) and, in a pilot (2026-10-08; max_detections=1000 on example 23's "
+                "squares), 0.80 on the tree crops of example 23's Madera square (2022), 0.455 "
+                "on 20.5 km2 near Davis (2024; inside the Davis smoke square), 0.173 on 415 km2 "
+                "of eastern Lea County (2024; a box that contains the Lea smoke square), and "
+                "0.11, 0.06 and 0.00 on example 23's Twifo Praso (2020), Ubeda (2023) and Oro "
+                "(2021) squares. The California and Spanish scores are not held out: "
+                "FBIS-73M's labels there are DWR and SIGPAC polygons, and 2 of its S1 patches "
+                "intersect the Davis area (about 38 lie within 10 km of it) and 18 lie within "
+                "10 km of the Madera square; expect to need "
+                "fine-tuning. stretch_percentiles has no effect on this uint8 composite (a "
+                "float copy stretched at (0.1, 99.9) scored lower in 4 of the 6 pilot areas), "
+                "and merge_tile_pieces=False changed F1 by at most 0.005 there. The effective "
+                "resolution is about 20 m (IW GRD, 20 x 22 m) although the pixels are 10 m, so "
+                "the GSD check does not warn."
+            ),
+            "umbra": (
+                "Umbra GEC amplitude (one polarization; the median of co-registered, "
+                "level-normalised dates in R, G and B). In a prototype (2026-10-08; reference "
+                "fields of at least 2,500 m2, IoU >= 0.5), zero-shot F1 with a recipe fixed in "
+                "advance (median of 4-6 collects of one geometry, 1 m composite, engine_params "
+                "processing_gsd_m=3 and merge_tile_pieces=False) was 0.439 near UC Davis, CA "
+                "(2024), 0.163 at Centerfield, UT (2025), 0.257 near Purdue, IN (2024) and 0.360 "
+                "on Mallorca (2026; that median mixed HH and VV, which agribound does not do), "
+                "against 0.426, 0.360, 0.240 and 0.460 for NAIP or PNOA orthophotos + "
+                "Delineate-Anything; one date with the default settings scored 0.008, 0.000, "
+                "0.081 and 0.065. Set processing_gsd_m=3 and merge_tile_pieces=False (they are "
+                "not engine defaults). These prototype scores are not held out: the recipe was "
+                "chosen on these areas, and the UC Davis and Mallorca areas lie in the training "
+                "geography of the v2 model (DWR and SIGPAC labels); whether FBIS-73M holds X-band "
+                "patches was not checked. In a held-out test of the fixed recipe (2026-10-09; "
+                "OpenET field boundaries v2.1.1, fields of at least 2,500 m2) F1 was 0.390 at the "
+                "Texas A&M AgriLife farm, TX (6 VV collects, April-June 2024; 136 fields) and "
+                "0.261 near the Intel Ohio site, OH (4 HH collects, June-September 2024; 77 "
+                "fields), against 0.284 and 0.193 for NAIP + Delineate-Anything with its defaults "
+                "and 0.403 and 0.310 with processing_gsd_m=3 and merge_tile_pieces=False."
+            ),
+            "capella": (
+                "Capella GEO amplitude (sigma0 dB + 50, one polarization; the median of "
+                "co-registered, level-normalised dates in R, G and B). In a held-out test of the "
+                "fixed recipe (2026-10-09) in Orleans County, VT (two HH collects of June 2022; "
+                "112 OpenET field boundaries v2.1.1 of at least 2,500 m2), zero-shot F1 (IoU >= "
+                "0.5) was 0.274, against 0.261 for NAIP + Delineate-Anything with its defaults "
+                "and 0.249 with processing_gsd_m=3 and merge_tile_pieces=False. In a pilot "
+                "(2026-10-08) near Sevilla, Spain (January 2023 collects, 1,128 SIGPAC parcels of "
+                "2025), F1 was 0.50-0.54 reading at 2-3 m without tile merging; that is "
+                "in-sample, not held out (the v2 model was trained with SIGPAC labels in Spain, "
+                "and the reference is two years newer than the images). Set processing_gsd_m=3 "
+                "and merge_tile_pieces=False (they are not engine defaults)."
+            ),
         },
     },
     "ftw": {
@@ -443,6 +710,22 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
             "No field-boundary weights are published; a checkpoint from fine-tuning "
             "(fine_tune=True) or engine_params['checkpoint_path'] is required."
         ),
+        "source_notes": {
+            "sentinel1": (
+                "Sentinel-1 SAR backscatter (VV, VH and VV-VH as R, G, B) is out of "
+                "distribution for the COCO-pretrained Mask R-CNN; fine-tune on Sentinel-1 "
+                "composites. The effective resolution is about 20 m (IW GRD, 20 x 22 m) "
+                "although the pixels are 10 m."
+            ),
+            "umbra": (
+                "Umbra X-band SAR amplitude (one polarization, copied to R, G and B) is out of "
+                "distribution for the COCO-pretrained Mask R-CNN; fine-tune on these composites."
+            ),
+            "capella": (
+                "Capella X-band SAR amplitude (one polarization, copied to R, G and B) is out of "
+                "distribution for the COCO-pretrained Mask R-CNN; fine-tune on these composites."
+            ),
+        },
     },
     "dinov3": {
         "name": "DINOv3",
@@ -456,6 +739,24 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
         "reference": "Siméoni et al. (2025) DINOv3, arXiv:2508.10104",
         "install_extra": "dinov3",
         "notes": "Requires a fine-tuned checkpoint (fine_tune=True with reference boundaries).",
+        "source_notes": {
+            "sentinel1": (
+                "Sentinel-1 SAR backscatter (VV, VH and VV-VH as R, G, B) is out of "
+                "distribution for the SAT-493M backbone, which was pre-trained on optical "
+                "satellite imagery; fine-tune on Sentinel-1 composites. The effective resolution "
+                "is about 20 m (IW GRD, 20 x 22 m) although the pixels are 10 m."
+            ),
+            "umbra": (
+                "Umbra X-band SAR amplitude (one polarization, copied to R, G and B) is out of "
+                "distribution for the SAT-493M backbone, which was pre-trained on optical "
+                "satellite imagery; fine-tune on these composites."
+            ),
+            "capella": (
+                "Capella X-band SAR amplitude (one polarization, copied to R, G and B) is out of "
+                "distribution for the SAT-493M backbone, which was pre-trained on optical "
+                "satellite imagery; fine-tune on these composites."
+            ),
+        },
     },
     "prithvi": {
         "name": "Prithvi-EO-2.0",
@@ -493,11 +794,14 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "embedding": {
         "name": "Embedding clustering",
-        "approach": "Unsupervised K-means clustering of pre-computed per-pixel embeddings",
+        "approach": (
+            "Unsupervised K-means clustering of pre-computed per-pixel embeddings or of the "
+            "bands of a local feature raster"
+        ),
         "strengths": "Runs on CPU; no labels or model weights needed",
         "gpu_recommended": False,
         "requires_bands": [],
-        "supported_sources": list(EMBEDDING_SOURCES),
+        "supported_sources": [*EMBEDDING_SOURCES, "local"],
         "label_free": True,
         "fine_tunable": False,
         "reference": (
@@ -506,7 +810,157 @@ ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
             "AlphaEarth Foundations, arXiv:2507.22291"
         ),
         "install_extra": "embedding",
-        "notes": "Clusters are land-cover segments, not field instances.",
+        "notes": (
+            "Clusters are land-cover segments, not field instances. With source='local' it "
+            "clusters any feature GeoTIFF (e.g. SAR polarimetric features); set "
+            "engine_params['standardize'] when the bands have different units."
+        ),
+    },
+    "sam-auto": {
+        "name": "SAM 2.1 automatic masks",
+        "approach": (
+            "Segment Anything 2.1 automatic mask generation (a grid of point prompts) on large "
+            "overlapping tiles, partitioned by score into non-overlapping polygons"
+        ),
+        "strengths": (
+            "No field labels or field-specific training; SAM 2.1 code and weights are Apache-2.0; "
+            "tight outlines of fields that look uniform in the image"
+        ),
+        "gpu_recommended": True,
+        "requires_bands": ["R", "G", "B"],
+        "supported_sources": list(_ALL_IMAGERY_SOURCES),
+        "label_free": True,
+        "fine_tunable": False,
+        "reference": (
+            "Kirillov et al. (2023) Segment Anything, ICCV 2023, arXiv:2304.02643; Ravi et al. "
+            "(2025) SAM 2: Segment Anything in Images and Videos, ICLR 2025, arXiv:2408.00714"
+        ),
+        "install_extra": "sam-auto",
+        "notes": (
+            "Opt-in: never an engine default, and the agent proposes it only when it is named; "
+            "example 28 runs it on NAIP, and examples 24 and 25 with --sam-auto. SAM outlines "
+            "every region it sees as one object, not only fields (house lots, rangeland, roads), "
+            "and merges look-alike neighbours; keep the LULC filter on (the default). At the "
+            "default 50 % tile overlap an object is whole only if it is at most about half a "
+            "tile across. The per-source settings were chosen on two Nevada development squares "
+            "(2026-10-12), so their scores there are in-sample. A pre-registered evaluation "
+            "against Delineate-Anything v2 as released (2026-10-13) kept it on NAIP (F1 0.017 "
+            "higher on 46 of example 25's squares, 95 % interval 0.004 to 0.030, both near F1 "
+            "0.3: better by its rule), and on SPOT 6/7 and Landsat (8/9; 7/8/9 on the San Juan "
+            "box) over four Nevada and New Mexico areas, with no 'better' claim (the Nevada "
+            "pairs scored without the crop filter and the New Mexico pairs with it; both Nevada "
+            "areas re-scored by an amendment of 2026-10-13); on Sentinel-2 it did not transfer "
+            "(F1 0.152 lower). Sources without a piloted setting (usgs-naip-plus, hls, "
+            "landsat-pan, spot-pan, umbra, capella, local) run at native scale (1,024-pixel "
+            "tiles) with sam2's thresholds and a WARNING. Output is identical on one device and "
+            "differs between devices. GPU-time ratios were measured back to back with "
+            "Delineate-Anything on the same composites of two New Mexico boxes. SAM 2.1 code "
+            "and weights are Apache-2.0; "
+            "the sam2 1.1.0 package on PyPI is a third-party build of Meta's code, whose files "
+            "equal Meta's commit 2b90b9f (2024-12-15). HPC tiling is not supported."
+        ),
+        "source_notes": {
+            "naip": (
+                "Default: 2,048 m tiles, 32 points per side, predicted IoU > 0.8, stability >= "
+                "0.95 (sam2's own thresholds). Pre-registered evaluation against "
+                "Delineate-Anything v2 as released: F1 0.017 higher on 46 of example 25's squares "
+                "(95 % interval 0.004 to 0.030; both near F1 0.3). GPU time 6.1 times "
+                "Delineate-Anything's, measured back to back on two large New Mexico boxes (Apple "
+                "M2 Max, MPS); 3.1 times on example 25's 5 km squares. In the pilot (development "
+                "evidence), on one New Mexico square of small fields that played no part in the "
+                "choice, F1 was 0.51 against Delineate-Anything's 0.43 (paired difference +0.07, "
+                "1 km-block bootstrap interval +0.03 to +0.12)."
+            ),
+            "usgs-naip-plus": (
+                "The same imagery as NAIP, but no setting was piloted on this source: it runs at "
+                "native scale (1,024-pixel tiles) with sam2's thresholds and a WARNING."
+            ),
+            "spot": (
+                "Default: 6,144 m tiles, 32 points per side, predicted IoU > 0.6, stability >= "
+                "0.95, chosen on growing-season composites (one scene in Diamond Valley, the "
+                "median of five in Mason Valley). Pre-registered evaluation: mean F1 difference "
+                "+0.26 over four Nevada and New Mexico areas (median fields 1.1-48 ha), positive "
+                "in all four (Mason Valley's 1 km-block interval, -0.003 to +0.161, just includes "
+                "0); as pre-registered, the Nevada pairs are scored without the crop filter and "
+                "the New Mexico pairs with it (+0.21 with all four unfiltered, a secondary "
+                "result), and both Nevada areas were scored again by an amendment of 2026-10-13, "
+                "after the first scores had been read; four areas support no 'better' claim. GPU "
+                "time 6.4 times Delineate-Anything's, measured back to back on two large New "
+                "Mexico boxes. In the "
+                "pilot (development evidence), on one New Mexico square of small fields (a "
+                "winter-only median) F1 was 0.26 against Delineate-Anything's 0.39 (paired "
+                "difference -0.13, 1 km-block bootstrap interval -0.20 to -0.05). In a multi-tile "
+                "development check (2026-10-12: three development squares scored inside runs on "
+                "25 km composites of many tiles, against their single-tile runs) F1 changed by "
+                "-0.09, +0.12 and +0.02: not consistent by the pre-registered rule (each change "
+                ">= -0.05). Where it fell (Diamond Valley, the same scene in both runs) more "
+                "polygons lay on unmapped ground; part of the +0.12 (Mason Valley) comes from a "
+                "different composite, 7 scenes against 5."
+            ),
+            "sentinel2": (
+                "Did not transfer: in the pre-registered evaluation its F1 was 0.15 below "
+                "Delineate-Anything v2's on 46 of example 25's squares (95 % interval -0.18 to "
+                "-0.13), lower on 45 of them, with about a quarter as many polygons; it was ahead "
+                "in three Nevada and New Mexico areas with median fields of 7.7-48 ha and level in "
+                "a fourth (1.1 ha). The setting is unchanged and was not tried again. Available "
+                "with a WARNING: 5,120 m tiles, 32 points per side, predicted IoU > 0.8, "
+                "stability >= 0.9; 17.0 times Delineate-Anything's GPU time per km2 (0.59 against "
+                "0.035 s), measured back to back on two large New Mexico boxes. In the pilot "
+                "(development evidence), on one New Mexico square of small fields F1 was 0.35 "
+                "against Delineate-Anything's 0.40 (paired difference -0.05; its 1 km-block "
+                "bootstrap interval, -0.12 to +0.01, includes 0). In a multi-tile development "
+                "check (2026-10-12: three development squares scored inside runs on 25 km "
+                "composites of many tiles) F1 stayed within 0.02 of their single-tile runs."
+            ),
+            "landsat": (
+                "Available with a WARNING about its cost: 7,680 m tiles, 32 points per side, "
+                "predicted IoU > 0.6, stability >= 0.8; 20.7 times Delineate-Anything's GPU time "
+                "per km2 (0.23 against 0.011 s), measured back to back on two large New Mexico "
+                "boxes. Pre-registered evaluation (Landsat 8/9; 7/8/9 on the San Juan box): mean "
+                "F1 difference +0.13 over four Nevada and New Mexico areas (Mason Valley -0.04, "
+                "interval -0.11 to +0.03), with the same filter states and amendment as SPOT 6/7 "
+                "(+0.09 with all four pairs unfiltered, a secondary result); four "
+                "areas support no 'better' claim, and at 30 m Delineate-Anything runs outside its "
+                "training range (0.25-10 m). Outlines are coarse at 30 m. In a multi-tile "
+                "development check (2026-10-12: three development squares scored inside runs on "
+                "25 km composites of many tiles, against their single-tile runs) F1 changed by "
+                "-0.11, +0.09 and +0.06: not consistent by the pre-registered rule (each change "
+                ">= -0.05)."
+            ),
+            "sentinel1": (
+                "No default: set sam_tile_m, points_per_side, pred_iou_thresh and "
+                "stability_score_thresh. On the two development squares the setting the "
+                "selection rule chose was level with Delineate-Anything (mean F1 0.437 against "
+                "0.441, in-sample; the highest of its 72 settings had 0.443) at about 22 times "
+                "its GPU time on 5 km squares."
+            ),
+        },
+    },
+    "crop-sequence": {
+        "name": "Crop-sequence zones",
+        "approach": (
+            "Zones of uniform multi-year crop history from annual crop-type maps (CSB-like): "
+            "cultivated mask, per-year focal mode, barrier classes, equal-sequence regions, "
+            "small-region merge"
+        ),
+        "strengths": (
+            "No imagery, model weights or GPU; seconds of CPU per 25 km2; per-zone crop history"
+        ),
+        "gpu_recommended": False,
+        "requires_bands": [],
+        "supported_sources": [*_CROP_SEQUENCE_SOURCES, "local"],
+        "label_free": True,
+        "fine_tunable": False,
+        "reference": (
+            "Hunt et al. (2024) Crop sequence boundaries using USDA National Agricultural "
+            "Statistics Service historic cropland data layers, Statistical Journal of the IAOS "
+            "40:237-246, doi:10.3233/SJI-230078"
+        ),
+        "install_extra": "crop-sequence",
+        "notes": (
+            "Zones of uniform crop history, not field instances. Local rasters need "
+            "engine_params value_scale='categorical' and a dataset or class lists."
+        ),
     },
     "ensemble": {
         "name": "Ensemble",
@@ -534,6 +988,8 @@ ENGINE_CLASSES: dict[str, str] = {
     "dinov3": "agribound.engines.dinov3:DINOv3Engine",
     "prithvi": "agribound.engines.prithvi:PrithviEngine",
     "embedding": "agribound.engines.embedding:EmbeddingEngine",
+    "sam-auto": "agribound.engines.sam_auto:SAMAutoEngine",
+    "crop-sequence": "agribound.engines.crop_sequence:CropSequenceEngine",
     "ensemble": "agribound.engines.ensemble:EnsembleEngine",
 }
 """Engine name -> ``"module:Class"`` import path used by :func:`agribound.engines.get_engine`."""
@@ -721,15 +1177,21 @@ def supported_sources(engine: str) -> list[str]:
 
 __all__ = [
     "CANONICAL_BAND_NAMES",
+    "CATEGORICAL_ENGINES",
+    "CROP_SEQUENCE_SOURCES",
     "EMBEDDING_SOURCES",
     "ENGINE_CLASSES",
     "ENGINE_REGISTRY",
     "ENSEMBLE_DEFAULT_MEMBERS",
     "GEE_IMAGERY_SOURCES",
     "SAM_REFINE_BACKENDS",
+    "SAR_SOURCES",
+    "SCENE_RANKED_SOURCES",
+    "SCENE_SURVEY_SOURCES",
     "SOURCE_REGISTRY",
     "TESSERA_YEAR_RANGES",
     "VALUE_SCALES",
+    "VHR_SAR_SOURCES",
     "canonical_bands",
     "engine_notes",
     "engine_supports_source",

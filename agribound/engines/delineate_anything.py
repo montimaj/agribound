@@ -33,41 +33,60 @@ cannot run raises an error that says what is missing.
     Agribound's own tiled Ultralytics inference. It reproduces the
     *preprocessing* of the reference Delineate-Anything pipeline (DelAnyFlow,
     upstream ``methods/main``): a scene-level per-band 1-99 percentile stretch
-    to uint8, computed on valid, strictly positive pixels sampled
-    (nearest neighbour, full-resolution data, never overviews) on a grid of
-    at most 4096 px per side (uint8 rasters are used unchanged); tiles of 512
-    native pixels when the ground sampling distance (GSD) is below 4 m, else
-    256 native pixels upsampled 2x with bicubic interpolation, so the model
-    input is always 512 x 512 (``super_resolution`` = 1, 2 or 4 overrides the
-    factor); 50 % tile overlap starting half a tile before the raster origin,
-    as the upstream ``ExecutionPlanner`` does; BGR channel order for NumPy
-    input to Ultralytics; ``retina_masks=True``; masks cast to float before
-    the upstream 3 x 3 erode / dilate / dilate / erode morphology (Ultralytics
-    >= 8.3.217 returns uint8 masks, on which the upstream negation trick would
-    turn the erosion into a dilation); FP16 on GPU/MPS. Each detection becomes
-    the largest polygon of its mask, clipped to valid pixels, and is flagged
-    when it touches an interior tile edge (a *tile-cut* detection). The
+    (``stretch_percentiles``) to uint8, computed on valid, strictly positive
+    pixels sampled (nearest neighbour, full-resolution data, never overviews)
+    on a grid of at most 4096 px per side (uint8 rasters are used unchanged);
+    tiles of 512 native pixels when the ground sampling distance (GSD) is
+    below 4 m, else 256 native pixels upsampled 2x with bicubic interpolation,
+    so the model input is always 512 x 512 (``super_resolution`` = 1, 2 or 4
+    overrides the factor); 50 % tile overlap starting half a tile before the
+    raster origin, as the upstream ``ExecutionPlanner`` does; BGR channel
+    order for NumPy input to Ultralytics; ``retina_masks=True``; masks cast to
+    float before the upstream 3 x 3 erode / dilate / dilate / erode morphology
+    (Ultralytics >= 8.3.217 returns uint8 masks, on which the upstream
+    negation trick would turn the erosion into a dilation); FP16 on GPU/MPS.
+    Each detection becomes the largest polygon of its mask, clipped to valid
+    pixels, and is *tile-cut* when that polygon reaches into the strip of
+    :data:`TILE_EDGE_STRIP_PX` (4) model-input pixels along an interior tile
+    edge, the edge strip DelAnyFlow marks (``merging_edge_width``). The
     detections of all tiles are then combined at polygon level, with
     duplicates defined as IoU >= ``dedup_iou`` or intersection >=
     ``dedup_containment`` of the smaller polygon: (1) tile-cut duplicates of
-    one another are merged into their union (:func:`merge_tile_pieces`;
-    ``merge_tile_pieces=False`` skips it), so a field too large to be
-    complete in any tile is rebuilt from its pieces (the polygon-level
-    counterpart of DelAnyFlow's merging of fields that touch a tile border);
-    pieces that duplicate a complete (not tile-cut), at least as large
-    detection are not merged; (2) greedy non-maximum suppression visits the
-    polygons by higher confidence, then larger area, and drops every polygon
-    that duplicates one already kept, except that a complete detection is
-    visited before each tile-cut duplicate that is not larger than it
-    (:func:`deduplicate_detections`); (3) remaining overlaps go to the
-    polygon visited first in that order (:func:`resolve_overlaps`;
-    ``resolve_overlaps=False`` keeps them). This is simpler than DelAnyFlow's
-    raster-level region merging (which, for example, lets smaller fields
-    carve their area out of larger ones), so results are close to, but not
-    identical with, the ``"reference"`` backend. NMS uses IoU 0.3 by
-    default, the value of the authors' openEO UDP
-    (``openeo_udp/udf/delineate_onnx.py``); the upstream ``execute()`` keeps
-    Ultralytics' default (0.7). The raster is read tile by tile.
+    one another are merged into their union, which stays tile-cut
+    (:func:`merge_tile_pieces`; ``merge_tile_pieces=False`` skips it), so a
+    field too large to be complete in any tile is rebuilt from its pieces
+    (the polygon-level counterpart of DelAnyFlow's merging of fields that
+    touch a tile border); pieces that duplicate a complete (not tile-cut), at
+    least as large detection are not merged; (2) greedy non-maximum
+    suppression visits the polygons by higher confidence, then larger area,
+    and drops every polygon that duplicates one already kept, except that a
+    complete detection is visited before each tile-cut duplicate that is not
+    larger than it (:func:`deduplicate_detections`); (3) remaining overlaps
+    go to complete polygons before tile-cut ones, and within each group to
+    the higher confidence, then the larger area, so a polygon cut by its tile
+    edge never cuts that edge into a field that another tile saw whole
+    (:func:`resolve_overlaps`; ``resolve_overlaps=False`` keeps them); (4)
+    tile-cut polygons that meet along an interior tile edge are joined when
+    they pass DelAnyFlow's seam test (:func:`merge_tile_seams`, a port of
+    upstream ``merge_tile_seams``, commit 488e537, with its thresholds;
+    ``merge_tile_seams=False`` skips it). Pieces that only meet at a tile
+    edge are otherwise never joined, because they do not overlap. This is
+    simpler than DelAnyFlow's raster-level region merging (which, for
+    example, lets smaller fields carve their area out of larger ones), so
+    results are close to, but not identical with, the ``"reference"``
+    backend. NMS uses IoU 0.3 by default, the value of the authors' openEO
+    UDP (``openeo_udp/udf/delineate_onnx.py``); the upstream ``execute()``
+    keeps Ultralytics' default (0.7). The raster is read tile by tile.
+    ``config.min_field_area_m2`` is applied to the raw detections, before
+    step (1), and again after step (4); upstream applies its
+    ``minimum_area_m2`` only after its seam merge, so there a tile-cut piece
+    smaller than the minimum can still be joined to its neighbour. Keeping
+    the tile-cut detections until the second filter was tried on cached
+    SPOT-Pan composites (example 23's Twifo Praso and example 22's Cauvery
+    delta with the released weights, example 23's Oro with the published
+    Higaturu fine-tuning): 2, 0 and 7 more seam joins, and scores that moved
+    by one polygon either way (one more false positive at Twifo Praso, one
+    more split field at Oro), so the filter order was kept.
 ``"reference"``
     Runs the upstream DelAnyFlow pipeline (``methods.main.inference.execute``)
     in a subprocess, from a Delineate-Anything checkout given by
@@ -97,9 +116,15 @@ backend); parameters not listed here are left to other pipeline stages.
   default automatic); ``tile_step`` (fraction of the tile, 0.5); ``half``
   (FP16 on GPU/MPS, True).
 - ``native`` and ``ftw``: ``iou_threshold`` (NMS IoU, 0.3);
-  ``max_detections`` (per tile, 300).
+  ``max_detections`` (per tile, 300). Both predict without Ultralytics'
+  wall-clock limit on non-maximum suppression (:func:`no_nms_time_limit`),
+  as does fine-tuning's validation.
 - ``native``: ``dedup_iou`` (0.3), ``dedup_containment`` (0.8),
-  ``merge_tile_pieces`` (True) and ``resolve_overlaps`` (True).
+  ``merge_tile_pieces`` (True), ``resolve_overlaps`` (True),
+  ``merge_tile_seams`` (True when ``resolve_overlaps`` is True and
+  ``tile_step`` is 0.5, which it needs; False otherwise, and True with
+  either of them changed raises :class:`ValueError`), ``processing_gsd_m``
+  (None) and ``stretch_percentiles`` (``(1, 99)``); see below.
 - ``reference``: ``da_repo``; ``min_hole_area_m2`` (holes smaller than this
   are filled, 2500 m², the upstream ``conf_sample.yaml`` value).
 - ``ftw``: ``patch_size`` (256; a multiple of 32 smaller than the raster's
@@ -109,6 +134,36 @@ backend); parameters not listed here are left to other pipeline stages.
   only near 30° latitude; 0), ``max_size`` (m², None),
   ``overlap_iou_threshold`` (0.3), ``overlap_contain_threshold`` (0.8),
   ``value_scale`` (for ``local`` rasters).
+
+Two ``native`` options change the input the model sees, for example for
+fields larger than its tiles. Neither is set by default, and neither changes
+the results, cache keys or configuration hash of runs that do not set it:
+
+- ``processing_gsd_m`` (metres): the backend reads the raster at this
+  coarser pixel size. The raster is resampled once by average resampling
+  (each new pixel is the area-weighted mean of the valid raster pixels it
+  covers) and cached in the working directory (:func:`processing_raster`);
+  everything then runs on that copy as on any raster of that pixel size,
+  including the 4 m super-resolution rule, so at 3 m the 512 px tiles cover
+  1536 m instead of the 768 m of 1.5 m imagery. The polygons are in the
+  raster's CRS. Values outside the 0.25-10 m training range, or finer than
+  the raster's pixels (by more than 1 %), raise :class:`ValueError`; a value
+  within 1 % of the raster's pixel size reads the raster as it is.
+  ``engine_meta`` records ``processing_gsd_m`` and ``processing`` (pixel
+  size, factor, size and path of the copy; None when the raster is read as
+  it is).
+- ``stretch_percentiles`` ``(low, high)``, ``0 <= low < high <= 100``: the
+  percentiles of the scene stretch (upstream's 1 and 99 by default). uint8
+  rasters are not stretched, so it has no effect on them (WARNING).
+
+The fine-tuning chips of this engine are cut from the same raster with the
+same stretch (:mod:`agribound.engines.finetune._data`), and the training
+metadata of a fine-tuned checkpoint records the input they gave the model:
+pixel size, super-resolution factor and stretch percentiles (none for a
+uint8 raster). A run that gives the checkpoint it loads another input (a
+pixel size more than 1 % off, e.g. a 1.5 m checkpoint on a 3 m raster,
+another factor or another stretch) logs a WARNING and records both in
+``engine_meta["checkpoint_input_mismatch"]``.
 
 ``config.min_field_area_m2`` is applied as an absolute area in m², computed
 in the equal-area EPSG:6933, by every backend (the reference pipeline's
@@ -122,7 +177,8 @@ factor, tile size, device, pixel size, ...); the ``native`` backend also
 returns a ``confidence`` column. The published models were trained on
 0.25-10 m imagery: for rasters outside that range (e.g. 30 m Landsat/HLS) a
 WARNING is logged and ``engine_meta["gsd_outside_training_range"]`` is True
-(:func:`gsd_outside_training_range`).
+(:func:`gsd_outside_training_range`; with ``processing_gsd_m``, the pixel size
+the model sees is checked).
 
 References
 ----------
@@ -142,7 +198,9 @@ Model code and weights are AGPL-3.0; Ultralytics is AGPL-3.0.
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import functools
 import hashlib
 import importlib
 import importlib.util
@@ -152,6 +210,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -159,7 +218,7 @@ from typing import Any
 import geopandas as gpd
 import numpy as np
 
-from agribound.config import AgriboundConfig
+from agribound.config import AgriboundConfig, effective_bands
 from agribound.engines.base import DelineationEngine, get_canonical_band_indices
 from agribound.registry import ENGINE_REGISTRY
 
@@ -276,11 +335,59 @@ DEFAULT_DEDUP_CONTAINMENT = 0.8
 
 #: Bump when the native algorithm changes, to invalidate cached native results
 #: (3: tile-piece merging, complete-first precedence only over smaller-or-equal
-#: tile-cut duplicates, EPSG:6933 areas, stretch bounds never from overviews).
-_NATIVE_IMPL_VERSION = "3"
+#: tile-cut duplicates, EPSG:6933 areas, stretch bounds never from overviews;
+#: 4: tile-cut within a 4 px edge strip of the kept polygon, complete polygons
+#: first in overlap resolution, tile-seam merge).
+_NATIVE_IMPL_VERSION = "4"
+
+#: Width, in model-input pixels, of the strip along each interior tile edge in
+#: which a detection counts as tile-cut: DelAnyFlow's ``merging_edge_width``.
+TILE_EDGE_STRIP_PX = 4
+
+#: Thresholds of :func:`merge_tile_seams`, in model-input pixels: the defaults
+#: of upstream DelAnyFlow's ``merge_tile_seams`` (Lavreniuk/Delineate-Anything
+#: 488e537, ``conf_sample.yaml``).
+TILE_SEAM_PARAMS: dict[str, float] = {
+    "seam_min_contact_px": 8,
+    "seam_min_coverage": 0.3,
+    "seam_min_evidence": 0.5,
+    "seam_split_window_px": 1,
+    "seam_max_colour_diff": 0.2,
+    "seam_end_tolerance_px": 8,
+    "seam_end_tolerance_rel": 0.25,
+    "seam_max_strip_depth_px": 16,
+}
+
+#: Upstream ``SEAM_STRIP``: the colour test compares the ``SEAM_STRIP // 2``
+#: pixels on each side of a tile edge.
+_SEAM_STRIP_PX = 8
+
+#: Upstream per-tile composition (``pixel_area_threshold``, ``compose_merge_iou``
+#: of ``conf_sample.yaml``), used for the view of the tile centred on a seam.
+_COMPOSE_MIN_AREA_PX = 512
+_COMPOSE_MERGE_IOU = 0.8
+
+#: Distance, in model-input pixels, within which :func:`merge_tile_seams` moves a
+#: vertex onto the pixel corner of the model-input grid before joining pieces.
+_GRID_SNAP_PX = 1e-6
 
 #: Upstream ``conf_sample.yaml`` hole threshold of the reference pipeline (m²).
 DEFAULT_MIN_HOLE_AREA_M2 = 2500.0
+
+#: Percentiles of the scene stretch (upstream ``DataAnalyser``); the native
+#: backend's ``engine_params["stretch_percentiles"]`` replaces them.
+DEFAULT_STRETCH_PERCENTILES: tuple[float, float] = (1.0, 99.0)
+
+#: A ``processing_gsd_m`` within this fraction of the raster's pixel size reads the
+#: raster as it is; a finer one is refused.
+PROCESSING_GSD_TOLERANCE = 0.01
+
+#: Version of the resampled raster of ``processing_gsd_m``: part of the cache key of the
+#: copy, and of the native results and fine-tuning chips made from a copy.
+_PROCESSING_RASTER_VERSION = "1"
+
+#: Values (pixels times bands) of the raster read at a time while it is resampled.
+_PROCESSING_CHUNK_VALUES = 1 << 22
 
 #: String that marks the uint8-mask fix in upstream ``methods/main/inference.py``
 #: (commit 34eddf7). Checkouts without it silently dilate masks.
@@ -300,6 +407,9 @@ _BACKEND_KEYS: dict[str, frozenset[str]] = {
         "dedup_containment",
         "merge_tile_pieces",
         "resolve_overlaps",
+        "merge_tile_seams",
+        "processing_gsd_m",
+        "stretch_percentiles",
     },
     "reference": _COMMON_KEYS
     | {"checkpoint_path", "super_resolution", "tile_step", "half", "da_repo", "min_hole_area_m2"},
@@ -471,8 +581,11 @@ class DAOptions:
     dedup_containment: float
     merge_tile_pieces: bool
     resolve_overlaps: bool
+    merge_tile_seams: bool
     da_repo: str | None
     min_hole_area_m2: float = DEFAULT_MIN_HOLE_AREA_M2
+    processing_gsd_m: float | None = None
+    stretch_percentiles: tuple[float, float] = DEFAULT_STRETCH_PERCENTILES
     ftw: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -559,9 +672,26 @@ class DAOptions:
         merge = params.get("merge_tile_pieces", True)
         if not isinstance(merge, bool):
             raise ValueError(f"merge_tile_pieces must be True or False, got {merge!r}")
+        seams = params.get("merge_tile_seams")
+        if seams is None:
+            seams = resolve and tile_step == 0.5
+        elif not isinstance(seams, bool):
+            raise ValueError(f"merge_tile_seams must be True or False, got {seams!r}")
+        elif seams and not resolve:
+            raise ValueError(
+                "merge_tile_seams=True needs resolve_overlaps=True: the seam test joins "
+                "non-overlapping polygons."
+            )
+        elif seams and tile_step != 0.5:
+            raise ValueError(
+                f"merge_tile_seams=True needs tile_step=0.5 (got {tile_step!r}): the seam test "
+                "checks each tile edge against the tile centred on it."
+            )
         hole = params.get("min_hole_area_m2", DEFAULT_MIN_HOLE_AREA_M2)
         if isinstance(hole, bool) or not isinstance(hole, int | float) or hole < 0:
             raise ValueError(f"min_hole_area_m2 must be a number >= 0, got {hole!r}")
+        processing_gsd = _processing_gsd(params.get("processing_gsd_m"))
+        percentiles = _stretch_percentiles(params.get("stretch_percentiles"))
 
         ftw_opts = {}
         if backend == "ftw":
@@ -604,10 +734,50 @@ class DAOptions:
             dedup_containment=dedup_contain,
             merge_tile_pieces=merge,
             resolve_overlaps=resolve,
+            merge_tile_seams=seams,
             da_repo=params.get("da_repo"),
             min_hole_area_m2=float(hole),
+            processing_gsd_m=processing_gsd,
+            stretch_percentiles=percentiles,
             ftw=ftw_opts,
         )
+
+
+def _is_number(value: Any) -> bool:
+    """True for a real number (int, float or NumPy scalar), False for bool and other types."""
+    import numbers
+
+    return isinstance(value, numbers.Real) and not isinstance(value, bool | np.bool_)
+
+
+def _processing_gsd(value: Any) -> float | None:
+    """Validate ``engine_params["processing_gsd_m"]`` (None or metres in the training range)."""
+    if value is None:
+        return None
+    low, high = TRAINING_GSD_RANGE_M
+    if not _is_number(value) or not low <= float(value) <= high:
+        raise ValueError(
+            f"processing_gsd_m must be a pixel size in metres within the {low:g}-{high:g} m "
+            f"range of Delineate-Anything's training imagery, got {value!r}"
+        )
+    return float(value)
+
+
+def _stretch_percentiles(value: Any) -> tuple[float, float]:
+    """Validate ``engine_params["stretch_percentiles"]`` (``0 <= low < high <= 100``)."""
+    if value is None:
+        return DEFAULT_STRETCH_PERCENTILES
+    pair = tuple(value) if isinstance(value, list | tuple) else ()
+    if (
+        len(pair) != 2
+        or not all(_is_number(v) for v in pair)
+        or not 0.0 <= float(pair[0]) < float(pair[1]) <= 100.0
+    ):
+        raise ValueError(
+            "stretch_percentiles must be two percentiles (low, high) with "
+            f"0 <= low < high <= 100, got {value!r}"
+        )
+    return float(pair[0]), float(pair[1])
 
 
 def _float_in(name: str, value: Any, low: float, high: float, *, low_open: bool = False) -> float:
@@ -720,6 +890,42 @@ def _record_training_gsd(gsd_m: float, meta: dict[str, Any]) -> None:
             "(%.2f m) is outside that range, so accuracy is not established.",
             gsd_m,
         )
+
+
+@contextlib.contextmanager
+def no_nms_time_limit():
+    """Lift Ultralytics' wall-clock limit on non-maximum suppression.
+
+    ``ultralytics.utils.nms.non_max_suppression`` (8.4) stops after
+    ``2 s + 0.05 s`` per image of a batch and returns no detections for the
+    batch's remaining images, logging "NMS time limit ... exceeded". On a slow
+    or busy device a prediction would then lose tiles, and a fine-tuning
+    validation would underrate the epoch on which ``best.pt`` is chosen.
+    Inside this context the limit is infinite (``max_time_img=inf``); the
+    detections are otherwise unchanged. Ultralytics' validator and predictor
+    call the function through the ``nms`` module, which is what is patched.
+    """
+    try:
+        from ultralytics.utils import nms
+    except ImportError:  # Ultralytics missing: nothing to patch
+        yield
+        return
+    original = nms.non_max_suppression
+    if getattr(original, "_agribound_no_time_limit", False):  # nested use
+        yield
+        return
+
+    @functools.wraps(original)
+    def unlimited(*args: Any, **kwargs: Any) -> Any:
+        kwargs["max_time_img"] = float("inf")
+        return original(*args, **kwargs)
+
+    unlimited._agribound_no_time_limit = True
+    nms.non_max_suppression = unlimited
+    try:
+        yield
+    finally:
+        nms.non_max_suppression = original
 
 
 def tile_origins(size: int, tile: int, step: int) -> list[int]:
@@ -905,10 +1111,14 @@ def merge_tile_pieces(
     smaller polygon) are grouped by connected components, and every group
     of two or more is replaced by the largest polygon of the union of its
     members, with the members' highest *score_column* and *edge_column*
-    True. A tile-cut detection that duplicates a complete detection at least
-    as large as itself is a partial view of a field detected whole in
-    another tile: it is not merged and is left for
-    :func:`deduplicate_detections`. Complete detections are unchanged.
+    True. The union stays tile-cut because no tile saw it whole: where no
+    member reaches past a tile edge, the union still ends at that edge. It
+    therefore gives way to complete detections in :func:`resolve_overlaps`,
+    and :func:`merge_tile_seams` can join it to a piece across a tile edge. A
+    tile-cut detection that duplicates a complete detection at least as large
+    as itself is a partial view of a field detected whole in another tile: it
+    is not merged and is left for :func:`deduplicate_detections`. Complete
+    detections are unchanged.
 
     Parameters
     ----------
@@ -1026,7 +1236,8 @@ def deduplicate_detections(
     Returns
     -------
     geopandas.GeoDataFrame
-        Kept rows, in the original order.
+        Kept rows, in the original order, with all their columns (so the
+        tile-cut flag reaches :func:`resolve_overlaps`).
     """
     n = len(gdf)
     if n <= 1:
@@ -1054,20 +1265,30 @@ def deduplicate_detections(
 
 def resolve_overlaps(
     gdf: gpd.GeoDataFrame,
-    iou_threshold: float = DEFAULT_DEDUP_IOU,
-    containment_threshold: float = DEFAULT_DEDUP_CONTAINMENT,
     *,
     score_column: str = "confidence",
     edge_column: str | None = "_tile_edge",
 ) -> gpd.GeoDataFrame:
     """Make detections non-overlapping by giving contested area to the one visited first.
 
-    Polygons are visited in the order of :func:`deduplicate_detections`
-    (with the same duplicate criteria; after de-duplication this is simply
-    higher score, then larger area); each polygon loses the parts that
-    overlap polygons visited before it and keeps its largest remaining part
-    (empty results are dropped). This mimics the per-pixel assignment of
-    DelAnyFlow, whose output fields do not overlap.
+    Complete detections (*edge_column* False) are visited before tile-cut
+    ones (*edge_column* True), and within each group the higher
+    *score_column* first, then the larger area; each polygon loses the parts
+    that overlap polygons visited before it and keeps its largest remaining
+    part (empty results are dropped). A tile-cut polygon ends with a straight
+    line where its tile cut it; visited after the complete ones, it can no
+    longer cut that line into a field that another tile saw whole. This
+    mimics the per-pixel assignment of DelAnyFlow, whose output fields do not
+    overlap.
+
+    Parameters
+    ----------
+    gdf : geopandas.GeoDataFrame
+        Detections (usually the output of :func:`deduplicate_detections`).
+    score_column : str
+        Detection confidence column (0 if absent).
+    edge_column : str or None
+        Boolean column marking tile-cut detections (all complete if absent).
 
     Returns
     -------
@@ -1080,11 +1301,12 @@ def resolve_overlaps(
     if n <= 1:
         return gdf.copy()
     original, areas, scores, edges = _detection_arrays(gdf, score_column, edge_column)
-    left, right = _duplicate_pairs(original, areas, iou_threshold, containment_threshold)
     tree = shapely.STRtree(original)
     placed = np.zeros(n, dtype=bool)
     result = np.empty(n, dtype=object)
-    for idx in _visit_order(areas, scores, edges, left, right).tolist():
+    # np.lexsort sorts by the last key first: complete, then score, then area.
+    order = np.lexsort((-areas, -scores, edges.astype(np.int8)))
+    for idx in order.tolist():
         geom = original[idx]
         neighbours = [j for j in tree.query(geom, predicate="intersects") if placed[j]]
         if neighbours:
@@ -1099,6 +1321,532 @@ def resolve_overlaps(
     out = gdf.iloc[np.flatnonzero(keep)].copy()
     out = out.set_geometry(gpd.GeoSeries(list(result[keep]), index=out.index, crs=gdf.crs))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Tile seams (port of DelAnyFlow's merge_tile_seams)
+# ---------------------------------------------------------------------------
+
+
+def _pixel_extent(geom: Any, transform: Any) -> tuple[int, int, int, int]:
+    """Pixel bounds ``(col0, row0, col1, row1)`` (end-exclusive) of a polygon on *transform*'s grid.
+
+    A polygon traced from a mask has its vertices on pixel corners, so its
+    exterior mapped back with the inverse transform, rounded, gives the
+    extent of the mask pixels it covers.
+    """
+    inv = ~transform
+    xy = np.asarray(geom.exterior.coords)
+    cols = np.rint(inv.a * xy[:, 0] + inv.b * xy[:, 1] + inv.c)
+    rows = np.rint(inv.d * xy[:, 0] + inv.e * xy[:, 1] + inv.f)
+    return int(cols.min()), int(rows.min()), int(cols.max()), int(rows.max())
+
+
+def _pixel_window_polygon(transform: Any, col0: int, row0: int, col1: int, row1: int) -> Any:
+    """The pixel window ``[col0, col1) x [row0, row1)`` of *transform*'s grid as a polygon."""
+    from shapely.geometry import Polygon
+
+    corners = [(col0, row0), (col1, row0), (col1, row1), (col0, row1)]
+    return Polygon(
+        [
+            (
+                transform.a * c + transform.b * r + transform.c,
+                transform.d * c + transform.e * r + transform.f,
+            )
+            for c, r in corners
+        ]
+    )
+
+
+def _compose_tile_view(geoms: list[Any], transform: Any, size: int = MODEL_INPUT_PX) -> np.ndarray:
+    """Field ids (0: none) of one tile's detections, composed as DelAnyFlow composes a tile.
+
+    The compose step of upstream ``PostprocWorker.process_fields``, without
+    land-cover masks: every detection (its polygon with holes filled, as
+    upstream fills each field's outer contour) is rasterised on the tile's
+    *size* x *size* grid (*transform*), and the detections are written from
+    the largest to the smallest, so that a smaller one overwrites a larger
+    one. A detection of fewer than ``pixel_area_threshold`` (512) pixels is
+    left out; one whose IoU with the visible part of an earlier one exceeds
+    ``compose_merge_iou`` (0.8) takes its id; one left with fewer than 512
+    visible pixels is left out.
+    """
+    from rasterio.features import rasterize
+    from rasterio.transform import Affine
+    from shapely.geometry import Polygon
+
+    fields: list[tuple[tuple[int, int, int, int], np.ndarray] | None] = []
+    for geom in geoms:
+        c0, r0, c1, r1 = _pixel_extent(geom, transform)
+        c0, r0, c1, r1 = max(c0, 0), max(r0, 0), min(c1, size), min(r1, size)
+        if c1 <= c0 or r1 <= r0:
+            fields.append(None)
+            continue
+        mask = rasterize(
+            [(Polygon(geom.exterior), 1)],
+            out_shape=(r1 - r0, c1 - c0),
+            transform=transform @ Affine.translation(c0, r0),
+            fill=0,
+            dtype="uint8",
+        ).astype(bool)
+        fields.append(((r0, r1, c0, c1), mask))
+    areas = np.array([0 if f is None else int(f[1].sum()) for f in fields], dtype=np.int64)
+    ids = 2 * (np.arange(len(fields), dtype=np.int64) + 1)  # even ids, as upstream
+    order = np.argsort(-areas, kind="stable")
+    view = np.zeros((size, size), dtype=np.int32)
+    write_id = ids.copy()
+    id_area = {int(i): int(a) for i, a in zip(ids, areas, strict=True)}
+    for index in order.tolist():
+        area = int(areas[index])
+        if area < _COMPOSE_MIN_AREA_PX:
+            write_id[index] = 0
+            continue
+        own = int(ids[index])
+        (r0, r1, c0, c1), mask = fields[index]
+        window = view[r0:r1, c0:c1]
+        under, counts = np.unique(window[mask], return_counts=True)
+        overlaps = [(int(u), int(c)) for u, c in zip(under, counts, strict=True) if u != 0]
+        for key, inter in overlaps:
+            if id_area[key] < _COMPOSE_MIN_AREA_PX:
+                continue
+            if inter / max(1, area + id_area[key] - inter) > _COMPOSE_MERGE_IOU:
+                id_area[key] += area - inter
+                id_area[own] = 0
+                window[mask] = key
+                write_id[index] = key
+                break
+        if id_area[own] >= _COMPOSE_MIN_AREA_PX:
+            window[mask] = own
+            for key, inter in overlaps:
+                id_area[key] -= inter
+    view[:] = 0
+    for index in order.tolist():
+        wid = int(write_id[index])
+        if wid == 0 or id_area[wid] < _COMPOSE_MIN_AREA_PX:
+            continue
+        (r0, r1, c0, c1), mask = fields[index]
+        view[r0:r1, c0:c1][mask] = wid
+    return view
+
+
+def _seam_evidence(block: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """What the tile centred on a tile edge saw next to it (upstream ``__evidence``).
+
+    *block* holds that tile's field ids (0: none) in a window across the
+    edge, one row per position along it. Returns two boolean arrays: one
+    field across the whole window (*crossing*), and a boundary in it, i.e.
+    two fields or a gap between fields (*split*).
+    """
+    field = block > 0
+    lowest = np.where(field, block, np.iinfo(block.dtype).max).min(axis=1)
+    highest = np.where(field, block, -1).max(axis=1)
+    two_fields = field.any(axis=1) & (lowest != highest)
+    gap = field[:, 0] & field[:, -1] & ~field.all(axis=1)
+    return field.all(axis=1) & ~two_fields, two_fields | gap
+
+
+def _run_bounds(mask: np.ndarray, first: int, last: int) -> tuple[int, int]:
+    """Extent of the run of True in *mask* through positions *first*..*last* (``__run_bounds``)."""
+    before = np.flatnonzero(~mask[:first])
+    after = np.flatnonzero(~mask[last + 1 :])
+    start = int(before[-1]) + 1 if before.size else 0
+    end = last + int(after[0]) if after.size else len(mask) - 1
+    return start, end
+
+
+def _strip_depth(block: np.ndarray, field_id: int) -> int:
+    """How far *field_id* reaches from the edge (column 0 of *block*), the maximum over rows."""
+    inside = block == field_id
+    if inside.size == 0:
+        return 0
+    runs = np.where(inside.all(axis=1), inside.shape[1], np.argmin(inside, axis=1))
+    return int(runs.max())
+
+
+def _colour_diff(pixels_a: np.ndarray, pixels_b: np.ndarray) -> float:
+    """Distance between the mean colours of two pixel sets, on a 0-1 scale (0 if one is empty)."""
+    if len(pixels_a) == 0 or len(pixels_b) == 0:
+        return 0.0
+    return float(np.linalg.norm(pixels_a.mean(axis=0) - pixels_b.mean(axis=0)) / 255.0)
+
+
+def _mutual_best(line_pairs: list[tuple[int, int, int]]) -> list[tuple[int, int]]:
+    """Pairs in which each piece is the other's longest contact on this edge (``__mutual_best``)."""
+    best_a: dict[int, tuple[int, int]] = {}
+    best_b: dict[int, tuple[int, int]] = {}
+    for id_a, id_b, contact in line_pairs:
+        if contact > best_a.get(id_a, (-1, -1))[1]:
+            best_a[id_a] = (id_b, contact)
+        if contact > best_b.get(id_b, (-1, -1))[1]:
+            best_b[id_b] = (id_a, contact)
+    return [(a, b) for a, b, _ in line_pairs if best_a[a][0] == b and best_b[b][0] == a]
+
+
+def _border_pairs(
+    ids_a: np.ndarray,
+    ids_b: np.ndarray,
+    cut: np.ndarray,
+    crossing: np.ndarray,
+    split: np.ndarray,
+    load_image: Callable[[], tuple[np.ndarray, np.ndarray] | None],
+) -> list[tuple[int, int]]:
+    """Upstream DelAnyFlow's seam test on one tile edge (``__border_pairs``).
+
+    *ids_a*, *ids_b*: polygon ids (0: none) on the two sides of the edge,
+    one row per position along it and one column per pixel away from it
+    (column 0 touches the edge); *cut*: tile-cut flag of every id;
+    *crossing*, *split*: :func:`_seam_evidence` of the tile centred on the
+    edge, per position; *load_image*: the model input on the two sides in
+    the same layout (with a band axis), or None. Only pairs of tile-cut
+    polygons are tested. Returns the ``(id_a, id_b)`` pairs to join.
+    """
+    p = TILE_SEAM_PARAMS
+    side_a, side_b = ids_a[:, 0], ids_b[:, 0]
+    touching = (side_a > 0) & (side_b > 0) & (side_a != side_b) & cut[side_a] & cut[side_b]
+    if not touching.any():
+        return []
+    keys, inverse, contacts = np.unique(
+        (side_a[touching].astype(np.int64) << 32) | side_b[touching].astype(np.int64),
+        return_inverse=True,
+        return_counts=True,
+    )
+    n_crossing = np.bincount(inverse, weights=crossing[touching], minlength=len(keys))
+    n_split = np.bincount(inverse, weights=split[touching], minlength=len(keys))
+    len_a = np.bincount(side_a, minlength=len(cut))
+    len_b = np.bincount(side_b, minlength=len(cut))
+    positions = np.flatnonzero(touching)
+    max_depth = int(p["seam_max_strip_depth_px"])
+    k = _SEAM_STRIP_PX // 2
+    image: tuple[np.ndarray, np.ndarray] | None = None
+    image_loaded = False
+    line_pairs: list[tuple[int, int, int]] = []
+    for i, (key, contact) in enumerate(zip(keys.tolist(), contacts.tolist(), strict=True)):
+        id_a, id_b = key >> 32, key & 0xFFFFFFFF
+        # Both cut edges are mostly in contact: a split field has matching cuts on both sides.
+        if contact < p["seam_min_contact_px"] or contact < p["seam_min_coverage"] * max(
+            len_a[id_a], len_b[id_b]
+        ):
+            continue
+        # The tile centred on the edge must not have seen a boundary there (where it saw
+        # no field at all, the geometry decides).
+        if n_split[i] > 0 and n_crossing[i] < p["seam_min_evidence"] * (n_crossing[i] + n_split[i]):
+            continue
+        rows = positions[inverse == i]
+        a0, a1 = _run_bounds(side_a == id_a, int(rows.min()), int(rows.max()))
+        b0, b1 = _run_bounds(side_b == id_b, int(rows.min()), int(rows.max()))
+        tolerance = max(p["seam_end_tolerance_px"], p["seam_end_tolerance_rel"] * contact)
+        if abs(a0 - b0) > tolerance or abs(a1 - b1) > tolerance:
+            # Cut edges of different extent: two fields, unless one piece is a thin strip.
+            depth_a = _strip_depth(ids_a[rows, : max_depth + 1], id_a)
+            depth_b = _strip_depth(ids_b[rows, : max_depth + 1], id_b)
+            if min(depth_a, depth_b) > max_depth:
+                continue
+        if not image_loaded:
+            image, image_loaded = load_image(), True
+        if image is not None and ids_a.shape[1] >= k and ids_b.shape[1] >= k:
+            img_a, img_b = image
+            in_a, in_b = ids_a[rows, :k] == id_a, ids_b[rows, :k] == id_b
+            if (
+                _colour_diff(img_a[rows, :k][in_a], img_b[rows, :k][in_b])
+                > p["seam_max_colour_diff"]
+            ):
+                continue
+        line_pairs.append((id_a, id_b, contact))
+    return _mutual_best(line_pairs)
+
+
+class _CentreViews:
+    """Views of the tiles centred on the tile edges, composed lazily from the raw detections."""
+
+    def __init__(self, raw: gpd.GeoDataFrame | None, transform: Any, window: int) -> None:
+        self.transform = transform
+        self.window = window
+        self.groups: dict[tuple[int, int], list[Any]] = {}
+        self.cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray] | None] = {}
+        if raw is None or not len(raw) or not {"_tile_x0", "_tile_y0"} <= set(raw.columns):
+            return
+        x0s = raw["_tile_x0"].to_numpy(dtype=np.int64)
+        y0s = raw["_tile_y0"].to_numpy(dtype=np.int64)
+        for geom, x0, y0 in zip(raw.geometry.to_numpy(), x0s, y0s, strict=True):
+            if geom is not None and not geom.is_empty and geom.geom_type == "Polygon":
+                self.groups.setdefault((int(x0), int(y0)), []).append(geom)
+
+    def crosses(self, key: tuple[int, int]) -> tuple[np.ndarray, np.ndarray] | None:
+        """The tile's ids across its vertical and horizontal centre lines (positions first)."""
+        if key not in self.cache:
+            geoms = self.groups.get(key)
+            if not geoms:
+                self.cache[key] = None
+            else:
+                from rasterio.transform import Affine
+
+                view = _compose_tile_view(geoms, self.transform @ Affine.translation(*key))
+                c, w = MODEL_INPUT_PX // 2, self.window
+                self.cache[key] = (view[:, c - w : c + w].copy(), view[c - w : c + w, :].T.copy())
+        return self.cache[key]
+
+    def evidence(
+        self, vertical: bool, pos: int, positions: np.ndarray, length: int
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """:func:`_seam_evidence` at *positions* along the edge at *pos* (False elsewhere)."""
+        crossing = np.zeros(length, dtype=bool)
+        split = np.zeros(length, dtype=bool)
+        step = MODEL_INPUT_PX // 2
+        # With a half-tile step the central halves of the tiles partition the raster;
+        # the tile centred on the edge whose central half holds a position saw it.
+        origins = step * ((positions + step // 2) // step) - step
+        for origin in np.unique(origins).tolist():
+            sel = positions[origins == origin]
+            key = (pos - step, origin) if vertical else (origin, pos - step)
+            crosses = self.crosses(key)
+            if crosses is None:
+                continue
+            block = crosses[0 if vertical else 1][sel - origin]
+            crossing[sel], split[sel] = _seam_evidence(block)
+        return crossing, split
+
+
+def merge_tile_seams(
+    gdf: gpd.GeoDataFrame,
+    raw: gpd.GeoDataFrame | None,
+    transform: Any,
+    shape: tuple[int, int],
+    image: Callable[[int, int, int, int], np.ndarray] | None = None,
+    *,
+    score_column: str = "confidence",
+    edge_column: str = "_tile_edge",
+) -> tuple[gpd.GeoDataFrame, int]:
+    """Join tile-cut polygons that meet along an interior tile edge (DelAnyFlow's seam test).
+
+    A field that no tile saw whole, and whose pieces from neighbouring tiles
+    do not overlap enough for :func:`merge_tile_pieces`, is left cut by a
+    straight line on the tile grid. This is a port of upstream DelAnyFlow's
+    ``merge_tile_seams`` (Lavreniuk/Delineate-Anything 488e537,
+    ``methods/main/PostprocHandler.py``) to polygons, with its thresholds
+    (:data:`TILE_SEAM_PARAMS`). The polygons are rasterised on the
+    model-input grid along every interior tile edge (the native backend's
+    tiles overlap by half, so the edges are every ``MODEL_INPUT_PX // 2``
+    model-input pixels), and two tile-cut polygons (*edge_column* True) on
+    opposite sides of an edge are joined when:
+
+    - they touch along the edge for at least ``seam_min_contact_px`` pixels,
+      and for at least ``seam_min_coverage`` of the longer of their two
+      edges on that line;
+    - the tile centred on the edge did not see a boundary there: where that
+      tile saw one field across the edge or a boundary within
+      ``seam_split_window_px`` of it, it saw one field at least
+      ``seam_min_evidence`` of the time (where it saw no field, the
+      geometry decides); its view is its own detections in *raw*, composed
+      as DelAnyFlow composes a tile (smaller fields over larger ones);
+    - their two cut edges start and end within
+      ``max(seam_end_tolerance_px, seam_end_tolerance_rel * contact)``
+      pixels of each other, or the smaller piece reaches at most
+      ``seam_max_strip_depth_px`` pixels from the edge;
+    - the mean colour of the model input differs by at most
+      ``seam_max_colour_diff`` (0-1 scale) between the two pieces, within
+      ``SEAM_STRIP // 2`` (4) pixels of the edge (skipped without *image*);
+    - each is the other's longest contact among the pairs that pass these
+      tests on that edge.
+
+    Joins are transitive, as upstream. Unlike upstream, only tile-cut
+    polygons are joined: a tile saw a complete polygon whole, so its outline
+    is the model's, not the tiling's. The members of a group are snapped to
+    the model-input pixel grid before their union (pieces from different
+    tiles can otherwise be left apart by about 1e-10 m where the pixel size
+    or origin is not exact in binary); a member that the union still does
+    not connect to another one is left as it was and not counted as a join.
+
+    Parameters
+    ----------
+    gdf : geopandas.GeoDataFrame
+        Non-overlapping polygons (:func:`resolve_overlaps` output) in the
+        CRS of *transform*.
+    raw : geopandas.GeoDataFrame or None
+        Every tile's raw detections, with the tile origin in model-input
+        pixels in ``_tile_x0`` and ``_tile_y0``. None, or no such columns:
+        no centre-tile evidence.
+    transform : affine.Affine
+        Transform of the model-input pixel grid (the raster transform scaled
+        by ``1 / super_resolution``), on which the tiles start every
+        ``MODEL_INPUT_PX // 2`` pixels from ``-MODEL_INPUT_PX // 2``.
+    shape : tuple of int
+        ``(height, width)`` of the raster in model-input pixels.
+    image : callable or None
+        ``image(col0, row0, col1, row1)`` returns the model input (uint8,
+        rows x columns x bands) of that window of model-input pixels, zero
+        outside the raster. None: no colour test.
+    score_column, edge_column : str
+        Confidence and tile-cut columns.
+
+    Returns
+    -------
+    tuple of (geopandas.GeoDataFrame, int)
+        The polygons, unjoined rows first (original order), then one row per
+        joined group (the union, with the members' highest *score_column*,
+        *edge_column* True and the other columns of the highest-scoring
+        member); and the number of joins (polygons removed).
+    """
+    import pandas as pd
+    import shapely
+    from rasterio.features import rasterize
+    from rasterio.transform import Affine
+
+    out = gdf.copy()
+    n = len(gdf)
+    if n < 2 or edge_column not in gdf:
+        return out, 0
+    geoms, _areas, scores, edges = _detection_arrays(gdf, score_column, edge_column)
+    if int(edges.sum()) < 2:
+        return out, 0
+    height, width = (int(v) for v in shape)
+    step = MODEL_INPUT_PX // 2
+    depth = max(int(TILE_SEAM_PARAMS["seam_max_strip_depth_px"]) + 1, _SEAM_STRIP_PX // 2)
+    k = _SEAM_STRIP_PX // 2
+    cut = np.concatenate([[False], edges])  # indexed by id = row position + 1
+    tree = shapely.STRtree(geoms)
+    views = _CentreViews(raw, transform, int(TILE_SEAM_PARAMS["seam_split_window_px"]))
+
+    def load_image(vertical: bool, pos: int) -> tuple[np.ndarray, np.ndarray] | None:
+        if image is None:
+            return None
+        if vertical:
+            strip = image(pos - k, 0, pos + k, height)  # (rows, 2k, bands)
+        else:
+            strip = np.transpose(image(0, pos - k, width, pos + k), (1, 0, 2))
+        return strip[:, :k][:, ::-1], strip[:, k:]
+
+    pairs: list[tuple[int, int]] = []
+    for vertical in (True, False):
+        across, along = (width, height) if vertical else (height, width)
+        for pos in range(step, across, step):
+            lo, hi = max(pos - depth, 0), min(pos + depth, across)
+            win = (lo, 0, hi, height) if vertical else (0, lo, width, hi)
+            cand = tree.query(_pixel_window_polygon(transform, *win))
+            if int(edges[cand].sum()) < 2:
+                continue
+            strip = rasterize(
+                [(geoms[i], int(i) + 1) for i in cand.tolist()],
+                out_shape=(win[3] - win[1], win[2] - win[0]),
+                transform=transform @ Affine.translation(win[0], win[1]),
+                fill=0,
+                dtype="int32",
+            )
+            band = strip if vertical else strip.T  # (along the edge, across it)
+            ids_a, ids_b = band[:, : pos - lo][:, ::-1], band[:, pos - lo :]
+            side_a, side_b = ids_a[:, 0], ids_b[:, 0]
+            touching = (side_a > 0) & (side_b > 0) & (side_a != side_b) & cut[side_a] & cut[side_b]
+            if not touching.any():
+                continue
+            crossing, split = views.evidence(vertical, pos, np.flatnonzero(touching), along)
+            pairs += _border_pairs(
+                ids_a,
+                ids_b,
+                cut,
+                crossing,
+                split,
+                lambda vertical=vertical, pos=pos: load_image(vertical, pos),
+            )
+    if not pairs:
+        return out, 0
+
+    root = np.arange(n)
+
+    def find(i: int) -> int:
+        while root[i] != i:
+            root[i] = root[root[i]]
+            i = int(root[i])
+        return i
+
+    for a, b in pairs:
+        ra, rb = find(a - 1), find(b - 1)
+        if ra != rb:
+            root[max(ra, rb)] = min(ra, rb)
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    joined_members: list[int] = []
+    leaders, shapes, best_scores = [], [], []
+    for members in (m for m in groups.values() if len(m) > 1):
+        for shape, idx in _seam_union_parts(geoms, np.asarray(members), transform):
+            if len(idx) < 2:  # not connected to another member: kept as it was
+                continue
+            joined_members.extend(idx.tolist())
+            leaders.append(int(idx[np.argmax(scores[idx])]))
+            shapes.append(shape)
+            best_scores.append(float(scores[idx].max()))
+    if not leaders:
+        return out, 0
+    joined = out.iloc[leaders].copy()
+    joined[gdf.geometry.name] = gpd.GeoSeries(shapes, index=joined.index, crs=gdf.crs)
+    if score_column in joined:
+        joined[score_column] = best_scores
+    joined[edge_column] = True
+    kept = out.iloc[np.setdiff1d(np.arange(n), joined_members)]  # positional: labels may repeat
+    result = pd.concat([kept, joined], ignore_index=True)
+    n_joins = len(joined_members) - len(leaders)
+    return gpd.GeoDataFrame(result, geometry=gdf.geometry.name, crs=gdf.crs), n_joins
+
+
+def _snap_to_pixel_grid(geom: Any, transform: Any, tolerance_px: float = _GRID_SNAP_PX) -> Any:
+    """*geom* with the vertices near a pixel corner of *transform* moved onto that corner.
+
+    A vertex within *tolerance_px* pixels of a corner on both axes gets the
+    corner's coordinates, recomputed from its integer column and row with
+    *transform*, so two polygons traced on different tiles of the same grid
+    get bitwise identical coordinates on the edges they share. Their own
+    tile transforms (the raster transform composed with the tile and crop
+    offsets) can differ from each other by about 1e-10 m when the pixel size
+    or the origin is not exact in binary (e.g. 1.2 m pixels, a
+    ``processing_gsd_m`` copy at 2.4 m, the 0.59994 m Web Mercator grid of
+    ``usgs-naip-plus``), enough to leave a gap between two pieces that touch.
+    Other vertices are left unchanged.
+    """
+    import shapely
+
+    inv = ~transform
+
+    def snap(xy: np.ndarray) -> np.ndarray:
+        cols = inv.a * xy[:, 0] + inv.b * xy[:, 1] + inv.c
+        rows = inv.d * xy[:, 0] + inv.e * xy[:, 1] + inv.f
+        c, r = np.rint(cols), np.rint(rows)
+        on = (np.abs(cols - c) <= tolerance_px) & (np.abs(rows - r) <= tolerance_px)
+        out = np.array(xy, dtype=float, copy=True)
+        out[on, 0] = transform.a * c[on] + transform.b * r[on] + transform.c
+        out[on, 1] = transform.d * c[on] + transform.e * r[on] + transform.f
+        return out
+
+    return shapely.transform(geom, snap)
+
+
+def _seam_union_parts(
+    geoms: np.ndarray, members: np.ndarray, transform: Any
+) -> list[tuple[Any, np.ndarray]]:
+    """The union of a group joined by :func:`merge_tile_seams`, as ``(polygon, members)`` parts.
+
+    The members (positions in *geoms*) are snapped to the model-input pixel
+    grid (:func:`_snap_to_pixel_grid`) before the union, so that pieces whose
+    shared tile edge was computed from different tile transforms are not
+    left apart by a gap of about 1e-10 m. A connected union is one part with
+    every member. If the union still has several polygon parts, each part
+    is returned with the members whose representative point it holds, so
+    that the caller joins only the members a part connects; if a part holds
+    no member (not expected), every member is returned alone. No member's
+    area is ever dropped.
+    """
+    import shapely
+
+    snapped = [_snap_to_pixel_grid(geoms[i], transform) for i in members.tolist()]
+    union = shapely.make_valid(shapely.union_all(snapped))
+    parts = [g for g in getattr(union, "geoms", [union]) if g.geom_type == "Polygon" and g.area > 0]
+    if len(parts) == 1:
+        return [(parts[0], members)]
+    owner = np.full(len(members), -1)
+    for i, geom in enumerate(snapped):
+        point = geom.representative_point()
+        owner[i] = next((k for k, part in enumerate(parts) if part.intersects(point)), -1)
+    if not parts or (owner < 0).any() or len(set(owner.tolist())) != len(parts):
+        return [(geoms[i], members[[j]]) for j, i in enumerate(members.tolist())]
+    return [(part, members[owner == k]) for k, part in enumerate(parts)]
 
 
 def _area_m2(gdf: gpd.GeoDataFrame) -> np.ndarray:
@@ -1174,7 +1922,9 @@ class DelineateAnythingEngine(DelineationEngine):
         """
         self.validate_input(raster_path, config)
         opts = DAOptions.from_engine_params(config.engine_params)
-        rgb = get_canonical_band_indices(config.source, ["R", "G", "B"], bands=config.bands)
+        rgb = get_canonical_band_indices(
+            config.source, ["R", "G", "B"], bands=effective_bands(config)
+        )
         if opts.backend == "native":
             return _run_native(raster_path, config, opts, rgb)
         if opts.backend == "reference":
@@ -1248,36 +1998,333 @@ def _weights_for(opts: DAOptions) -> tuple[str, dict[str, Any]]:
     }
 
 
+def _trained_input(record: dict[str, Any]) -> dict[str, Any]:
+    """The input a fine-tuned checkpoint saw in training, from its training metadata.
+
+    ``gsd_m`` (pixel size of the chips: the raster's, or that of its copy at
+    ``processing_gsd_m``), ``super_resolution`` and ``stretch_percentiles``
+    (None when the chips were cut from a uint8 raster, which is used without
+    a stretch; 1-99 in records of agribound 1.0.1 and earlier, which did not
+    record them). Whether the chips were uint8 is read from
+    ``raster_dtype``, or, in older records, from the chips' stretch bounds
+    (0 and 255 in every band only for uint8 rasters: the bounds of other
+    rasters are percentiles of their positive values). A value the record
+    does not give is left out.
+    """
+    out: dict[str, Any] = {}
+    if record.get("gsd_m") is not None:
+        out["gsd_m"] = round(float(record["gsd_m"]), 4)
+    if record.get("super_resolution") is not None:
+        out["super_resolution"] = int(record["super_resolution"])
+    chips = record.get("chips_stretch") or {}
+    dtype = record.get("raster_dtype")
+    if dtype is not None:
+        unstretched = dtype == "uint8"
+    elif chips.get("stretch_lows") is not None and chips.get("stretch_highs") is not None:
+        unstretched = all(v == 0 for v in chips["stretch_lows"]) and all(
+            v == 255 for v in chips["stretch_highs"]
+        )
+    else:
+        return out
+    percentiles = record.get("stretch_percentiles", DEFAULT_STRETCH_PERCENTILES)
+    out["stretch_percentiles"] = None if unstretched else [float(v) for v in percentiles]
+    return out
+
+
+def _check_checkpoint_input(
+    weights_meta: dict[str, Any], meta: dict[str, Any], run: dict[str, Any]
+) -> None:
+    """Warn when a fine-tuned checkpoint saw another input in training than in this run.
+
+    *run* is this run's input as the model sees it: ``gsd_m``, the pixel
+    size of the raster read (the raster's, or that of its copy at
+    ``processing_gsd_m``), ``super_resolution`` and ``stretch_percentiles``
+    (None for a uint8 raster, which is not stretched). It is compared with
+    the training input recorded next to the checkpoint
+    (``<checkpoint>.agribound.json``, see :func:`_trained_input`): pixel
+    sizes that differ by more than :data:`PROCESSING_GSD_TOLERANCE` (1 %),
+    another super-resolution factor or another stretch log a WARNING, and
+    ``meta["checkpoint_input_mismatch"]`` then holds both. The options
+    themselves are not compared: ``processing_gsd_m`` set to the raster's own
+    pixel size changes nothing, and a checkpoint fine-tuned on 1.5 m chips
+    sees another input on a 3 m raster without any option. Values a record
+    lacks are not compared; checkpoints without such metadata are not
+    checked.
+    """
+    if weights_meta.get("weights") != "checkpoint":
+        return
+    from agribound.engines.finetune._data import read_training_meta
+
+    record = read_training_meta(weights_meta["checkpoint_path"])
+    if record.get("engine") != "delineate-anything":
+        return
+    trained = _trained_input(record)
+    run = {
+        "gsd_m": round(float(run["gsd_m"]), 4),
+        "super_resolution": int(run["super_resolution"]),
+        "stretch_percentiles": None
+        if run["stretch_percentiles"] is None
+        else [float(v) for v in run["stretch_percentiles"]],
+    }
+    differs = [
+        key
+        for key, value in trained.items()
+        if (
+            abs(run[key] - value) > PROCESSING_GSD_TOLERANCE * value
+            if key == "gsd_m"
+            else run[key] != value
+        )
+    ]
+    if differs:
+        logger.warning(
+            "The checkpoint was fine-tuned on %s, but this run gives the model %s "
+            "(stretch_percentiles None: a uint8 raster, used without a stretch): the model sees "
+            "a different input than in training.",
+            trained,
+            run,
+        )
+        meta["checkpoint_input_mismatch"] = {"trained": trained, "run": run}
+
+
 def _read_tile(
-    src: Any, bands: list[int], x0: int, y0: int, size: int
+    src: Any, bands: list[int], x0: int, y0: int, size: int, height: int | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
     """Read a ``size`` x ``size`` window (zero-padded outside the raster).
 
-    Returns ``(data float32 (bands, size, size), valid bool (size, size))``.
-    A pixel is invalid if any band is non-finite, all bands are 0 (the
-    upstream default ``nodata_value: [0, 0, 0]``), or all bands equal the
-    raster's nodata value.
+    Returns ``(data float32 (bands, size, size), valid bool (size, size))``;
+    with *height*, the window is *height* rows by *size* columns. A pixel is
+    invalid if any band is non-finite, all bands are 0 (the upstream default
+    ``nodata_value: [0, 0, 0]``), or all bands equal the raster's nodata
+    value.
     """
     from rasterio.windows import Window
 
-    data = np.zeros((len(bands), size, size), dtype=np.float32)
-    valid = np.zeros((size, size), dtype=bool)
+    rows = size if height is None else height
+    data = np.zeros((len(bands), rows, size), dtype=np.float32)
+    valid = np.zeros((rows, size), dtype=bool)
     c0, r0 = max(x0, 0), max(y0, 0)
-    c1, r1 = min(x0 + size, src.width), min(y0 + size, src.height)
+    c1, r1 = min(x0 + size, src.width), min(y0 + rows, src.height)
     if c1 <= c0 or r1 <= r0:
         return data, valid
     arr = src.read(bands, window=Window(c0, r0, c1 - c0, r1 - r0)).astype(np.float32)
-    ok = np.all(np.isfinite(arr), axis=0) & ~np.all(arr == 0, axis=0)
-    nodata = src.nodata
-    if nodata is not None and np.isfinite(nodata):
-        ok &= ~np.all(arr == nodata, axis=0)
     data[:, r0 - y0 : r1 - y0, c0 - x0 : c1 - x0] = np.where(np.isfinite(arr), arr, 0)
-    valid[r0 - y0 : r1 - y0, c0 - x0 : c1 - x0] = ok
+    valid[r0 - y0 : r1 - y0, c0 - x0 : c1 - x0] = _valid_pixels(arr, src.nodata)
     return data, valid
 
 
-def scene_stretch_bounds(src: Any, bands: list[int]) -> tuple[list[float], list[float]]:
-    """Scene-level 1-99 % stretch bounds, sampled as upstream ``DataAnalyser`` does.
+def _valid_pixels(arr: np.ndarray, nodata: float | None) -> np.ndarray:
+    """``(H, W)`` mask of the valid pixels of ``(bands, H, W)`` *arr* (see :func:`_read_tile`)."""
+    ok = np.all(np.isfinite(arr), axis=0) & ~np.all(arr == 0, axis=0)
+    if nodata is not None and np.isfinite(nodata):
+        ok &= ~np.all(arr == nodata, axis=0)
+    return ok
+
+
+def processing_scale(raster_gsd_m: float, processing_gsd_m: float) -> float:
+    """Factor by which ``processing_gsd_m`` coarsens a raster of *raster_gsd_m* pixels.
+
+    Returns 1.0 (the raster is read as it is) when *processing_gsd_m* is
+    within :data:`PROCESSING_GSD_TOLERANCE` (1 %) of the raster's pixel size.
+
+    Raises
+    ------
+    ValueError
+        If *processing_gsd_m* is finer than the raster's pixels by more than
+        that tolerance: the option only makes pixels coarser.
+    """
+    scale = float(processing_gsd_m) / float(raster_gsd_m)
+    if scale < 1.0 - PROCESSING_GSD_TOLERANCE:
+        raise ValueError(
+            f"processing_gsd_m={processing_gsd_m:g} m is finer than the raster's pixels "
+            f"({raster_gsd_m:.4g} m); it can only make them coarser. Leave it unset to read "
+            "the raster at its own pixel size."
+        )
+    return 1.0 if scale <= 1.0 + PROCESSING_GSD_TOLERANCE else scale
+
+
+def _area_weights(n_src: int, scale: float, n_dst: int) -> Any:
+    """``(n_dst, n_src)`` sparse matrix of the length of source pixel *i* inside coarser pixel *j*.
+
+    Coarser pixel *j* covers ``[j * scale, (j + 1) * scale)`` in source
+    pixels, clipped to the ``n_src`` pixels of the raster.
+    """
+    from scipy import sparse
+
+    edges = np.minimum(np.arange(n_dst + 1, dtype=np.float64) * scale, float(n_src))
+    first = np.floor(edges[:-1]).astype(np.int64)
+    counts = np.maximum(np.minimum(np.ceil(edges[1:]).astype(np.int64), n_src) - first, 0)
+    rows = np.repeat(np.arange(n_dst, dtype=np.int64), counts)
+    offsets = np.arange(int(counts.sum())) - np.repeat(np.cumsum(counts) - counts, counts)
+    cols = first[rows] + offsets
+    lengths = np.minimum(edges[1:][rows], cols + 1.0) - np.maximum(edges[:-1][rows], cols)
+    keep = lengths > 1e-9
+    return sparse.csr_matrix(
+        (lengths[keep], (rows[keep], cols[keep])), shape=(n_dst, n_src), dtype=np.float64
+    )
+
+
+def _write_processing_raster(src: Any, bands: list[int], scale: float, path: Path) -> None:
+    """Write *bands* of *src* on pixels *scale* times larger (see :func:`processing_raster`)."""
+    import rasterio
+    from rasterio.windows import Window
+
+    height = int(np.ceil(src.height / scale - 1e-9))
+    width = int(np.ceil(src.width / scale - 1e-9))
+    row_weights = _area_weights(src.height, scale, height)
+    col_weights = _area_weights(src.width, scale, width)
+    uint8 = all(src.dtypes[b - 1] == "uint8" for b in bands)
+    profile = {
+        "driver": "GTiff",
+        "height": height,
+        "width": width,
+        "count": len(bands),
+        "dtype": "uint8" if uint8 else "float32",
+        "crs": src.crs,
+        "transform": src.transform @ rasterio.Affine.scale(scale),
+        "nodata": 0 if uint8 else float("nan"),
+        "tiled": True,
+        "blockxsize": 512,
+        "blockysize": 512,
+        "compress": "deflate",
+        "BIGTIFF": "IF_SAFER",
+    }
+    step = max(1, int(_PROCESSING_CHUNK_VALUES // (src.width * len(bands) * scale)))
+    # Written under a temporary name and renamed when complete, so an interrupted run
+    # leaves no partial copy for the next run to reuse.
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with rasterio.open(tmp, "w", **profile) as dst:
+            dst.update_tags(
+                AGRIBOUND_DA_PROCESSING_SCALE=repr(float(scale)),
+                AGRIBOUND_DA_PROCESSING_SOURCE=_raster_fingerprint(src.name),
+                AGRIBOUND_DA_PROCESSING_BANDS=json.dumps(bands),
+                AGRIBOUND_DA_PROCESSING_RESAMPLING="average",
+            )
+            for j0 in range(0, height, step):
+                j1 = min(j0 + step, height)
+                r0, r1 = int(np.floor(j0 * scale)), min(int(np.ceil(j1 * scale)), src.height)
+                window = Window(0, r0, src.width, r1 - r0)
+                data = src.read(bands, window=window).astype(np.float64)
+                valid = _valid_pixels(data, src.nodata)
+                w_rows = row_weights[j0:j1, r0:r1]
+
+                def area_sum(values: np.ndarray, w_rows: Any = w_rows) -> np.ndarray:
+                    return np.asarray((col_weights @ (w_rows @ values).T).T)
+
+                covered = area_sum(valid.astype(np.float64))
+                ok = covered > 0
+                out = np.zeros((len(bands), j1 - j0, width), dtype=profile["dtype"])
+                for k in range(len(bands)):
+                    total = area_sum(np.where(valid, data[k], 0.0))
+                    mean = np.divide(total, covered, out=np.zeros_like(total), where=ok)
+                    if uint8:
+                        out[k] = np.where(ok, np.clip(np.floor(mean + 0.5), 0, 255), 0)
+                    else:
+                        out[k] = np.where(ok, mean, np.nan)
+                dst.write(out, window=Window(0, j0, width, j1 - j0))
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def processing_raster(
+    raster_path: str,
+    config: AgriboundConfig,
+    processing_gsd_m: float | None,
+    bands: list[int],
+) -> tuple[str, list[int], dict[str, Any] | None]:
+    """The raster that the native backend, and its fine-tuning chips, read.
+
+    Without *processing_gsd_m*, or when it is within 1 % of the raster's
+    pixel size (:func:`processing_scale`, with the pixel size of
+    :func:`pixel_size_m`), this is the raster itself. Otherwise it is the
+    raster resampled to *processing_gsd_m* by average resampling: the grid
+    starts at the raster's origin, its pixels are ``scale = processing_gsd_m
+    / pixel size`` times larger on both axes and cover the whole raster, and
+    each pixel is the area-weighted mean of the valid raster pixels it covers
+    (valid as in :func:`_read_tile`; in the interior this equals GDAL's
+    ``average`` resampling). Pixels that cover no valid pixel are nodata: NaN
+    in float32, or 0 in every band when all the bands are uint8, which stay
+    uint8 (means rounded) so that they are still used unstretched. The copy
+    holds only the distinct *bands*, in increasing order, and is written
+    once to the working directory (``da_processing_<key>.tif``, keyed by the
+    raster's path, size and modification time, *processing_gsd_m* and the
+    bands) and reused. Polygons delineated on it are in the raster's CRS.
+
+    Parameters
+    ----------
+    raster_path : str
+        Input raster.
+    config : AgriboundConfig
+        Configuration; its working directory holds the copy.
+    processing_gsd_m : float or None
+        Pixel size to read the raster at, in metres (validated by
+        :class:`DAOptions`).
+    bands : list[int]
+        1-based band indices to read (repeats allowed, e.g. ``[1, 1, 1]``).
+
+    Returns
+    -------
+    tuple
+        ``(path, band indices in that raster, info)``. *info* is None when
+        the raster is read as it is, else ``{"gsd_m", "scale", "size_px",
+        "resampling", "raster"}`` (pixel size of the copy, the factor, its
+        ``[height, width]``, ``"average"`` and its path).
+
+    Raises
+    ------
+    ValueError
+        If *processing_gsd_m* is finer than the raster's pixels.
+    """
+    import rasterio
+
+    from agribound._cache import cache_path
+
+    if processing_gsd_m is None:
+        return str(raster_path), list(bands), None
+    with rasterio.open(raster_path) as src:
+        gsd = pixel_size_m(src.crs, src.transform, src.height, src.width)
+        scale = processing_scale(gsd, processing_gsd_m)
+        if scale == 1.0:
+            return str(raster_path), list(bands), None
+        distinct = sorted(set(int(b) for b in bands))
+        path = cache_path(
+            config,
+            "da_processing",
+            ".tif",
+            _raster_fingerprint(raster_path),
+            f"processing_gsd_m={float(processing_gsd_m)!r}",
+            f"bands={distinct}",
+            f"version={_PROCESSING_RASTER_VERSION}",
+        )
+        if path.exists():
+            logger.info("Using the cached %.2f m copy of the raster: %s", processing_gsd_m, path)
+        else:
+            _write_processing_raster(src, distinct, scale, path)
+            logger.info(
+                "Resampled the raster from %.2f m to %.2f m pixels (average resampling): %s",
+                gsd,
+                processing_gsd_m,
+                path,
+            )
+    with rasterio.open(path) as out:
+        info = {
+            "gsd_m": round(float(pixel_size_m(out.crs, out.transform, out.height, out.width)), 4),
+            "scale": round(scale, 6),
+            "size_px": [out.height, out.width],
+            "resampling": "average",
+            "raster": str(path),
+        }
+    return str(path), [distinct.index(int(b)) + 1 for b in bands], info
+
+
+def scene_stretch_bounds(
+    src: Any,
+    bands: list[int],
+    percentiles: tuple[float, float] = DEFAULT_STRETCH_PERCENTILES,
+) -> tuple[list[float], list[float]]:
+    """Scene-level stretch bounds, sampled as upstream ``DataAnalyser`` does.
 
     uint8 rasters get fixed bounds 0/255. Otherwise the bands are read on a
     nearest-neighbour grid of at most 4096 px per side (GDAL/rasterio
@@ -1287,7 +2334,8 @@ def scene_stretch_bounds(src: Any, bands: list[int]) -> tuple[list[float], list[
     the percentile range), pixels with all bands 0, equal to nodata or
     non-finite are excluded, and
     :func:`agribound.io.raster.percentile_stretch_uint8` computes the
-    percentiles of the strictly positive values.
+    *percentiles* (default 1 and 99, upstream's) of the strictly positive
+    values of each band.
     """
     import rasterio
     from rasterio.enums import Resampling
@@ -1310,7 +2358,8 @@ def scene_stretch_bounds(src: Any, bands: list[int]) -> tuple[list[float], list[
     if src.nodata is not None and np.isfinite(src.nodata):
         invalid |= np.all(sample == src.nodata, axis=0)
     sample[:, invalid] = np.nan
-    lows, highs = percentile_stretch_uint8(sample, return_bounds_only=True)
+    low, high = percentiles
+    lows, highs = percentile_stretch_uint8(sample, low=low, high=high, return_bounds_only=True)
     return [float(v) for v in lows], [float(v) for v in highs]
 
 
@@ -1329,6 +2378,39 @@ def _mask_polygon(mask: np.ndarray, transform: Any) -> Any | None:
     return best
 
 
+def _model_input_reader(
+    src: Any, bands_bgr: list[int], lows: list[float], highs: list[float], sr: int
+) -> Callable[[int, int, int, int], np.ndarray]:
+    """``read(col0, row0, col1, row1)``: the model input of a window of model-input pixels.
+
+    The window is built as the tiles are: stretched to uint8 with the scene
+    bounds (invalid pixels and pixels outside the raster 0), in BGR order,
+    then for ``sr > 1`` upsampled with bicubic interpolation from a native
+    window with a 2-pixel margin, so the values equal those of a tile that
+    holds the window away from its own edges. Returns ``(rows, cols, 3)``.
+    """
+    import cv2
+
+    def read(col0: int, row0: int, col1: int, row1: int) -> np.ndarray:
+        if sr == 1:
+            data, valid = _read_tile(src, bands_bgr, col0, row0, col1 - col0, row1 - row0)
+            return np.transpose(stretch_with_bounds(data, lows, highs, valid), (1, 2, 0))
+        margin = 2  # native pixels: the reach of the bicubic kernel
+        n_c0, n_r0 = col0 // sr - margin, row0 // sr - margin
+        n_c1, n_r1 = -(-col1 // sr) + margin, -(-row1 // sr) + margin
+        data, valid = _read_tile(src, bands_bgr, n_c0, n_r0, n_c1 - n_c0, n_r1 - n_r0)
+        img = np.ascontiguousarray(
+            np.transpose(stretch_with_bounds(data, lows, highs, valid), (1, 2, 0))
+        )
+        up = cv2.resize(
+            img, ((n_c1 - n_c0) * sr, (n_r1 - n_r0) * sr), interpolation=cv2.INTER_CUBIC
+        )
+        dc, dr = col0 - n_c0 * sr, row0 - n_r0 * sr
+        return up[dr : dr + row1 - row0, dc : dc + col1 - col0]
+
+    return read
+
+
 def _native_detections(
     model: Any,
     src: Any,
@@ -1339,7 +2421,14 @@ def _native_detections(
     opts: DAOptions,
     device: str,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Tile the raster, run the model and polygonise every detection."""
+    """Tile the raster, run the model and polygonise every detection.
+
+    Each row holds the largest polygon of the detection's mask within the
+    valid pixels, its ``confidence``, ``_tile_edge`` (the polygon reaches
+    into the :data:`TILE_EDGE_STRIP_PX` strip along an interior side of its
+    tile) and the tile origin in model-input pixels (``_tile_x0``,
+    ``_tile_y0``).
+    """
     import cv2
     import rasterio.transform
 
@@ -1354,17 +2443,18 @@ def _native_detections(
 
     def run_batch(batch: list[tuple[int, int, np.ndarray, np.ndarray]]) -> None:
         images = [item[2] for item in batch]
-        results = model.predict(
-            images,
-            conf=opts.conf_threshold,
-            iou=opts.iou_threshold,
-            max_det=opts.max_detections,
-            imgsz=MODEL_INPUT_PX,
-            retina_masks=True,
-            verbose=False,
-            device=device,
-            **precision,
-        )
+        with no_nms_time_limit():  # a slow NMS must not drop the batch's later tiles
+            results = model.predict(
+                images,
+                conf=opts.conf_threshold,
+                iou=opts.iou_threshold,
+                max_det=opts.max_detections,
+                imgsz=MODEL_INPUT_PX,
+                retina_masks=True,
+                verbose=False,
+                device=device,
+                **precision,
+            )
         for (x0, y0, _img, valid_sr), result in zip(batch, results, strict=True):
             if result.masks is None or result.masks.data.shape[0] == 0:
                 continue
@@ -1380,6 +2470,7 @@ def _native_detections(
                 "bottom": y0 + tile < src.height,
             }
             size = MODEL_INPUT_PX
+            strip = TILE_EDGE_STRIP_PX
             for k in range(masks.shape[0]):
                 bx0, by0, bx1, by1 = boxes[k]
                 cx0 = max(int(np.floor(bx0)) - 3, 0)
@@ -1391,18 +2482,28 @@ def _native_detections(
                 crop = masks[k, cy0:cy1, cx0:cx1] & valid_sr[cy0:cy1, cx0:cx1]
                 if not crop.any():
                     continue
-                poly = _mask_polygon(
-                    crop, tile_tf @ rasterio.transform.Affine.translation(cx0, cy0)
-                )
+                crop_tf = tile_tf @ rasterio.transform.Affine.translation(cx0, cy0)
+                poly = _mask_polygon(crop, crop_tf)
                 if poly is None or poly.is_empty:
                     continue
+                # Tile-cut: the kept polygon reaches into the edge strip of an interior
+                # side (upstream marks the merging_edge_width strip of the composed field).
+                p0, q0, p1, q1 = _pixel_extent(poly, crop_tf)
                 edge = (
-                    (interior["left"] and cx0 == 0 and bool(crop[:, 0].any()))
-                    or (interior["right"] and cx1 == size and bool(crop[:, -1].any()))
-                    or (interior["top"] and cy0 == 0 and bool(crop[0, :].any()))
-                    or (interior["bottom"] and cy1 == size and bool(crop[-1, :].any()))
+                    (interior["left"] and cx0 + p0 < strip)
+                    or (interior["right"] and cx0 + p1 > size - strip)
+                    or (interior["top"] and cy0 + q0 < strip)
+                    or (interior["bottom"] and cy0 + q1 > size - strip)
                 )
-                rows.append({"geometry": poly, "confidence": float(confs[k]), "_tile_edge": edge})
+                rows.append(
+                    {
+                        "geometry": poly,
+                        "confidence": float(confs[k]),
+                        "_tile_edge": edge,
+                        "_tile_x0": x0 * sr,
+                        "_tile_y0": y0 * sr,
+                    }
+                )
                 stats["n_raw"] += 1
         del results
 
@@ -1454,9 +2555,24 @@ def _run_native(
     bands_bgr = list(reversed(rgb))
     with rasterio.open(raster_path) as src:
         gsd = pixel_size_m(src.crs, src.transform, src.height, src.width)
-        sr = select_super_resolution(gsd, opts.super_resolution)
-        lows, highs = scene_stretch_bounds(src, bands_bgr)
+    # The raster itself, or its copy at processing_gsd_m; everything below reads it.
+    read_path, read_bands, processing = processing_raster(
+        raster_path, config, opts.processing_gsd_m, bands_bgr
+    )
+    with rasterio.open(read_path) as src:
+        read_gsd = pixel_size_m(src.crs, src.transform, src.height, src.width)
+        sr = select_super_resolution(read_gsd, opts.super_resolution)
+        lows, highs = scene_stretch_bounds(src, read_bands, opts.stretch_percentiles)
+        unstretched = src.dtypes[read_bands[0] - 1] == "uint8"
         crs = src.crs
+        # The model-input pixel grid, on which the tiles and their edges lie.
+        model_transform = src.transform @ rasterio.Affine.scale(1.0 / sr)
+        model_shape = (src.height * sr, src.width * sr)
+    if unstretched and opts.stretch_percentiles != DEFAULT_STRETCH_PERCENTILES:
+        logger.warning(
+            "stretch_percentiles=%s has no effect: uint8 rasters are used without a stretch.",
+            list(opts.stretch_percentiles),
+        )
 
     precision = "fp16" if (device != "cpu" and opts.half) else "fp32"
     meta: dict[str, Any] = {
@@ -1471,6 +2587,8 @@ def _run_native(
         "iou_threshold": opts.iou_threshold,
         "max_detections": opts.max_detections,
         "gsd_m": round(float(gsd), 4),
+        "processing_gsd_m": opts.processing_gsd_m,
+        "processing": processing,
         "super_resolution": sr,
         "tile_size_native_px": MODEL_INPUT_PX // sr,
         "model_input_px": MODEL_INPUT_PX,
@@ -1480,17 +2598,38 @@ def _run_native(
         "device": device,
         "band_indices_bgr": bands_bgr,
         "value_scale": source_value_scale(config.source),
+        "stretch_percentiles": list(opts.stretch_percentiles),
         "stretch_lows_bgr": lows,
         "stretch_highs_bgr": highs,
         "dedup_iou": opts.dedup_iou,
         "dedup_containment": opts.dedup_containment,
         "merge_tile_pieces": opts.merge_tile_pieces,
         "resolve_overlaps": opts.resolve_overlaps,
+        "merge_tile_seams": opts.merge_tile_seams,
+        "tile_edge_strip_px": TILE_EDGE_STRIP_PX,
+        "tile_seam_params": dict(TILE_SEAM_PARAMS) if opts.merge_tile_seams else None,
         "min_field_area_m2": float(config.min_field_area_m2),
         "area_crs": "EPSG:6933",
         "ultralytics_version": _package_version("ultralytics"),
     }
-    _record_training_gsd(gsd, meta)
+    _record_training_gsd(read_gsd, meta)
+    _check_checkpoint_input(
+        weights_meta,
+        meta,
+        {
+            "gsd_m": read_gsd,
+            "super_resolution": sr,
+            "stretch_percentiles": None if unstretched else opts.stretch_percentiles,
+        },
+    )
+    # The options enter the key only when set, so other runs keep their cached results.
+    options_key = []
+    if opts.processing_gsd_m is not None:
+        options_key.append(f"processing_gsd_m={opts.processing_gsd_m!r}")
+    if processing is not None:  # results made from an older copy are not reused
+        options_key.append(f"processing_raster={_PROCESSING_RASTER_VERSION}")
+    if opts.stretch_percentiles != DEFAULT_STRETCH_PERCENTILES:
+        options_key.append(f"stretch_percentiles={list(opts.stretch_percentiles)!r}")
     out_path = cache_path(
         config,
         "da_native",
@@ -1508,12 +2647,14 @@ def _run_native(
         opts.dedup_containment,
         opts.merge_tile_pieces,
         opts.resolve_overlaps,
+        opts.merge_tile_seams,
         float(config.min_field_area_m2),
         bands_bgr,
         precision,
         device,
         # Model outputs (mask format, NMS, FP16 path) can change between releases.
         meta["ultralytics_version"],
+        *options_key,
     )
     if out_path.exists():
         gdf = gpd.read_parquet(out_path)
@@ -1527,20 +2668,32 @@ def _run_native(
         "Delineate-Anything native: model=%s conf=%.3g GSD=%.2f m super_resolution=%d device=%s",
         opts.model_key,
         opts.conf_threshold,
-        gsd,
+        read_gsd,
         sr,
         device,
     )
+    if processing is not None:
+        logger.info(
+            "Delineate-Anything native: the %.2f m raster is read at %.2f m; tiles of %d px "
+            "cover %.0f m",
+            gsd,
+            read_gsd,
+            MODEL_INPUT_PX // sr,
+            MODEL_INPUT_PX // sr * read_gsd,
+        )
     t0 = time.perf_counter()
     model = YOLO(weights)
-    with rasterio.open(raster_path) as src:
-        rows, stats = _native_detections(model, src, bands_bgr, lows, highs, sr, opts, device)
+    with rasterio.open(read_path) as src:
+        rows, stats = _native_detections(model, src, read_bands, lows, highs, sr, opts, device)
     if rows:
         gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs=crs)
     else:
         gdf = gpd.GeoDataFrame(
-            {"confidence": [], "_tile_edge": []}, geometry=gpd.GeoSeries([], crs=crs), crs=crs
+            {"confidence": [], "_tile_edge": [], "_tile_x0": [], "_tile_y0": []},
+            geometry=gpd.GeoSeries([], crs=crs),
+            crs=crs,
         )
+    raw = gdf  # every tile's own detections: the centre-tile views of the seam test
     n_raw = len(gdf)
     if n_raw:
         gdf = gdf[_area_m2(gdf) >= float(config.min_field_area_m2)]
@@ -1554,11 +2707,23 @@ def _run_native(
     n_merge = len(gdf)
     gdf = deduplicate_detections(gdf, opts.dedup_iou, opts.dedup_containment)
     n_dedup = len(gdf)
+    n_seam_joins = 0
     if opts.resolve_overlaps and n_dedup > 1:
-        gdf = resolve_overlaps(gdf, opts.dedup_iou, opts.dedup_containment)
+        gdf = resolve_overlaps(gdf)
+        if opts.merge_tile_seams and len(gdf) > 1:
+            with rasterio.open(read_path) as src:
+                gdf, n_seam_joins = merge_tile_seams(
+                    gdf,
+                    raw,
+                    model_transform,
+                    model_shape,
+                    _model_input_reader(src, read_bands, lows, highs, sr),
+                )
         if len(gdf):
             gdf = gdf[_area_m2(gdf) >= float(config.min_field_area_m2)]
-    gdf = gdf.drop(columns=["_tile_edge", "_n_pieces"], errors="ignore").reset_index(drop=True)
+    gdf = gdf.drop(
+        columns=["_tile_edge", "_n_pieces", "_tile_x0", "_tile_y0"], errors="ignore"
+    ).reset_index(drop=True)
     meta.update(
         {
             **stats,
@@ -1567,6 +2732,7 @@ def _run_native(
             "n_pieces_merged": n_pieces_merged,
             "n_after_merge": n_merge,
             "n_after_dedup": n_dedup,
+            "n_seam_joins": n_seam_joins,
             "n_output": len(gdf),
             "inference_s": round(time.perf_counter() - t0, 2),
         }
@@ -1576,14 +2742,15 @@ def _run_native(
     os.replace(tmp, out_path)
     logger.info(
         "Delineate-Anything native: %d detections -> %d after area filter -> %d after "
-        "merging %d tile-cut pieces into %d fields -> %d after de-duplication -> %d output "
-        "(%d tiles, %.1f s)",
+        "merging %d tile-cut pieces into %d fields -> %d after de-duplication -> %d tile-seam "
+        "joins -> %d output (%d tiles, %.1f s)",
         n_raw,
         n_area,
         n_merge,
         n_pieces_merged,
         n_merged_groups,
         n_dedup,
+        n_seam_joins,
         len(gdf),
         stats["n_tiles_processed"],
         meta["inference_s"],
@@ -2079,7 +3246,8 @@ def _run_ftw(
         # never leaves a partial file that a later run would take as cached.
         partial = out.with_name(out.stem + ".partial.gpkg")
         try:
-            run_instance_segmentation(out=str(partial), **kwargs)
+            with no_nms_time_limit():  # ftw-tools predicts with Ultralytics as well
+                run_instance_segmentation(out=str(partial), **kwargs)
         except ValueError as exc:
             # ftw-tools concatenates the per-patch results with pd.concat, which
             # raises this when no patch produced a detection.

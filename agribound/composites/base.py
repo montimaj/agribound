@@ -14,9 +14,11 @@ from abc import ABC, abstractmethod
 
 from agribound.config import AgriboundConfig
 from agribound.registry import (
+    CROP_SEQUENCE_SOURCES,
     EMBEDDING_SOURCES,
     ENGINE_REGISTRY,
     SOURCE_REGISTRY,
+    VHR_SAR_SOURCES,
     list_engines,
     list_sources,
 )
@@ -33,12 +35,13 @@ __all__ = [
 
 
 class NoDataError(ValueError):
-    """No input imagery or embeddings for this study area and year.
+    """No input imagery, embeddings or crop-type maps for this study area and year.
 
     Raised by the composite builders when the source has no data for the
     study area in the requested period: no image intersects the study-area
-    extent (the message lists the years that have images there), the
-    downloaded composite or embedding has no valid pixel inside the study
+    extent (the message lists the years that have images there; for the
+    crop-type map stacks, a year of the window has no map), the downloaded
+    composite, embedding or stack has no valid pixel inside the study
     area, TESSERA or the Source Cooperative mirror returns no tile, USGS NAIP
     Plus has no imagery there, or a local raster does not overlap the study
     area. Invalid configurations and service errors raise other exceptions.
@@ -104,6 +107,11 @@ _BUILDERS: dict[str, str] = {
     "local": "agribound.composites.local:LocalCompositeBuilder",
     "usgs-naip-plus": "agribound.composites.usgs:USGSNAIPPlusCompositeBuilder",
     **{src: "agribound.composites.local:EmbeddingCompositeBuilder" for src in EMBEDDING_SOURCES},
+    **{src: "agribound.composites.vhr_sar:VHRSARCompositeBuilder" for src in VHR_SAR_SOURCES},
+    **{
+        src: "agribound.composites.crop_sequence:CropSequenceCompositeBuilder"
+        for src in CROP_SEQUENCE_SOURCES
+    },
 }
 _DEFAULT_BUILDER = "agribound.composites.gee:GEECompositeBuilder"
 

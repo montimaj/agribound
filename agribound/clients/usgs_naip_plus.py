@@ -8,19 +8,30 @@ query catalogue items and per-year counts, and export AOI-bounded TIFFs for
 The service holds only the latest NAIP/HRO vintage of each state (years
 2012-2023 as of 2026-09; dense only from 2019), not the historical NAIP
 archive; its native pixel size is 0.3 m and the state vintages are 0.3-0.6 m.
+
+Requests and downloads are retried after transient failures: HTTP 429 and
+5xx responses (also ArcGIS error payloads with those codes), timeouts,
+connection errors and truncated or garbled responses. The n-th retry waits
+``min(RETRY_MAX_WAIT_S, RETRY_BASE_WAIT_S * 2 ** (n - 1))`` seconds plus up
+to ``RETRY_JITTER`` of that at random (4, 8, 16, 32 and 60 s for the default
+5 retries) and is logged at WARNING. Other HTTP errors (4xx) are not retried.
 """
 
 from __future__ import annotations
 
+import errno
+import http.client
 import json
 import logging
+import random
+import shutil
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
-from urllib.error import HTTPError, URLError
+from typing import Any, TypeVar
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -31,12 +42,58 @@ from shapely.ops import unary_union
 DEFAULT_USGS_NAIPPLUS_URL = (
     "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer"
 )
+#: Retries of a request or download after a transient failure (6 attempts in all).
+DEFAULT_RETRIES = 5
+#: Wait before the first retry (s); it doubles with each retry up to RETRY_MAX_WAIT_S.
+RETRY_BASE_WAIT_S = 4.0
+RETRY_MAX_WAIT_S = 60.0
+#: Random extra wait, as a share of the wait, so that parallel clients spread out.
+RETRY_JITTER = 0.25
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 class USGSImageServerError(RuntimeError):
     """Raised when the USGS ImageServer request or response is invalid."""
+
+
+class _ArcGISError(USGSImageServerError):
+    """An ArcGIS error payload (``{"error": {...}}``); *code* is its error code."""
+
+    def __init__(self, message: str, code: int | None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+#: Local file-system failures (e.g. writing the download's .part file): never transient.
+_LOCAL_ERRNOS = frozenset({errno.EACCES, errno.EPERM, errno.ENOSPC, errno.EROFS, errno.EDQUOT})
+
+
+def _transient(exc: BaseException) -> bool:
+    """Whether a failed request may succeed when repeated (see the module docstring)."""
+    if isinstance(exc, HTTPError | _ArcGISError):  # HTTPError before OSError: it is one
+        return exc.code is not None and (exc.code == 429 or exc.code >= 500)
+    if isinstance(exc, PermissionError | IsADirectoryError | NotADirectoryError):
+        return False
+    if isinstance(exc, OSError) and exc.errno in _LOCAL_ERRNOS:
+        return False
+    return isinstance(exc, OSError | http.client.HTTPException | ValueError)
+
+
+def _retry_wait(retry: int) -> float:
+    """Seconds to wait before retry number *retry* (1, 2, ...), jitter included."""
+    wait_s = min(RETRY_MAX_WAIT_S, RETRY_BASE_WAIT_S * 2 ** (retry - 1))
+    return wait_s * (1 + random.uniform(0, RETRY_JITTER))
+
+
+def _failure_text(exc: BaseException) -> str:
+    if isinstance(exc, HTTPError):
+        return f"HTTP {exc.code}"
+    if isinstance(exc, _ArcGISError):
+        return f"ArcGIS error {exc}"
+    return type(exc).__name__
 
 
 @dataclass(frozen=True)
@@ -60,7 +117,9 @@ class USGSRasterCandidate:
 class USGSNAIPPlusClient:
     """Thin ArcGIS ImageServer client for USGS NAIP Plus."""
 
-    def __init__(self, service_url: str, timeout_s: int = 120, retries: int = 3) -> None:
+    def __init__(
+        self, service_url: str, timeout_s: int = 120, retries: int = DEFAULT_RETRIES
+    ) -> None:
         self.service_url = service_url.rstrip("/")
         self.timeout_s = timeout_s
         self.retries = retries
@@ -232,77 +291,86 @@ class USGSNAIPPlusClient:
         self._download_file(href, output_path)
         return payload
 
+    def _with_retries(self, attempt: Callable[[], _T], what: str, url: str) -> _T:
+        """Return ``attempt()``, repeating it up to ``self.retries`` times after a transient
+        failure (see the module docstring); each retry is logged at WARNING.
+
+        An ArcGIS error payload is raised as it is; another failed request (an HTTP 4xx
+        at once, a transient failure after the last retry) as ``USGSImageServerError``
+        ``"Failed <what>: <url>"``.
+        """
+        for n in range(self.retries + 1):
+            try:
+                return attempt()
+            except _ArcGISError as exc:
+                if n >= self.retries or not _transient(exc):
+                    raise
+                failure: BaseException = exc
+            except (OSError, http.client.HTTPException, ValueError) as exc:
+                if n >= self.retries or not _transient(exc):
+                    raise USGSImageServerError(f"Failed {what}: {url}") from exc
+                failure = exc
+            wait_s = _retry_wait(n + 1)
+            logger.warning(
+                "USGS %s failed (%s). Retrying in %.0f s [%d/%d]: %s",
+                what,
+                _failure_text(failure),
+                wait_s,
+                n + 1,
+                self.retries,
+                url,
+            )
+            time.sleep(wait_s)
+        raise AssertionError("unreachable")  # the last attempt returns or raises
+
     def _request_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Issue a GET request and parse JSON with bounded retries."""
+        """Issue a GET request and parse JSON, retrying transient failures."""
         url = self._build_url(path, params)
 
-        last_exc: Exception | None = None
-        for attempt in range(self.retries + 1):
-            try:
-                with urlopen(url, timeout=self.timeout_s) as response:
-                    raw = response.read()
-                payload = json.loads(raw.decode("utf-8"))
-                if isinstance(payload, dict) and "error" in payload:
-                    raise USGSImageServerError(self._format_arcgis_error(payload["error"]))
-                if not isinstance(payload, dict):
-                    raise USGSImageServerError(f"Expected JSON object response from {url}")
-                return payload
-            except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
-                last_exc = exc
-                if attempt >= self.retries:
-                    break
-                wait_s = 2**attempt
-                logger.warning(
-                    "USGS request failed (%s). Retrying in %s s [%d/%d]: %s",
-                    type(exc).__name__,
-                    wait_s,
-                    attempt + 1,
-                    self.retries,
-                    url,
-                )
-                time.sleep(wait_s)
+        def attempt() -> dict[str, Any]:
+            with urlopen(url, timeout=self.timeout_s) as response:
+                raw = response.read()
+            payload = json.loads(raw.decode("utf-8"))
+            if isinstance(payload, dict) and "error" in payload:
+                error = payload["error"] if isinstance(payload["error"], dict) else {}
+                raise _ArcGISError(self._format_arcgis_error(error), self._error_code(error))
+            if not isinstance(payload, dict):
+                raise USGSImageServerError(f"Expected JSON object response from {url}")
+            return payload
 
-        raise USGSImageServerError(f"Failed request: {url}") from last_exc
+        return self._with_retries(attempt, "request", url)
 
     def _download_file(self, url: str, output_path: Path) -> None:
-        """Download a file atomically with retries.
+        """Download a file atomically, retrying transient failures.
 
         The response is streamed to ``<output_path>.part`` with
         ``urlopen(url, timeout=self.timeout_s)`` (the timeout applies to the
         connection and to each read, so a stalled transfer fails and is
         retried) and renamed when complete.
         """
-        import shutil
-
         output_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = output_path.with_suffix(output_path.suffix + ".part")
 
-        last_exc: Exception | None = None
-        for attempt in range(self.retries + 1):
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-                with urlopen(url, timeout=self.timeout_s) as response, open(tmp_path, "wb") as fh:
-                    shutil.copyfileobj(response, fh, length=1 << 20)
-                tmp_path.replace(output_path)
-                return
-            except (HTTPError, URLError, OSError) as exc:
-                last_exc = exc
-                if attempt >= self.retries:
-                    break
-                wait_s = 2**attempt
-                logger.warning(
-                    "USGS download failed (%s). Retrying in %s s [%d/%d]: %s",
-                    type(exc).__name__,
-                    wait_s,
-                    attempt + 1,
-                    self.retries,
-                    url,
-                )
-                time.sleep(wait_s)
+        def attempt() -> None:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            with urlopen(url, timeout=self.timeout_s) as response, open(tmp_path, "wb") as fh:
+                shutil.copyfileobj(response, fh, length=1 << 20)
+            tmp_path.replace(output_path)
 
-        tmp_path.unlink(missing_ok=True)
-        raise USGSImageServerError(f"Failed download: {url}") from last_exc
+        try:
+            self._with_retries(attempt, "download", url)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+    @staticmethod
+    def _error_code(error: dict[str, Any]) -> int | None:
+        """The code of an ArcGIS error payload, or None."""
+        try:
+            return int(error.get("code"))
+        except (TypeError, ValueError):
+            return None
 
     def _feature_to_candidate(self, feature: dict[str, Any]) -> USGSRasterCandidate:
         """Convert an ArcGIS feature JSON object into a typed candidate."""
@@ -472,6 +540,7 @@ class USGSNAIPPlusClient:
 
 
 __all__ = [
+    "DEFAULT_RETRIES",
     "DEFAULT_USGS_NAIPPLUS_URL",
     "USGSImageServerError",
     "USGSRasterCandidate",

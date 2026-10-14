@@ -7,7 +7,7 @@
     for every region. Years that did not match the 0.1.x example scripts were
     removed. The Prithvi remark about PCA and ViT output was qualified. The
     page is kept for reference only. The current gallery, rendered from the
-    1.0.1 example runs, is [Example Gallery (1.0)](gallery.md). The images
+    agribound 1.1 example runs, is [Example Gallery](gallery.md). The images
     below are stored under `assets/gallery_0.1x/`.
 
 Visual results from agribound 0.1.x example scripts across different regions, satellites, and engines.
@@ -51,9 +51,9 @@ Visual results from agribound 0.1.x example scripts across different regions, sa
     (`fields_sam2_tessera_improved_2024.gpkg`). SAM2 changed little of this
     layer: the unrefined polygons over 50 ha hold 66 % of its area. The view is
     about 23 km wide with thick outlines, so single pixels and small
-    fragments are not visible. The same layer from the 1.0.1 run is
-    `fields_tessera_crop_sam2-tessera-split_2024.gpkg`; the 1.0 gallery shows both
-    layers in this screenshot's frame
+    fragments are not visible. The same layer from the 1.0.1 and 1.1 runs is
+    `fields_tessera_crop_sam2-tessera-split_2024.gpkg`; the current gallery shows
+    the 0.1.x layer in this screenshot's frame beside two 1.1.0 layers
     ([Compared with the 0.1.x README image](gallery.md#compared-with-the-01x-readme-image)).
 
 <img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_0.1x/Pampas_example.png" alt="Pampas — TESSERA + LULC + SAM2" width="700">

@@ -39,8 +39,11 @@ Years: 2022 by default (``--years 2022-2024`` for three years). The LULC crop
 filter is on (Dynamic World is selected outside the US) and needs Earth
 Engine, like the HLS composites.
 
-Estimated runtime (not measured for 1.0): ~10-30 minutes per year (GPU
-recommended for embed mode).
+Runtime for the default year: 5.7 minutes (342 s) with agribound 1.1.0 on
+2026-10-11 (Apple M2 Max with MPS, GFM environment; every composite
+downloaded, the model weights already cached): the two Prithvi runs 81 and
+125 s, Delineate-Anything on SPOT 119 s. The development run of 2026-10-09 took
+7.6 minutes (453 s).
 
 Prerequisites:
     GFM environment: conda env create -f environment-gfm.yml
@@ -65,7 +68,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

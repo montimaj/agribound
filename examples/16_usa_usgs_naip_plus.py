@@ -16,7 +16,8 @@ Data:
       catalogue has only 2022 imagery (nine 4-band 0.6 m footprints; query on
       2026-09-27), so any other ``--year`` raises a ValueError that lists the
       available years (``usgs_allow_year_fallback=True`` also accepts
-      year +/- 1).
+      year +/- 1). The export locks the mosaic to eight of the nine, chosen
+      in turn until they cover the box.
     - The export uses the finest resolution among the selected footprints
       (0.3-0.6 m depending on the state vintage): about 15,500 x 19,000 pixels
       at 0.6 m for this 0.1 x 0.1 degree box (120.1-120.0 W, 36.3-36.4 N).
@@ -24,8 +25,13 @@ Data:
     - The LULC crop filter needs Earth Engine, so it is disabled here to
       keep the run free of Earth Engine.
 
-Estimated runtime (not measured for 1.0): ~30-60 minutes (sub-metre raster, GPU
-recommended).
+Runtime: about 19 minutes (about 1,164 s) from scratch on an Apple M2 Max
+(MPS) in the development run of agribound 1.1 (2026-10-09): about 15 minutes
+to export the 25 tiles and 224 s of Delineate-Anything. The run took two
+attempts: the first exported 8 tiles in 201 s and stopped when the USGS
+service answered HTTP 502 four times at the ninth (agribound 1.1.0 retries
+such errors five times, waiting 4, 8, 16, 32 and 60 s), and the second
+exported the other 17 and finished in 963 s.
 
 Prerequisites:
     pip install "agribound[delineate-anything]"
@@ -50,7 +56,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

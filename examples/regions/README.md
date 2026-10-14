@@ -59,12 +59,17 @@ Notes on the columns:
   90 % of the tiles intersecting the bbox (manifests of 2026-09-26; the
   expected count includes water, so coastal boxes stay below 100 %).
 - **Reference**: `local` means the region uses a local, undistributed file
-  (examples/namoi_polygons.geojson, the NMOSE shapefile).
+  (examples/namoi_polygons.geojson; for the two New Mexico regions the
+  DRI/NMOSE field boundaries (V18), extracted from
+  `examples/NM_Field_Boundaries.zip` with
+  `unzip examples/NM_Field_Boundaries.zip -d examples/NM_Field_Boundaries`,
+  because the driver reads a vector file, not a zip archive).
 
 Admin-boundary boxes came from TIGER/2018 (US states and counties) and FAO GAUL
 2015 level 1 (Punjab, Vinnytsia), rounded outwards to 1e-4 degrees; the New
-Mexico box is the union of the TIGER state box and the extent of the NMOSE
-polygons, and the Namoi box is the extent of the Namoi reference polygons.
+Mexico box is the union of the TIGER state box and the extent of the older
+NMOSE WUCB polygons (the DRI/NMOSE V18 polygons lie inside the state box),
+and the Namoi box is the extent of the Namoi reference polygons.
 The other boxes are hand-drawn; see each file's `bbox_source`. Boxes can cover more
 than the region they are named after, and the WorldCover fraction is computed
 over the whole box: the New Mexico box is about 7 % Texas and 3 % Mexico, the Punjab box

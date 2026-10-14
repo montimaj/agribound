@@ -24,6 +24,7 @@ from agribound.cli import main
 SUBCOMMANDS = [
     "delineate",
     "composite",
+    "scenes",
     "prefetch",
     "evaluate",
     "query-ftw",
@@ -208,6 +209,17 @@ class TestCliListSources:
         result = runner.invoke(main, ["list-sources"])
         # Sentinel-2 is 10m
         assert "10m" in result.output
+
+    def test_list_sources_shows_sentinel1(self, runner):
+        result = runner.invoke(main, ["list-sources"])
+        assert result.exit_code == 0
+        lines = result.output.splitlines()
+        (row,) = [line for line in lines if line.strip().startswith("sentinel1")]
+        assert "Sentinel-1 C-band SAR GRD" in row
+        assert "10m" in row and "2015-present" in row and "[GEE]" in row
+        assert "restricted" not in row
+        rows = [line.split()[0] for line in lines if line.startswith("  ")]
+        assert rows.index("sentinel1") == rows.index("spot-pan") + 1
 
 
 class TestCliListFtwModels:
@@ -409,6 +421,36 @@ class TestDelineateConfig:
         data = _dry_run(runner, ["composite", *args[1:], "--landsat-pan-missions", "LE07"])
         assert data["landsat_pan_missions"] == ["LE07"]
 
+    def test_crop_sequence_years(self, runner, tmp_path):
+        args = [
+            "delineate",
+            "--study-area",
+            "bbox:-93.6,42.0,-93.5,42.1",
+            "--gee-project",
+            "p",
+            "--source",
+            "cdl-sequence",
+            "--engine",
+            "crop-sequence",
+            "--year",
+            "2023",
+            "--no-lulc-filter",
+            "--output",
+            str(tmp_path / "zones.gpkg"),
+        ]
+        data = _dry_run(runner, [*args, "--crop-sequence-years", "8"])
+        assert data["source"] == "cdl-sequence" and data["engine"] == "crop-sequence"
+        assert data["crop_sequence_years"] == 8 and data["year"] == 2023
+        assert _dry_run(runner, [*args, "--crop-sequence-years", "5"])["crop_sequence_years"] == 5
+        data = _dry_run(runner, ["composite", *args[1:], "--crop-sequence-years", "3"])
+        assert data["crop_sequence_years"] == 3
+        # A window that starts before the first CDL year is a usage error.
+        result = runner.invoke(main, [*args, "--crop-sequence-years", "20", "--dry-run"])
+        assert result.exit_code == 2 and "starts in 2008" in _flat(result.output)
+        text = _flat(runner.invoke(main, ["delineate", "--help"]).output)
+        own = text.split("--crop-sequence-years", 1)[1].split("--vhr-sar-collect-ids", 1)[0]
+        assert "ending in --year" in own and "[default: 8]" in own
+
     @pytest.mark.parametrize("value", ["LT05", "LC08,L9", ""])
     def test_invalid_landsat_pan_missions_is_usage_error(self, runner, value):
         result = runner.invoke(
@@ -429,6 +471,18 @@ class TestDelineateConfig:
         assert result.exit_code == 2
         assert "Invalid configuration" in result.output
         assert "landsat_pan_missions" in result.output
+
+    @pytest.mark.parametrize("command", ["delineate", "composite"])
+    @pytest.mark.parametrize("source", ["sentinel1", "landsat-pan"])
+    def test_ndvi_composite_method_without_nir_and_red_is_usage_error(
+        self, runner, command, source
+    ):
+        args = [command, "--study-area", "a.geojson", "--gee-project", "p", "--source", source]
+        result = runner.invoke(main, [*args, "--composite-method", "greenest", "--dry-run"])
+        assert result.exit_code == 2
+        assert "Invalid configuration" in result.output
+        assert f"needs NIR and red bands, which source '{source}'" in _flat(result.output)
+        assert _dry_run(runner, args)["composite_method"] == "median"
 
     def test_new_flags_override_yaml_and_round_trip(self, runner, tmp_path):
         cfg = _write_yaml(
@@ -746,7 +800,9 @@ class TestPrefetch:
     def test_embedding_engine_default_source(self, runner, fake_engine):
         result = runner.invoke(main, ["prefetch", "--engine", "embedding"])
         assert result.exit_code == 0, result.output
-        assert _FakeEngine.seen[0].source == "tessera-embedding"
+        # The embedding engine also accepts local feature rasters, and prefetch prefers
+        # "local" (no GEE project; the placeholder raster is never read).
+        assert _FakeEngine.seen[0].source == "local"
         assert "reported no files" in result.output
 
     def test_engine_from_config(self, runner, base_yaml, fake_engine):
@@ -973,6 +1029,43 @@ class TestEvaluate:
             ["evaluate", "-p", str(pred), "-r", str(ref), "--boundary-sample-spacing-m", spacing],
         )
         assert result.exit_code == 2
+
+    def test_baselines_flag_is_forwarded(self, runner, vector_pair, monkeypatch):
+        pred, ref = vector_pair
+        evaluate_mod = importlib.import_module("agribound.evaluate")
+        seen = []
+
+        def fake_evaluate(predicted, reference, **kwargs):
+            seen.append(kwargs)
+            return {}
+
+        monkeypatch.setattr(evaluate_mod, "evaluate", fake_evaluate)
+        base = ["evaluate", "-p", str(pred), "-r", str(ref)]
+        assert runner.invoke(main, [*base, "--baselines"]).exit_code == 0
+        assert runner.invoke(main, base).exit_code == 0
+        assert seen == [{"iou_threshold": 0.5, "baselines": True}, {"iou_threshold": 0.5}]
+
+    def test_real_evaluate_with_baselines(self, runner, vector_pair):
+        pred, ref = vector_pair
+        result = runner.invoke(
+            main,
+            [
+                "evaluate",
+                "-p",
+                str(pred),
+                "-r",
+                str(ref),
+                "--baselines",
+                "--boundary-tolerance-m",
+                "10",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        metrics = json.loads(result.stdout)
+        grid = metrics["baselines"]["blind_grid"]
+        assert grid["n_grids"] == 36 and "boundary_f1" in grid
+        assert "shifted_reference" not in metrics["baselines"]
+        assert metrics["recall"] == pytest.approx(0.5)  # the evaluation itself is unchanged
 
     def test_real_evaluate_with_new_options(self, runner, vector_pair):
         pred, ref = vector_pair
@@ -1335,3 +1428,289 @@ class TestFineTuneDispatcher:
 
         with pytest.raises(ValueError, match="reference_boundaries"):
             fine_tune(env.tif, env.make_config(reference_boundaries=None))
+
+
+# ---------------------------------------------------------------------------
+# Open VHR SAR flags (umbra, capella)
+# ---------------------------------------------------------------------------
+
+VHR_SAR_FLAGS = (
+    "--vhr-sar-collect-ids",
+    "--vhr-sar-max-collects",
+    "--vhr-sar-polarization",
+    "--vhr-sar-resolution",
+    "--vhr-sar-coregister",
+    "--vhr-sar-coregister-base",
+    "--vhr-sar-bands",
+    "--vhr-sar-calibration",
+    "--vhr-sar-max-download-gb",
+    "--vhr-sar-cache-dir",
+)
+
+
+class TestCliVhrSar:
+    def test_flags_are_stage_a_options(self, runner):
+        for command in ("delineate", "composite"):
+            text = runner.invoke(main, [command, "--help"]).output
+            for flag in VHR_SAR_FLAGS:
+                assert flag in text, (command, flag)
+
+    def test_flags_reach_the_configuration(self, runner, tmp_path):
+        args = [
+            "delineate",
+            "--study-area",
+            "bbox:-121.8,38.5,-121.79,38.51",
+            "--source",
+            "umbra",
+            "--year",
+            "2024",
+            "--no-lulc-filter",
+            "--output",
+            str(tmp_path / "x.gpkg"),
+        ]
+        data = _dry_run(runner, args)
+        assert data["vhr_sar_collect_ids"] is None and data["vhr_sar_max_collects"] == 6
+        assert data["vhr_sar_coregister"] == "auto" and data["bands"] is None
+        data = _dry_run(
+            runner,
+            [
+                *args,
+                "--vhr-sar-collect-ids",
+                "a, b",
+                "--vhr-sar-polarization",
+                "hh",
+                "--vhr-sar-resolution",
+                "2",
+                "--vhr-sar-coregister",
+                "sar",
+                "--vhr-sar-bands",
+                "median+dates",
+                "--vhr-sar-max-download-gb",
+                "1.5",
+                "--vhr-sar-cache-dir",
+                str(tmp_path / "vhr"),
+            ],
+        )
+        assert data["vhr_sar_collect_ids"] == ["a", "b"]
+        assert data["vhr_sar_polarization"] == "HH" and data["vhr_sar_resolution_m"] == 2.0
+        assert data["vhr_sar_coregister"] == "sar" and data["vhr_sar_bands"] == "median+dates"
+        # The median+dates band mapping is derived when the composite is read, not stored.
+        assert data["bands"] is None
+        assert data["vhr_sar_max_download_gb"] == 1.5
+        assert data["vhr_sar_cache_dir"] == str(tmp_path / "vhr")
+
+    def test_invalid_combinations_are_usage_errors(self, runner):
+        args = ["delineate", "--study-area", "a.geojson", "--source", "umbra", "--year", "2024"]
+        result = runner.invoke(main, [*args, "--vhr-sar-calibration", "full", "--dry-run"])
+        assert result.exit_code == 2 and "applies to source='capella' only" in _flat(result.output)
+        result = runner.invoke(main, [*args, "--engine", "ftw", "--dry-run"])
+        assert result.exit_code == 2 and "does not support source 'umbra'" in _flat(result.output)
+        single = ["--vhr-sar-bands", "median+dates", "--vhr-sar-max-collects", "1", "--dry-run"]
+        result = runner.invoke(main, [*args, *single])
+        assert result.exit_code == 2 and "needs at least 2 collects" in _flat(result.output)
+
+    def test_list_sources_shows_umbra_and_capella(self, runner):
+        lines = runner.invoke(main, ["list-sources"]).output.splitlines()
+        rows = [line.split()[0] for line in lines if line.startswith("  ")]
+        assert rows.index("umbra") == rows.index("sentinel1") + 1
+        assert rows.index("capella") == rows.index("umbra") + 1
+        (umbra,) = [line for line in lines if line.strip().startswith("umbra")]
+        assert "1.0m" in umbra and "2023-present" in umbra and "[no GEE]" in umbra
+
+
+# ---------------------------------------------------------------------------
+# scenes and composite --date-layers
+# ---------------------------------------------------------------------------
+
+
+def _survey_table():
+    """A ranked survey table as ``agribound.survey_scenes`` returns it (abridged)."""
+    import pandas as pd
+
+    rows = [
+        {
+            "rank": 1,
+            "date": "2020-08-04",
+            "acquisition": "Sentinel-2B_2020-08-04_R065",
+            "n_images": 1,
+            "image_ids": ["COPERNICUS/S2_SR_HARMONIZED/20200804T101559_20200804T103905_T30NXM"],
+            "scene_cloud_pct": 10.626962,
+            "extent_share": 1.0,
+            "clear_share": 1.0,
+            "cs_clear_share": 1.0,
+            "scl_clear_share": 1.0,
+            "cs_mean": 0.903,
+            "aot_mean": 0.0556,
+            "date_range": ("2020-08-04", "2020-08-04"),
+        },
+        {
+            "rank": 2,
+            "date": "2020-01-12",
+            "acquisition": "Sentinel-2A_2020-01-12_R065",
+            "n_images": 1,
+            "image_ids": ["COPERNICUS/S2_SR_HARMONIZED/20200112T102401_20200112T103856_T30NXM"],
+            "scene_cloud_pct": 3.08427,
+            "extent_share": 1.0,
+            "clear_share": 1.0,
+            "cs_clear_share": 1.0,
+            "scl_clear_share": 0.9838,
+            "cs_mean": 0.851,
+            "aot_mean": None,
+            "date_range": ("2020-01-12", "2020-01-12"),
+        },
+    ]
+    table = pd.DataFrame(rows)
+    table.attrs.update(
+        {
+            "source": "sentinel2",
+            "year": 2020,
+            "window": ("2020-01-01", "2021-01-01"),
+            "cloud_cover_max": 80,
+            "cloud_mask": "Cloud Score+ cs_cdf >= 0.6",
+            "ranked_by": "share of the study area clear under the configured mask",
+            "rank_rule": "clear_share desc, cs_mean desc, date asc, acquisition asc",
+            "survey_version": "1",
+            "scale_m": 60.0,
+            "crs": "EPSG:32630",
+            "reduced_over": "the study area",
+            "n_acquisitions": 3,
+            "n_without_coverage": 1,
+        }
+    )
+    return table
+
+
+class TestScenes:
+    @pytest.fixture
+    def fake_survey(self, monkeypatch):
+        scenes = importlib.import_module("agribound.composites.scenes")
+        seen = []
+
+        def fake(config, *, scale_m=None):
+            seen.append({"config": config, "scale_m": scale_m})
+            return _survey_table()
+
+        monkeypatch.setattr(scenes, "survey_scenes", fake)
+        return seen
+
+    def test_help_lists_the_options(self, runner):
+        text = _flat(runner.invoke(main, ["scenes", "--help"]).output)
+        for flag in ("--top", "--json", "--csv", "--scale-m", "--study-area", "--date-range"):
+            assert flag in text, flag
+        assert "[default: 10; x>=0]" in text
+        # click may wrap at the hyphens of "Delineate-Anything" and "Sentinel-2"
+        assert "the single clearest Sentinel-2 date was a worse input" in text.replace("- ", "-")
+        assert "--engine-param" not in text and "--date-layers" not in text
+
+    def test_dry_run(self, runner, base_yaml, fake_survey):
+        data = _dry_run(runner, ["scenes", "--config", str(base_yaml), "--cloud-cover-max", "80"])
+        assert data["cloud_cover_max"] == 80 and data["source"] == "sentinel2"
+        assert fake_survey == []
+
+    @pytest.mark.parametrize("source", ["naip", "sentinel1"])
+    def test_unsupported_source_is_usage_error(self, runner, base_yaml, fake_survey, source):
+        args = ["scenes", "--config", str(base_yaml), "--source", source, "--dry-run"]
+        result = runner.invoke(main, args)
+        assert result.exit_code == 2, result.output
+        assert "The scene survey supports the sources sentinel2" in _flat(result.output)
+        assert fake_survey == []
+
+    def test_table(self, runner, base_yaml, fake_survey):
+        args = ["scenes", "--config", str(base_yaml), "--s2-cloud-mask", "cloud_score_plus"]
+        result = runner.invoke(main, [*args, "--scale-m", "120"])
+        assert result.exit_code == 0, result.output
+        (call,) = fake_survey
+        assert call["scale_m"] == 120.0
+        assert call["config"].s2_cloud_mask == "cloud_score_plus"
+        out = result.output
+        assert "sentinel2 2020: 2 acquisition(s) over the study area" in out
+        assert "1 date(s) whose images miss the study area are not listed." in out
+        header = next(line for line in out.splitlines() if line.startswith("rank"))
+        for name in ("date", "acquisition", "images", "cloud %", "footprint", "clear", "AOT"):
+            assert name in header
+        row = next(line for line in out.splitlines() if "Sentinel-2B_2020-08-04_R065" in line)
+        assert row.split()[:3] == ["1", "2020-08-04", "Sentinel-2B_2020-08-04_R065"]
+        assert "10.6" in row and "0.903" in row and "0.056" in row
+        row2 = next(line for line in out.splitlines() if "Sentinel-2A_2020-01-12" in line)
+        assert row2.rstrip().endswith("-")  # no AOT: no clear pixel
+        assert "Rank 1 alone: --date-range 2020-08-04 2020-08-04" in out
+
+    def test_top_json_and_csv(self, runner, base_yaml, fake_survey, tmp_path):
+        csv_path = tmp_path / "survey" / "scenes.csv"
+        args = ["scenes", "--config", str(base_yaml), "--top", "1", "--json"]
+        result = runner.invoke(main, [*args, "--csv", str(csv_path)])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["n_rows"] == 2 and len(data["rows"]) == 1
+        assert data["rows"][0]["date_range"] == ["2020-08-04", "2020-08-04"]
+        assert data["window"] == ["2020-01-01", "2021-01-01"]
+        assert data["rank_rule"].startswith("clear_share desc")
+        import pandas as pd
+
+        written = pd.read_csv(csv_path)
+        assert written["date"].tolist() == ["2020-08-04", "2020-01-12"]
+        assert "date_range" not in written.columns
+        assert written.loc[0, "image_ids"].startswith("COPERNICUS/S2_SR_HARMONIZED/")
+        table = runner.invoke(main, ["scenes", "--config", str(base_yaml), "--top", "1"]).output
+        assert "1 of 2 rows (--top 0 prints all)." in table
+
+    def test_survey_errors_are_clean(self, runner, base_yaml, monkeypatch):
+        scenes = importlib.import_module("agribound.composites.scenes")
+
+        def failing(config, *, scale_m=None):
+            raise RuntimeError("The sentinel2 2020 scene survey failed on Earth Engine")
+
+        monkeypatch.setattr(scenes, "survey_scenes", failing)
+        result = runner.invoke(main, ["scenes", "--config", str(base_yaml)])
+        assert result.exit_code == 1
+        assert "scene survey failed on Earth Engine" in result.output
+
+
+class TestCompositeDateLayers:
+    @pytest.fixture
+    def fake_stage_a(self, monkeypatch):
+        pipeline = importlib.import_module("agribound.pipeline")
+        scenes = importlib.import_module("agribound.composites.scenes")
+        calls = []
+        monkeypatch.setattr(
+            pipeline, "build_composite", lambda config: calls.append("composite") or "/c.tif"
+        )
+        monkeypatch.setattr(
+            scenes, "build_date_layers", lambda config: calls.append("dates") or "/d.tif"
+        )
+        return calls
+
+    def test_help(self, runner):
+        text = _flat(runner.invoke(main, ["composite", "--help"]).output)
+        assert "--date-layers" in text and "days since 1970-01-01" in text
+        assert "--date-layers" not in runner.invoke(main, ["delineate", "--help"]).output
+
+    def test_dry_run(self, runner, base_yaml, fake_stage_a):
+        data = _dry_run(runner, ["composite", "--config", str(base_yaml), "--date-layers"])
+        assert data["source"] == "sentinel2"
+        assert fake_stage_a == []
+
+    def test_builds_the_composite_then_the_layers(self, runner, base_yaml, fake_stage_a):
+        result = runner.invoke(main, ["composite", "--config", str(base_yaml), "--date-layers"])
+        assert result.exit_code == 0, result.output
+        assert fake_stage_a == ["composite", "dates"]
+        assert "Composite ready → /c.tif" in result.output
+        assert "Date layers ready → /d.tif" in result.output
+
+    def test_without_the_flag_no_layers(self, runner, base_yaml, fake_stage_a):
+        result = runner.invoke(main, ["composite", "--config", str(base_yaml)])
+        assert result.exit_code == 0 and fake_stage_a == ["composite"]
+
+    @pytest.mark.parametrize(
+        ("extra", "message"),
+        [
+            (["--source", "naip"], "Date layers are available for the sources sentinel2"),
+            (["--export-method", "gcs", "--gcs-bucket", "b"], "need export_method='local'"),
+        ],
+    )
+    def test_refused_before_the_composite(self, runner, base_yaml, fake_stage_a, extra, message):
+        args = ["composite", "--config", str(base_yaml), "--date-layers", *extra]
+        result = runner.invoke(main, args)
+        assert result.exit_code == 2, result.output
+        assert message in _flat(result.output)
+        assert fake_stage_a == []

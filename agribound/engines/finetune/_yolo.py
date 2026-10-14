@@ -5,9 +5,14 @@ Delineate-Anything (Ultralytics YOLO11-seg) fine-tuning.
 with the directory written by
 :func:`agribound.engines.finetune._data._prepare_training_data` for
 ``engine="delineate-anything"``: georeferenced uint8 R, G, B chips with the
-scene-level 1-99 percentile stretch already applied (the stretch the engine
-applies at inference), split into ``images/`` (train) and ``val_images/``
-(validation) by :func:`agribound.engines.finetune._data.assign_splits`.
+scene-level percentile stretch already applied (the stretch the engine
+applies at inference: 1-99 %, or ``engine_params["stretch_percentiles"]``),
+cut from the raster the native backend reads (resampled to
+``engine_params["processing_gsd_m"]`` when that is set), split into
+``images/`` (train) and ``val_images/`` (validation) by
+:func:`agribound.engines.finetune._data.assign_splits`. The training
+metadata records both options, and the native backend logs a WARNING when it
+runs the checkpoint with other values.
 
 Labels
 ------
@@ -22,6 +27,21 @@ instances. YOLO labels hold one ring per instance, so the holes of a polygon
 are joined to its exterior by zero-width bridges (the fill of such a ring
 leaves the holes empty); a field split into several parts by the chip edge
 gives one instance per part.
+
+Slivers get no instance: a part that a side of the chip frame cuts from its
+reference polygon (the part reaches that side and the polygon extends beyond
+it) and that reaches at most ``yolo_sliver_depth_px`` pixels of the model
+input into the chip from that side (default 16,
+:data:`DEFAULT_SLIVER_DEPTH_PX`; see :func:`frame_cut_depth`). Such a strip
+shows little of its field, and its edge along the frame is not in the image;
+a model fine-tuned on a few dozen chips can learn to draw strips along the
+frame of every tile. 16 px is the depth at which upstream DelAnyFlow's
+tile-seam merge treats a tile-cut piece as "only a strip along the border"
+(``seam_max_strip_depth_px``, also used by agribound's native backend). Parts
+cut by invalid pixels rather than by the frame are kept, and the chips
+overlap (half the chip size apart by default, see
+:func:`agribound.engines.finetune._data.chip_stride`), so a field cut to a
+sliver in one chip appears whole, or deeper, in a neighbouring chip.
 
 Scale and model
 ---------------
@@ -57,20 +77,29 @@ overrides) and ``warmup_bias_lr=0`` (what ``optimizer="auto"`` sets;
 Ultralytics' default of 0.1 applies only to a named optimizer;
 ``yolo_warmup_bias_lr`` overrides), horizontal and vertical flips with probability 0.5,
 ``plots=False``, ``epochs=config.fine_tune_epochs``, ``batch`` 16
-(``yolo_batch``), ``workers=config.n_workers``. Ultralytics selects the
-checkpoint with the best validation fitness (``best.pt``).
+(``yolo_batch``), ``nbs`` equal to the batch (``yolo_nbs``; see below),
+``workers=config.n_workers``. Ultralytics selects the checkpoint with the best
+validation fitness (``best.pt``).
 
-Small training sets. With few chips there are few optimizer steps (Ultralytics
-accumulates gradients over 64 images: about one step per epoch after the
-warmup for a few dozen chips), and the default ``lr0`` can move the pretrained
-weights too far for them to recover. On 62 training chips of 512 px (SPOT 6/7
-panchromatic, an oil palm estate in Ghana; example 23), the validation mask
-mAP50 at the default ``lr0`` was 0.02 after the first epoch (the checkpoint
-Ultralytics kept) and 0.00 from the third epoch on, and 0.47 after 20 epochs
-with ``yolo_lr0=1e-4``, against 0.17 for the released weights (2026-10-05;
-with the ``warmup_bias_lr`` of 0.1 that agribound <= 1.0.1 used, the default
-``lr0`` scored 0.00). Use a smaller ``yolo_lr0`` for small training sets, and compare
-the validation scores with those of the released weights.
+Small training sets. Ultralytics steps the optimizer once every
+``round(nbs / batch)`` batches (at least 1), accumulating the gradients in
+between, and during the warmup (3 epochs) it raises that number from 1. With
+its default ``nbs`` of 64 and batches of 16, 22 training chips (two batches
+per epoch) got 11 optimizer steps in 20 epochs. agribound sets ``nbs`` to the
+batch size, so the optimizer steps after every batch (40 steps there);
+``yolo_nbs=64`` restores Ultralytics' accumulation. With ``yolo_batch=-1``
+(Ultralytics' AutoBatch) the batch size is not known in advance, and ``nbs``
+stays at Ultralytics' 64 unless ``yolo_nbs`` is set. The default ``lr0`` can
+also move the pretrained weights too far for them to recover. On 62 training
+chips of 512 px (SPOT 6/7 panchromatic, an oil palm estate in Ghana; example
+23), with chips that did not overlap and ``nbs`` 64 (the recipe of
+2026-10-05), the validation mask mAP50 at the default ``lr0`` was 0.02 after
+the first epoch (the checkpoint Ultralytics kept) and 0.00 from the third
+epoch on, and 0.47 after 20 epochs with ``yolo_lr0=1e-4``, against 0.17 for
+the released weights (with the ``warmup_bias_lr`` of 0.1 that agribound <=
+1.0.1 used, the default ``lr0`` scored 0.00). Use a smaller ``yolo_lr0`` for
+small training sets, and compare the validation scores with those of the
+released weights.
 
 ``RECIPE_VERSION`` is part of the fine-tuning cache keys, so checkpoints
 trained with an earlier recipe are not reused.
@@ -102,8 +131,23 @@ DEFAULT_LR0 = 0.002
 #: warmup with AdamW (agribound <= 1.0.1 used it).
 DEFAULT_WARMUP_BIAS_LR = 0.0
 
+#: Default depth, in pixels of the model input, up to which a label part cut by the chip
+#: frame is a sliver and is dropped (``yolo_sliver_depth_px``; 0 keeps every part): upstream
+#: DelAnyFlow's ``seam_max_strip_depth_px``, at which its tile-seam merge treats a tile-cut
+#: piece as only a strip along the border.
+DEFAULT_SLIVER_DEPTH_PX = 16.0
+
+#: Ultralytics' default nominal batch size (``nbs``), kept when the batch size is chosen by
+#: Ultralytics' AutoBatch (``yolo_batch=-1``) and ``yolo_nbs`` is not set.
+_ULTRALYTICS_NBS = 64
+
+#: Tolerance, in chip pixels, of the test that a label part reaches a side of the chip.
+_FRAME_TOL_PX = 1e-6
+
 #: Version of the fine-tuning recipe (part of the cache keys). 2: ``warmup_bias_lr=0``.
-RECIPE_VERSION = 2
+#: 3: chips half a chip apart, split by chip-size cells; ``nbs`` equal to the batch size;
+#: sliver labels dropped; pixels that are 0 in every band are nodata in the chips.
+RECIPE_VERSION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +198,40 @@ def _polygon_parts(geom: Any) -> list[Any]:
     return []
 
 
+def frame_cut_depth(part: Any, polygon: Any, width: int, height: int) -> float | None:
+    """How far a label part reaches into the chip from the chip sides that cut it.
+
+    *part* is a part of *polygon* inside a ``width`` x ``height`` chip, both
+    in chip pixel coordinates (x right, y down). A side of the chip frame cuts
+    the part when the part reaches that side and the polygon it belongs to
+    (for a multi-part *polygon*, the part's own component) extends beyond it.
+    The depth from a side is the largest distance of the part from that side
+    (from the left side: the part's largest x).
+
+    Returns
+    -------
+    float or None
+        The smallest depth over the sides that cut *part*; None when no side
+        cuts it (the part lies inside the chip, or ends at invalid pixels).
+    """
+    if polygon.geom_type != "Polygon":
+        inside = part.representative_point()
+        polygon = next((p for p in _polygon_parts(polygon) if p.intersects(inside)), polygon)
+    minx, miny, maxx, maxy = part.bounds
+    gminx, gminy, gmaxx, gmaxy = polygon.bounds
+    tol = _FRAME_TOL_PX
+    depths = []
+    if minx <= tol and gminx < -tol:
+        depths.append(maxx)
+    if maxx >= width - tol and gmaxx > width + tol:
+        depths.append(width - minx)
+    if miny <= tol and gminy < -tol:
+        depths.append(maxy)
+    if maxy >= height - tol and gmaxy > height + tol:
+        depths.append(height - miny)
+    return min(depths) if depths else None
+
+
 def chip_labels(
     polygons: list[Any],
     chip_transform: Any,
@@ -161,6 +239,8 @@ def chip_labels(
     height: int,
     valid_area_px: Any | None = None,
     min_area_px: float = DEFAULT_MIN_INSTANCE_PX,
+    sliver_depth_px: float = 0.0,
+    counts: dict[str, int] | None = None,
 ) -> list[str]:
     """YOLO segmentation label lines for reference polygons over one chip.
 
@@ -176,6 +256,13 @@ def chip_labels(
         Valid image area in pixel coordinates; labels are clipped to it.
     min_area_px : float
         Minimum area, in square pixels, of a label polygon part.
+    sliver_depth_px : float
+        Parts cut by the chip frame that reach at most this many chip pixels
+        into the chip from a side that cuts them (:func:`frame_cut_depth`)
+        are dropped; 0 keeps them.
+    counts : dict or None
+        If given, ``counts["n_slivers"]`` is increased by the number of
+        dropped slivers.
 
     Returns
     -------
@@ -199,6 +286,12 @@ def chip_labels(
         for part in _polygon_parts(pixel_geom.intersection(clip)):
             if part.area < min_area_px:
                 continue
+            if sliver_depth_px > 0:
+                depth = frame_cut_depth(part, pixel_geom, width, height)
+                if depth is not None and depth <= sliver_depth_px:
+                    if counts is not None:
+                        counts["n_slivers"] = counts.get("n_slivers", 0) + 1
+                    continue
             ring = bridge_holes(part)
             if len(ring) < 3:
                 continue
@@ -272,6 +365,7 @@ def prepare_yolo_dataset(
     out_dir: Path,
     super_resolution: int,
     min_area_px: float = DEFAULT_MIN_INSTANCE_PX,
+    sliver_depth_px: float = DEFAULT_SLIVER_DEPTH_PX,
 ) -> dict[str, Any]:
     """Write the Ultralytics dataset (PNG images, label files, ``data.yaml``).
 
@@ -288,12 +382,17 @@ def prepare_yolo_dataset(
         Image upsampling factor (bicubic).
     min_area_px : float
         Minimum label polygon area in chip pixels.
+    sliver_depth_px : float
+        Depth, in pixels of the model input (chip pixels times
+        *super_resolution*), up to which a label part cut by the chip frame
+        is dropped, in both splits (see :func:`chip_labels`); 0 keeps them.
 
     Returns
     -------
     dict
-        ``data_yaml``, ``imgsz``, ``chip_size`` and per-split image and
-        instance counts.
+        ``data_yaml``, ``imgsz``, ``chip_size`` and per-split image,
+        instance and dropped-sliver counts (``n_<split>_images``,
+        ``n_<split>_instances``, ``n_<split>_slivers``).
     """
     import cv2
     import yaml
@@ -317,12 +416,14 @@ def prepare_yolo_dataset(
     stats: dict[str, Any] = {}
     chip_size: int | None = None
     ref_crs_cache: dict[str, Any] = {}
+    chip_sliver_px = float(sliver_depth_px) / float(super_resolution)
     for split, files in splits.items():
         img_dir = out_dir / "images" / split
         lbl_dir = out_dir / "labels" / split
         img_dir.mkdir(parents=True)
         lbl_dir.mkdir(parents=True)
         n_instances = 0
+        counts: dict[str, int] = {"n_slivers": 0}
         for path in files:
             data, transform, crs = _read_chip(path)
             if data.dtype != np.uint8:
@@ -354,6 +455,8 @@ def prepare_yolo_dataset(
                 height,
                 valid_area_px=_valid_area_px(chip_valid_pixels(data, _mask_path(path))),
                 min_area_px=min_area_px,
+                sliver_depth_px=chip_sliver_px,
+                counts=counts,
             )
             n_instances += len(lines)
             hwc = np.ascontiguousarray(np.transpose(data, (1, 2, 0)))  # R, G, B
@@ -364,6 +467,7 @@ def prepare_yolo_dataset(
             (lbl_dir / f"{path.stem}.txt").write_text("\n".join(lines))
         stats[f"n_{split}_images"] = len(files)
         stats[f"n_{split}_instances"] = n_instances
+        stats[f"n_{split}_slivers"] = counts["n_slivers"]
 
     data_yaml = out_dir / "data.yaml"
     data_yaml.write_text(
@@ -395,6 +499,41 @@ def _chip_bounds(transform: Any, width: int, height: int) -> tuple[float, float,
 # ---------------------------------------------------------------------------
 
 
+def _nominal_batch_size(value: Any, batch: int) -> int:
+    """Ultralytics ``nbs`` from ``engine_params["yolo_nbs"]`` (see the module docstring).
+
+    None gives *batch* (no gradient accumulation), or Ultralytics' default of
+    64 when *batch* is not positive (AutoBatch, ``yolo_batch=-1``).
+
+    Raises
+    ------
+    ValueError
+        If *value* is not an integer of at least 1.
+    """
+    import numbers
+
+    if value is None:
+        return batch if batch >= 1 else _ULTRALYTICS_NBS
+    ok = isinstance(value, numbers.Real) and not isinstance(value, bool)
+    if not (ok and np.isfinite(value) and float(value).is_integer() and value >= 1):
+        raise ValueError(
+            f"engine_params['yolo_nbs'] must be an integer of at least 1, got {value!r}"
+        )
+    return int(value)
+
+
+def _sliver_depth_px(value: Any) -> float:
+    """``engine_params["yolo_sliver_depth_px"]`` as a float (a finite number of at least 0)."""
+    import numbers
+
+    ok = isinstance(value, numbers.Real) and not isinstance(value, bool)
+    if not (ok and np.isfinite(value) and value >= 0):
+        raise ValueError(
+            f"engine_params['yolo_sliver_depth_px'] must be a number of at least 0, got {value!r}"
+        )
+    return float(value)
+
+
 def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> str:
     """Fine-tune Delineate-Anything with Ultralytics YOLO (see the module docstring).
 
@@ -406,7 +545,11 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         Configuration whose working directory is the fine-tuning run
         directory. Relevant ``engine_params``: ``da_model``/``model_size``
         (base model), ``super_resolution``, ``yolo_lr0``,
-        ``yolo_warmup_bias_lr``, ``yolo_batch``, ``yolo_min_instance_px``.
+        ``yolo_warmup_bias_lr``, ``yolo_batch``, ``yolo_nbs`` (Ultralytics'
+        nominal batch size: an integer of at least 1; default the batch size,
+        i.e. no gradient accumulation), ``yolo_min_instance_px`` and
+        ``yolo_sliver_depth_px`` (a number of at least 0; default
+        :data:`DEFAULT_SLIVER_DEPTH_PX`).
     model_key : str
         Name the dispatcher uses for this model variant (logged and recorded
         as ``dispatcher_model_key``; the base weights follow
@@ -424,7 +567,8 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         If ultralytics is not installed.
     ValueError
         If the engine parameters select the ``ftw`` backend, which cannot
-        load a fine-tuned checkpoint.
+        load a fine-tuned checkpoint, or ``yolo_warmup_bias_lr``,
+        ``yolo_nbs`` or ``yolo_sliver_depth_px`` is out of range.
     RuntimeError
         If training produced no checkpoint.
     """
@@ -477,7 +621,9 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
             f"engine_params['yolo_warmup_bias_lr'] must be between 0 and 1, got {warmup_bias_lr}"
         )
     batch = int(params.get("yolo_batch", 16))
+    nbs = _nominal_batch_size(params.get("yolo_nbs"), batch)
     min_px = float(params.get("yolo_min_instance_px", DEFAULT_MIN_INSTANCE_PX))
+    sliver_px = _sliver_depth_px(params.get("yolo_sliver_depth_px", DEFAULT_SLIVER_DEPTH_PX))
     device = config.resolve_device()
     weights = download_da_weights(spec.key)
 
@@ -494,16 +640,21 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         min_px,
         config.seed,
         f"warmup_bias_lr={warmup_bias_lr}",
+        f"nbs={nbs}",
+        f"sliver_depth_px={sliver_px}",
         f"recipe={RECIPE_VERSION}",
     )
     run_root.mkdir(parents=True, exist_ok=True)
-    dataset = prepare_yolo_dataset(Path(train_dir), config, run_root / "dataset", sr, min_px)
+    dataset = prepare_yolo_dataset(
+        Path(train_dir), config, run_root / "dataset", sr, min_px, sliver_px
+    )
 
     train_kwargs: dict[str, Any] = {
         "data": dataset["data_yaml"],
         "epochs": int(config.fine_tune_epochs),
         "imgsz": dataset["imgsz"],
         "batch": batch,
+        "nbs": nbs,
         "project": str(run_root.resolve()),
         "name": "train",
         "exist_ok": True,
@@ -535,7 +686,8 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         )
     logger.info(
         "Fine-tuning Delineate-Anything %s (%s) for %d epochs: imgsz=%d (super_resolution=%d), "
-        "lr0=%g, warmup_bias_lr=%g, %d train / %d val chips, %d / %d instances",
+        "lr0=%g, warmup_bias_lr=%g, batch=%d, nbs=%d, %d train / %d val chips, %d / %d "
+        "instances (%d / %d slivers of at most %g px dropped)",
         spec.key,
         model_key,
         config.fine_tune_epochs,
@@ -543,12 +695,21 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
         sr,
         lr0,
         warmup_bias_lr,
+        batch,
+        nbs,
         dataset["n_train_images"],
         dataset["n_val_images"],
         dataset["n_train_instances"],
         dataset["n_val_instances"],
+        dataset["n_train_slivers"],
+        dataset["n_val_slivers"],
+        sliver_px,
     )
-    results = YOLO(weights).train(**train_kwargs)
+    from agribound.engines.delineate_anything import no_nms_time_limit
+
+    # Validation NMS without Ultralytics' wall-clock limit: best.pt is chosen on it.
+    with no_nms_time_limit():
+        results = YOLO(weights).train(**train_kwargs)
 
     save_dir = Path(getattr(results, "save_dir", "") or (run_root / "train"))
     best = save_dir / "weights" / "best.pt"
@@ -583,6 +744,17 @@ def _finetune_yolo(train_dir: Path, config: AgriboundConfig, model_key: str) -> 
             "imgsz_matches_model_input": imgsz_matches,
             "labels": "reference polygons clipped per chip; holes bridged",
             "min_instance_px": min_px,
+            "sliver_depth_px": sliver_px,
+            "chip_stride": chips_meta.get("chip_stride"),
+            # The options the chips were made with (recorded by _data); with gsd_m,
+            # super_resolution and raster_dtype (uint8: not stretched) the input the model
+            # saw, which the native backend compares with its own input.
+            "raster_dtype": chips_meta.get("raster_dtype"),
+            "processing_gsd_m": chips_meta.get("processing_gsd_m", opts.processing_gsd_m),
+            "stretch_percentiles": (chips_meta.get("image") or {}).get(
+                "stretch_percentiles", list(opts.stretch_percentiles)
+            ),
+            "processing": chips_meta.get("processing"),
             "recipe_version": RECIPE_VERSION,
             "train_kwargs": {k: v for k, v in train_kwargs.items() if k not in ("data", "project")},
             "dataset": {k: v for k, v in dataset.items() if k != "data_yaml"},

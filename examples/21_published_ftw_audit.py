@@ -17,31 +17,52 @@ against reference boundaries, without running any model:
        ``min_confidence`` filters nothing while null values are kept, and
        dropping them (``keep_null_confidence=False``) would leave no polygons.
     3. ``agribound.evaluate`` (one-to-one IoU matching, size classes,
-       bootstrap intervals, 10 m boundary tolerance) against the NMOSE WUCB
-       polygons, with both layers restricted to the box by the same rule
-       (representative point inside the box).
+       bootstrap intervals, 10 m boundary tolerance) against the DRI/NMOSE
+       field boundaries (V18), with both layers restricted to the box by the
+       same rule (representative point inside the box) and filtered at the
+       same minimum area.
+
+Minimum area: the published polygons have no minimum area, while agribound
+drops polygons smaller than 2,500 m2 (``min_area``, the default) from its own
+outputs, and the other New Mexico examples drop the reference fields smaller
+than that. So both layers here are filtered at 2,500 m2 (``--min-area``;
+areas in EPSG:6933, as agribound's area filter computes them; 0 keeps every
+polygon), and the script prints how many polygons of each layer it drops. In
+the default AOI that is 152 of the 797 V18 polygons (83 of them under
+1,250 m2) and 95 of the 322 published FTW 2024 polygons in the box (queried
+2026-10-08).
 
 Default AOI: 106.80-106.75 W, 34.60-34.65 N near Belen (Valencia County, New
-Mexico), in the Middle Rio Grande Conservancy District. Vintage mismatch:
-the FTW polygons are predictions for 2024 (``--year 2025`` for 2025), while
-the registry is older: most filled ``Source`` values cite 2011-2016 NAIP
-and/or CDL imagery (387 of the 15,075 filled values over the whole registry
-cite only an OSE shapefile or "CW", without an imagery year); it is empty
-for every polygon of the default AOI (the script prints it). Fields that
-changed in between count as errors, so the scores measure agreement with an
-older registry, not only FTW's error. NMOSE may not include every field in
-the box (``count_fp_unassigned`` = FTW polygons overlapping no reference
-polygon).
+Mexico), in the Middle Rio Grande Conservancy District; 797 V18 polygons
+have their representative point inside it, 645 of them at least 2,500 m2.
+Vintage: the FTW polygons are predictions for 2024 (``--year 2025`` for
+2025), and V18 records no imagery date per field, so fields that changed
+between the reference's (unrecorded) date and the FTW year count as errors:
+the scores measure agreement with the registry, not only FTW's error. V18's
+``CDL_Crop_T`` column holds a Cropland Data Layer class per field (year not
+recorded); in this AOI most of the 645 evaluated fields have a class other
+than a crop (Shrubland 213, Grassland/Pasture 115, Woody Wetlands 86 and the
+Developed classes 67), and the script prints the most common classes. The
+reference may not include every field in the box (``count_fp_unassigned`` =
+FTW polygons overlapping no reference polygon).
 
-Other regions: ``--bbox minx,miny,maxx,maxy --reference PATH``. Without the
-NMOSE shapefile and without ``--reference`` the script exits with a message.
+Other regions: ``--bbox minx,miny,maxx,maxy --reference PATH`` (a file in a
+zip archive as ``zip://ARCHIVE!MEMBER``). Without
+``examples/NM_Field_Boundaries.zip`` and without ``--reference`` the script
+exits with a message.
 
-Runtime: 17 s for the default AOI in a test on 2026-09-27 (network; the
-partition index is cached under ~/.cache/agribound/ftw).
+Runtime: 32 s for the default AOI in the development run of agribound 1.1
+(2026-10-09; the query 22 s), about 20 s in a test on 2026-10-08 (network;
+the partition index is cached under ~/.cache/agribound/ftw). In that run the
+published FTW 2024 polygons scored precision 0.63, recall 0.22 and F1 0.33
+(95 % interval 0.28-0.37) against the 645 evaluated V18 fields (median
+0.88 ha), with recall rising from 0.03 for fields of 0.2-0.5 ha to 0.92 for
+10-20 ha.
 
 Prerequisites:
     pip install agribound
-    NMOSE shapefile at "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
+    DRI/NMOSE field boundaries (V18) at "examples/NM_Field_Boundaries.zip" (local
+        data, not distributed; read in place, no need to unzip)
     Run from the repository root: python examples/21_published_ftw_audit.py
 """
 
@@ -55,6 +76,8 @@ from pathlib import Path
 import agribound
 from agribound.evaluate import evaluate
 from agribound.ftw_arrow import RECOMMENDED_MIN_CONFIDENCE
+from agribound.postprocess import filter_polygons
+from agribound.provenance import to_jsonable
 
 # Paths below are relative to the repository root. The notebook version of this
 # script runs from examples/notebooks/, so it changes to the repository root first.
@@ -63,18 +86,28 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # --- Configuration ---
-NMOSE_SHAPEFILE = "examples/NMOSE Field Boundaries/WUCB ag polys.shp"
+REFERENCE_ZIP = "examples/NM_Field_Boundaries.zip"
+REFERENCE = f"zip://{REFERENCE_ZIP}!Master_NM_Field_Boundaries_V18.shp"
+REFERENCE_LABEL = "DRI/NMOSE field boundaries (V18)"
 OUTPUT_DIR = Path("outputs/published_ftw_audit")
 DEFAULT_BBOX = "-106.80,34.60,-106.75,34.65"  # near Belen, NM
 YEAR = 2024
 BOUNDARY_TOLERANCE_M = 10.0
+MIN_AREA = 2500  # m^2; agribound's default minimum field area, applied to both layers
+
+
+def reference_exists(path):
+    """True if *path* exists; for ``zip://ARCHIVE!MEMBER``, if the archive exists."""
+    if str(path).startswith("zip://"):
+        return Path(str(path)[len("zip://") :].split("!", 1)[0]).exists()
+    return Path(path).exists()
 
 
 def inside_bbox(gdf, bbox):
@@ -98,8 +131,18 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Audit published FTW polygons.")
     parser.add_argument("--bbox", default=DEFAULT_BBOX, help="minx,miny,maxx,maxy (EPSG:4326).")
     parser.add_argument("--year", type=int, default=YEAR, choices=[2024, 2025])
-    parser.add_argument("--reference", default=NMOSE_SHAPEFILE, help="Reference polygons.")
+    parser.add_argument(
+        "--reference",
+        default=REFERENCE,
+        help="Reference polygons (a file in a zip archive as zip://ARCHIVE!MEMBER).",
+    )
     parser.add_argument("--bootstrap", type=int, default=200, help="Bootstrap resamples.")
+    parser.add_argument(
+        "--min-area",
+        type=float,
+        default=MIN_AREA,
+        help="Minimum polygon area in m2 (EPSG:6933) of both layers; 0 keeps every polygon.",
+    )
     if argv is None and "ipykernel" in sys.modules:
         argv = []  # Jupyter passes its own kernel arguments in sys.argv
     return parser.parse_args(argv)
@@ -115,10 +158,11 @@ def show_in_notebook(web_map):
 
 def main():
     args = parse_args()
-    if not Path(args.reference).exists():
+    if not reference_exists(args.reference):
         print(
             f"Reference layer not found: {args.reference}. Pass --reference PATH (and --bbox "
-            "for another region), or place the NMOSE shapefile at the default path."
+            f"for another region), or place the {REFERENCE_LABEL} at {REFERENCE_ZIP} (local "
+            "data, not distributed)."
         )
         return
     import geopandas as gpd
@@ -151,12 +195,23 @@ def main():
         )
 
     # 3. Evaluation against the reference ----------------------------------------------------
-    reference = inside_bbox(gpd.read_file(args.reference), bbox)
-    ftw_in = inside_bbox(ftw, bbox)
-    print(f"\nIn the box: {len(ftw_in)} FTW polygons, {len(reference)} reference polygons")
+    reference_box = inside_bbox(gpd.read_file(args.reference), bbox)
+    ftw_box = inside_bbox(ftw, bbox)
+    # The same minimum area for both layers, computed as agribound's area filter does.
+    reference = filter_polygons(reference_box, min_area_m2=args.min_area)
+    ftw_in = filter_polygons(ftw_box, min_area_m2=args.min_area)
+    print(
+        f"\nIn the box: {len(ftw_box)} FTW polygons, {len(reference_box)} reference polygons; "
+        f"smaller than {args.min_area:,.0f} m2 (dropped): {len(ftw_box) - len(ftw_in)} FTW, "
+        f"{len(reference_box) - len(reference)} reference; evaluated: {len(ftw_in)} FTW, "
+        f"{len(reference)} reference"
+    )
     if "Source" in reference.columns:
         sources = reference["Source"].fillna("(empty)").value_counts().to_dict()
         print(f"  Reference 'Source' attribute: {sources}")
+    if "CDL_Crop_T" in reference.columns:  # V18: a CDL class per field (year not recorded)
+        classes = reference["CDL_Crop_T"].fillna("(none)").value_counts().head(8).to_dict()
+        print(f"  Most common 'CDL_Crop_T' classes: {classes}")
 
     m = evaluate(
         ftw_in,
@@ -179,7 +234,9 @@ def main():
     print(f"\n  {'Size class (ha)':<16} {'n':>5} {'recall':>7}")
     for name, s in m["per_size_class"].items():
         print(f"  {name:<16} {s['n']:>5} {fmt(s['recall']):>7}")
-    (OUTPUT_DIR / f"metrics_{tag}.json").write_text(json.dumps(m, indent=2, default=str))
+    (OUTPUT_DIR / f"metrics_{tag}.json").write_text(
+        json.dumps(to_jsonable(m), indent=2, allow_nan=False)
+    )
 
     from agribound.visualize import show_comparison
 

@@ -21,16 +21,25 @@ directory), so the tool can be run from any directory::
     python tools/sync_notebooks.py --check   # exit 1 if any notebook is out of date
 
 ``--check`` writes nothing. It compares every stored notebook with the one this
-tool would write (cell types, cell sources and notebook metadata; the random
-cell ids are ignored), runs the checks above on the stored notebook, and
-reports scripts without a notebook and notebooks without a script. It exits
-with status 1 when anything differs and 0 otherwise.
+tool would write (cell types, cell sources and notebook metadata; cell ids are
+ignored), runs the checks above on the stored notebook, and reports scripts
+without a notebook and notebooks without a script. It exits with status 1 when
+anything differs and 0 otherwise.
+
+Cell ids are stable, so that a rewritten notebook's diff shows only the cells
+that changed. A cell keeps the id of the stored notebook's cell it matches:
+the same type and source, or an edited cell in the same place (the two cell
+lists are aligned with :mod:`difflib`). Any other cell gets an id derived from
+the notebook's name and the cell's index, so a notebook written afresh has the
+same ids every time.
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import difflib
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -140,6 +149,46 @@ def build_notebook(path: Path) -> nbformat.NotebookNode:
     return nb
 
 
+def derived_cell_id(name: str, index: int, taken: set[str]) -> str:
+    """Cell id from the notebook *name* and the cell's *index*: 8 hex digits not in *taken*."""
+    salt = 0
+    while True:
+        text = f"{name}:{index}" + (f":{salt}" if salt else "")
+        cell_id = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+        if cell_id not in taken:
+            return cell_id
+        salt += 1
+
+
+def assign_cell_ids(
+    built: nbformat.NotebookNode, stored: nbformat.NotebookNode | None, name: str
+) -> None:
+    """Set the ids of *built*'s cells, reusing *stored*'s where the cells match.
+
+    The cell lists are aligned with :class:`difflib.SequenceMatcher` on (type, source).
+    Matched cells keep their id; so do edited cells (a replaced run of cells, paired in
+    order while the types agree). Other cells get :func:`derived_cell_id`.
+    """
+    ids: list[str | None] = [None] * len(built.cells)
+    if stored is not None:
+        old = [(c.cell_type, c.source) for c in stored.cells]
+        new = [(c.cell_type, c.source) for c in built.cells]
+        matcher = difflib.SequenceMatcher(a=old, b=new, autojunk=False)
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag not in ("equal", "replace"):
+                continue
+            for i, j in zip(range(i1, i2), range(j1, j2), strict=False):
+                if stored.cells[i].cell_type == built.cells[j].cell_type:
+                    ids[j] = stored.cells[i].get("id")
+    taken: set[str] = set()
+    for index, cell in enumerate(built.cells):
+        cell_id = ids[index]
+        if not cell_id or cell_id in taken:
+            cell_id = derived_cell_id(name, index, taken | {i for i in ids if i})
+        cell["id"] = cell_id
+        taken.add(cell_id)
+
+
 def check(path: Path, nb: nbformat.NotebookNode) -> None:
     """Raise :class:`AssertionError` unless *nb* holds exactly the code of *path*."""
     source = path.read_text(encoding="utf-8")
@@ -224,6 +273,7 @@ def sync(repo: Path, only_check: bool) -> int:
         if stored is not None and compare(stored, built) is None:
             print(f"unchanged {target.name}")
             continue
+        assign_cell_ids(built, stored, target.stem)
         out_dir.mkdir(parents=True, exist_ok=True)
         nbformat.write(built, target)
         n_code = sum(c.cell_type == "code" for c in built.cells)

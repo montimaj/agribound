@@ -349,6 +349,7 @@ class PrithviEngine(DelineationEngine):
               (default: the checkpoint's training ``boundary_erosion`` if
               recorded, else ``engine_params["boundary_erosion"]`` or 2; see
               :func:`agribound.engines.finetune._data.interior_polygons`).
+              ``"half_band"`` is DINOv3's rule and is refused here.
             - ``value_scale``: required for ``source="local"``
               (``"reflectance_x10000"`` or ``"unit"``). Without
               ``config.bands`` a local raster's bands 1-6 are read as Blue,
@@ -625,6 +626,7 @@ class PrithviEngine(DelineationEngine):
         import rasterio
 
         from agribound._cache import cache_path
+        from agribound.config import _check_dilate_interior_px
         from agribound.engines.finetune._data import (
             file_sha256,
             interior_polygons,
@@ -635,6 +637,8 @@ class PrithviEngine(DelineationEngine):
             write_json,
         )
 
+        # "half_band" is DINOv3's rule (the configuration refuses it too).
+        _check_dilate_interior_px("prithvi", config.engine_params)
         torch = _import_terratorch("segmentation mode")
         from terratorch.tasks import SemanticSegmentationTask
         from terratorch.tasks.tiled_inference import tiled_inference

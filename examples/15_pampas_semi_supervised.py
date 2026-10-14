@@ -52,11 +52,11 @@ October only. AIRBUS/SPOT6_7 ends on 2023-11-15, so the SPOT run uses 2023
 Study area: a pentagon with a bounding box of about 28 x 31 km. The TESSERA
 builder assembles the 128-band float32 mosaic of that box in memory (~4.4 GB).
 
-Estimated runtime: steps 1-6 took 22 minutes on an Apple M2 Max on 2026-09-28
-(1.0.0 script, without the Sentinel-2 split variants); with the step-1 clusters
-and the step-3 composite cached, steps 2-6 of this script took 13 minutes on
-2026-09-29. SAM 2 runs on MPS for the Sentinel-2 steps and on the CPU for the
-TESSERA steps; step 7 adds the SPOT download and two Delineate-Anything runs.
+Runtime: 34 minutes (2,028 s) from scratch on an Apple M2 Max in the development
+run of agribound 1.1 (2026-10-09; composites and embeddings downloaded, the
+model weights already cached): steps 1-6 21 minutes, step 7 (the SPOT
+download and the two Delineate-Anything runs) 13 minutes. SAM 2 runs on MPS
+for the Sentinel-2 steps and on the CPU for the TESSERA steps.
 
 Prerequisites:
     pip install "agribound[gee,samgeo,tessera,delineate-anything]"
@@ -88,7 +88,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"geedim\..*")
 warnings.filterwarnings("ignore", message=".*organizePolygons.*")
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

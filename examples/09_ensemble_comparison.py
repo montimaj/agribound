@@ -26,8 +26,10 @@ Data: Sentinel-2 L2A, 2024. Study area: a 0.15 x 0.1 degree box
 cropland (query on 2026-09-27). The LULC crop filter is on for the member
 runs (Dynamic World is selected outside the US).
 
-Estimated runtime (not measured for 1.0): ~20-40 minutes (two engines, GPU
-recommended).
+Runtime: 5.9 minutes (352 s) in the development run of agribound 1.1
+(2026-10-09, Apple M2 Max with MPS; the composites and FTW's checkpoint
+downloaded, Delineate-Anything's weights already cached): Delineate-Anything
+230 s and FTW 105 s, then the three merges.
 
 Prerequisites:
     pip install "agribound[gee,delineate-anything,ftw]"
@@ -51,7 +53,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

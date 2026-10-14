@@ -194,8 +194,11 @@ def reproject_raster(
     Returns
     -------
     str
-        Path to the reprojected raster.
+        Path to the reprojected raster (each band reprojected on its own, with
+        the source's colour interpretation; no alpha band is added).
     """
+    from agribound.io.raster import _copy_color_interpretation
+
     resample_map = {
         "nearest": Resampling.nearest,
         "bilinear": Resampling.bilinear,
@@ -224,10 +227,12 @@ def reproject_raster(
                 "width": width,
                 "height": height,
                 "compress": "lzw",
+                "ALPHA": "UNSPECIFIED",
             }
         )
 
         with rasterio.open(dst_path, "w", **meta) as dst:
+            _copy_color_interpretation(src, dst)
             for band_idx in range(1, src.count + 1):
                 reproject(
                     source=rasterio.band(src, band_idx),

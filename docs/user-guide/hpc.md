@@ -43,7 +43,13 @@ agribound tiles merge --manifest runs/iowa --reference reference.gpkg
   staged tile; `--stage all` does both.
 - **`tiles status`** shows per-tile states: `done`, `pending`, `failed`,
   `stale` (output from another configuration, or from a release whose results
-  for that configuration differ), `no-data` and `error`.
+  for that configuration differ, or, for TESSERA, from store objects that have
+  changed since or before agribound recorded them, or, for HLS, from a
+  composite selected before HLS recipe 2 at the MGRS tiles at 180°; see
+  [Reproducibility](reproducibility.md#output-reuse)), `no-data` and `error`.
+  For TESSERA the composite (staged raster) is `stale` too when the store's
+  objects under it have changed; the check sends HTTP requests to Source
+  Cooperative, and tiles that cannot be checked are named in one WARNING.
   `--list failed|pending|not-done|...` prints indices as an `sbatch --array`
   list.
 - **`tiles merge`** keeps a tile's polygon only if the tile owns the polygon's
@@ -65,7 +71,10 @@ the halo of the tile that owns it, so the halo must exceed the largest
 expected field dimension (centre pivots are about 800 m across; the default
 `--halo-m 1000` is a minimum). If the merge summary's `n_reaching_halo_edge` is
 not close to zero, re-run with a larger halo. A halo h around a core of size s
-downloads (1 + 2h/s)² times the core area.
+downloads (1 + 2h/s)² times the core area. The crop-history zones of the
+`crop-sequence` engine (`cdl-sequence`, `aci-sequence`) are not fields and can
+be larger: in the crop-sequence pilot one reached 4,080 m across inside a 5 km
+square, so use `--halo-m 5000` or more for them.
 
 **No-data tiles.** Tiles without input data (open water in a rectangular box,
 areas outside a source's coverage such as NAIP outside the US, missing TESSERA
@@ -76,8 +85,33 @@ error fails the tile.
 **Per-tile normalisation.** Statistics an engine computes from its input
 raster (for example Delineate-Anything's percentile stretch) are computed per
 tile; the merge summary lists such keys under `engine_meta_varying_keys`.
+Each `sentinel1` tile composite also chooses its own orbit pass (the one with
+more acquisitions over the tile; see
+[Sentinel-1](satellite-sources.md#sentinel-1-sentinel1)), so neighbouring
+tiles can view the ground from opposite sides and their polygons can differ
+along tile edges; each tile records its pass in its composite's
+`AGRIBOUND_ORBIT_PASS`, which the merge summary does not compare.
+
+**Centre-pivot step.** The opt-in `engine_params["pivots"]` (see
+[Configuration](configuration.md#post-processing)) runs inside each tile's
+run, on that tile's polygons, at about 10 ms per polygon on one core (a tile
+of 100,000 polygons: about 15-20 minutes). Its circle fits share one random
+generator per layer, so a pivot that lies in the halos of two tiles can be
+fitted slightly differently in each. The merge keeps each circle by its
+representative point, as any polygon, and `n_cross_tile_overlap_pairs`
+counts polygons of neighbouring tiles that overlap. The step was not tested
+on tiled runs.
 
 Study areas that cross the antimeridian are not supported.
+
+## Engines that cannot be tiled
+
+`agribound tiles make` refuses engine `sam-auto` (SAM 2.1 automatic masks),
+also as an ensemble member: it raises `ValueError` before it writes
+anything. An HPC tile would need a halo of at least one SAM tile (2-8 km at
+the engine's default settings), which was never tested. Run `sam-auto` on
+the study area as one job (`agribound delineate`), or use another engine for
+tiled runs; a tiling of another engine on the same area is not affected.
 
 ## Two-phase runs (stage, then compute)
 
@@ -92,6 +126,48 @@ access during delineation: model weights unless prefetched, Earth Engine with
 
 Outside the tiling workflow the same split is `agribound composite` followed
 by `agribound delineate` with the same configuration and cache location.
+
+The stage markers of `hls` and `sentinel1` tiles include the source's recipe
+version (`HLS_RECIPE_VERSION`, `S1_RECIPE_VERSION`), which is part of the
+composite's cache key: after a change of the recipe, the delineation stage
+reads the composite under a new key. HLS tiles staged before agribound 1.1
+therefore show as not staged (`pending`). Stage them again on a node with
+internet access (`submit_region.sh --resume`, whose stage array takes the
+tiles that are not done, or `agribound tiles run --stage composite`) before
+`--stage delineate`; tiles recorded as having no data are tried again. A
+tile whose study area lies at the MGRS tiles at 180° whose HLSS30 footprints
+are reversed also shows its output as `stale` (see
+[HLS](satellite-sources.md#hls-hls)): delineate it again with `--overwrite`
+and merge with `agribound tiles merge --overwrite`.
+
+TESSERA rasters and outputs are checked against the store before they are
+reused (see [Reproducibility](reproducibility.md#cache-keys)), which needs
+internet access. After the store has been rewritten:
+
+1. On a node with internet access, `agribound tiles status` shows the tiles
+   whose staged raster and output were read from objects that have changed
+   as `stale`.
+2. Stage them again with internet access: `agribound tiles run --stage
+   composite` for the indices of `tiles status --list stale --stage
+   composite`, or `submit_region.sh --resume`, whose stage array takes the
+   tiles that are not done (`--list not-done --stage composite`). The
+   composite stage reads a stale raster again.
+3. Delineate them again with `agribound tiles run --stage delineate
+   --overwrite` (indices of `tiles status --list stale`). Without network
+   access the store cannot be checked, so the output is compared with the
+   staged raster: an output made before the raster was read again is not
+   reused, and without `--overwrite` the run stops with `FileExistsError`.
+   `--overwrite` on a node without network access before step 2 delineates
+   the old raster again.
+4. Merge with `agribound tiles merge --overwrite`.
+
+`submit_region.sh --offline-gpu` sets `AGRIBOUND_TESSERA_STORE_CHECK=0` in the
+compute jobs only, so that they send no requests (behind a firewall that
+drops packets, each process would wait 15 s for a connection timeout once a
+minute). Do not set it for the
+stage jobs or in a profile they read: with the check off, the composite stage
+keeps stale rasters, and rasters it builds get no store stamp (they are read
+again at the next check with internet access).
 
 ## Prefetching weights
 
@@ -112,7 +188,7 @@ agribound tiles prefetch --config base.yaml      # the same downloads for a tile
   so a missing file fails at once; for DINOv3 set `DINOV3_LOCATION` to the hub
   directory that `prefetch` printed; for SAM 3 (Meta backend)
   `SAM3_CHECKPOINT_PATH` can point at a downloaded checkpoint. The SAM 3
-  backends (`sam3`, `sam3-hf`) are untested in 1.0.1 and log a WARNING when
+  backends (`sam3`, `sam3-hf`) are untested in 1.1.0 and log a WARNING when
   loaded (see [SAM refinement](sam-refinement.md#sam-3-is-untested)).
 - Delineate-Anything with `backend="ftw"` resolves its checkpoint relative to
   the current working directory, so the run must start from the directory
@@ -120,6 +196,19 @@ agribound tiles prefetch --config base.yaml      # the same downloads for a tile
 - Run the Prithvi prefetch in the GFM environment.
 - For `tessera-embedding` and the `source_coop` Google-embedding backend, set
   `embedding_cache_dir` (`--embedding-cache-dir`) to shared storage.
+- TESSERA rasters are checked against the store (HTTP requests to Source
+  Cooperative) before they are reused, and so are TESSERA outputs (see
+  [Reproducibility](reproducibility.md#cache-keys) and
+  [Two-phase runs](#two-phase-runs-stage-then-compute)). On compute nodes
+  without internet access the check fails: the raster is reused with a
+  WARNING, and an output is reused with a WARNING unless the staged raster
+  has been read again since it was made. A failed name lookup, refused
+  connection or unreachable network fails at once, but a firewall that drops
+  packets costs a 15 s connection timeout (later checks in the same process
+  within a minute fail at once). `AGRIBOUND_TESSERA_STORE_CHECK=0` skips the
+  requests; `submit_region.sh --offline-gpu` sets it in the compute jobs
+  only. It also makes the TESSERA reads bypass `embedding_cache_dir`, whose
+  copies cannot be checked without the store's state.
 
 ## Earth Engine quotas and throttling
 
@@ -207,7 +296,7 @@ account naming patterns) must be checked on each system. Important options:
 |---|---|
 | `--mode stage` (default) / `online` | two-phase, or GPU jobs download their own inputs |
 | `--stage-where here` | stage on the current machine instead of a CPU array |
-| `--offline-gpu` | `HF_HUB_OFFLINE=1` in the compute jobs |
+| `--offline-gpu` | `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1` and `AGRIBOUND_TESSERA_STORE_CHECK=0` in the compute jobs |
 | `--keep-going` | `afterany` dependencies: a failed tile fails only itself; the merge job still runs, lists the tiles that are not done, and fails unless `--allow-missing` is also given |
 | `--allow-missing` | merge even if some tiles are not done |
 | `--resume` | reuse the manifest and submit only tiles that are not done |
@@ -259,9 +348,21 @@ Fine-tuning writes `<checkpoint>.agribound.json` next to the checkpoint, and
 the tile runs read training settings from it: GeoAI and DINOv3 infer on
 windows of the training chip size (for GeoAI sized from the reference fields
 by default; see [Fine-tuning](fine-tuning.md)), and DINOv3 and Prithvi use
-the training `boundary_erosion` as the default `dilate_interior_px`. Copy
-that file with the checkpoint if you move the checkpoint; without it GeoAI and
-DINOv3 use geoai's default 512 px window unless `window_size` is set.
+the training `boundary_erosion` as the default `dilate_interior_px`.
+Delineate-Anything does not take `processing_gsd_m` or `stretch_percentiles`
+from it: pass the tiles the values the model was fine-tuned with (a tile run
+that gives the model another pixel size, super-resolution factor or stretch
+than its training chips logs a WARNING). Copy
+that file with the checkpoint if you move the checkpoint, and rename
+neither (the file records the checkpoint's name and is not read for a
+checkpoint of another name); without it GeoAI uses geoai's default 512 px
+window unless `window_size` is set. A DINOv3 checkpoint fine-tuned by agribound after
+1.0.1 also holds its input normalisation, boundary width, training chip size
+and processing grid (`processing_gsd_m`: 10 m for a Landsat, HLS or
+Landsat PAN fine-tune) itself, so these do not depend on that file; a DINOv3
+checkpoint of agribound 1.0.1 without it uses the 512 px window too.
+`--engine-param processing_gsd_m=...` sets DINOv3's grid for the tiles
+explicitly.
 
 ## Acknowledging ACCESS
 

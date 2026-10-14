@@ -5,7 +5,7 @@
 If you use agribound in your research, please cite the software (the DOI
 below is the Zenodo concept DOI, which resolves to the latest version):
 
-> Majumdar, S., Rapp, J., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., Abramowitz, J. C., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* (Version 1.0.1) [Software]. Zenodo. <https://doi.org/10.5281/zenodo.19229665>
+> Majumdar, S., Rapp, J., Huntington, J. L., ReVelle, P., Nozari, S., Smith, R. G., Hasan, M. F., Bromley, M., Atkin, J., Jensen, E. R., Ketchum, D., Abramowitz, J. C., & Roy, S. (2026). *Agribound: Unified agricultural field boundary delineation from satellite imagery using geospatial foundation models, pre-trained segmentation, and embeddings* (Version 1.1.0) [Software]. Zenodo. <https://doi.org/10.5281/zenodo.19229665>
 
 The accompanying manuscript is in preparation:
 
@@ -58,6 +58,18 @@ Feng, Z., Atzberger, C., Jaffer, S., Knezevic, J., Sormunen, S., Young, R., Lisa
 
 Brown, C. F., Kazmierski, M. R., Pasquarella, V. J., Rucklidge, W. J., Samsikova, M., Zhang, C., Shelhamer, E., Lahera, E., Wiles, O., Ilyushchenko, S., Gorelick, N., Zhang, L. L., Alj, S., Schechter, E., Askay, S., Guinan, O., Moore, R., Boukouvalas, A., & Kohli, P. (2025). AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data. *arXiv:2507.22291*. <https://doi.org/10.48550/arXiv.2507.22291>. The AlphaEarth Foundations Satellite Embedding dataset is produced by Google and Google DeepMind (CC-BY 4.0).
 
+### Crop-sequence zones
+
+Hunt, K. A., Abernethy, J., Beeson, P. C., Bowman, M., Wallander, S., & Williams, R. (2024). Crop sequence boundaries using USDA National Agricultural Statistics Service historic cropland data layers. *Statistical Journal of the IAOS*, 40, 237-246. <https://doi.org/10.3233/SJI-230078> (the method the `crop-sequence` engine follows, and the published Crop Sequence Boundaries that `query_csb` reads; USDA NASS, public domain)
+
+Beeson, P. C., Daughtry, C. S. T., & Wallander, S. A. (2020). Estimates of conservation tillage practices using Landsat archive. *Remote Sensing*, 12(16), 2665. <https://doi.org/10.3390/rs12162665>
+
+USDA National Agricultural Statistics Service Cropland Data Layer. {YEAR}. Published crop-specific data layer. Available at <https://www.nass.usda.gov/Research_and_Science/Cropland/SARS1a.php>. USDA-NASS, Washington, DC. (`source="cdl-sequence"`; public domain)
+
+Agriculture and Agri-Food Canada Annual Crop Inventory. {YEAR}. Open Government Licence - Canada 2.0 (`source="aci-sequence"`; "Contains information licensed under the Open Government Licence – Canada").
+
+La Financière agricole du Québec. Base de données des parcelles et productions agricoles déclarées (BDPPAD), version 03, 2023. Données Québec, CC BY 4.0. <https://www.fadq.qc.ca/fileadmin/geo4tb/BDPPAD/BDPPAD_V03_2023.zip> (the reference parcels of example 27)
+
 ### Segment Anything and samgeo
 
 Ravi, N., Gabeur, V., Hu, Y.-T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., Mintun, E., Pan, J., Alwala, K. V., Carion, N., Wu, C.-Y., Girshick, R., Dollár, P., & Feichtenhofer, C. (2025). SAM 2: Segment anything in images and videos. *International Conference on Learning Representations (ICLR 2025)*. arXiv:2408.00714.
@@ -75,6 +87,14 @@ Osco, L. P., Wu, Q., de Lemos, E. L., Gonçalves, W. N., Ramos, A. P. M., Li, J.
 Gorelick, N., Hancher, M., Dixon, M., Ilyushchenko, S., Thau, D., & Moore, R. (2017). Google Earth Engine: Planetary-scale geospatial analysis for everyone. *Remote Sensing of Environment*, 202, 18-27. <https://doi.org/10.1016/j.rse.2017.06.031>
 
 Claverie, M., Ju, J., Masek, J. G., Dungan, J. L., Vermote, E. F., Roger, J.-C., Skakun, S. V., & Justice, C. (2018). The Harmonized Landsat and Sentinel-2 surface reflectance data set. *Remote Sensing of Environment*, 219, 145-161. <https://doi.org/10.1016/j.rse.2018.09.002>
+
+Torres, R., Snoeij, P., Geudtner, D., et al. (2012). GMES Sentinel-1 mission. *Remote Sensing of Environment*, 120, 9-24. <https://doi.org/10.1016/j.rse.2011.05.028>
+
+Umbra Synthetic Aperture Radar (SAR) Open Data was accessed on DATE from <https://registry.opendata.aws/umbra-open-data>. Umbra Lab, Inc., CC BY 4.0 (`source="umbra"`; the composite's `AGRIBOUND_DATA_CITATION` tag gives the access date).
+
+Capella Space Synthetic Aperture Radar (SAR) Open Dataset was accessed on DATE from <https://registry.opendata.aws/capella_opendata>. © Capella Space Corp, All Rights Reserved; CC BY 4.0, with a note of the changes (`source="capella"`; the composite's `AGRIBOUND_DATA_CITATION` and `AGRIBOUND_CHANGES` tags). The gallery's figures print the shorter credit "© Capella Space Corp, CC BY 4.0, modified".
+
+European Space Agency (2022). Copernicus DEM. <https://doi.org/10.5270/ESA-c5d3d65> (GLO-30, used with the EGM2008 geoid grid of the PROJ data CDN to orthorectify Umbra GEC products)
 
 Brown, C. F., Brumby, S. P., Guzder-Williams, B., et al. (2022). Dynamic World, near real-time global 10 m land use land cover mapping. *Scientific Data*, 9, 251. <https://doi.org/10.1038/s41597-022-01307-4>
 

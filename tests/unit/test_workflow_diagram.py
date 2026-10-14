@@ -95,3 +95,31 @@ def test_diagram_facts_match_the_package(tool, monkeypatch):
         "the workflow diagram no longer matches the code; update the labels in "
         f"{TOOL.relative_to(ROOT)} and re-run it"
     )
+
+
+def test_inputs_card_counts_every_source(tool):
+    """The Inputs card's "N sources" caption and its rows follow the source registry.
+
+    Only the code that draws the card is searched: the fact checks
+    (``verify_facts``) name Sentinel-1 too, and pass whatever the card says.
+    """
+    import re
+
+    from agribound.registry import SAR_SOURCES, SOURCE_REGISTRY
+
+    inputs = inspect.getsource(tool.draw_inputs)
+    (count,) = re.findall(r'"(\d+) sources · ', inputs)
+    assert int(count) == len(SOURCE_REGISTRY)
+    assert SAR_SOURCES == ("sentinel1", "umbra", "capella")
+    assert "Sentinel-1 SAR" in inputs and "Umbra · Capella SAR (AWS)" in inputs
+
+
+def test_composite_card_names_the_builders_without_earth_engine(tool):
+    """The Composite card's "(or ...)" lines name every builder that bypasses Earth Engine."""
+    from agribound.registry import SOURCE_REGISTRY, VHR_SAR_SOURCES
+
+    composite = inspect.getsource(tool.build)
+    assert '"Earth Engine (or USGS ·", BODY_ST' in composite
+    assert '"AWS SAR · TESSERA · local)", BODY_ST' in composite
+    no_ee = {name for name, info in SOURCE_REGISTRY.items() if not info["requires_gee"]}
+    assert no_ee == {"usgs-naip-plus", "tessera-embedding", "local", *VHR_SAR_SOURCES}

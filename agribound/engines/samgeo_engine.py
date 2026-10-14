@@ -581,9 +581,9 @@ def _require_meta_sam3_runtime(device: str) -> None:
         )
 
 
-#: Logged whenever a SAM 3 backend is loaded (agribound 1.0.1 has not run either end to end).
+#: Logged whenever a SAM 3 backend is loaded (agribound 1.1.0 has not run either end to end).
 SAM3_UNTESTED_WARNING = (
-    "sam_backend=%r: the SAM 3 backends (sam3, sam3-hf) are untested in agribound 1.0.1. They "
+    "sam_backend=%r: the SAM 3 backends (sam3, sam3-hf) are untested in agribound 1.1.0. They "
     "have not been run end to end, because the facebook/sam3 weights are gated; only their "
     "imports and argument handling are covered by tests. Check the refined polygons before "
     "relying on them, or use sam_backend='sam2' (tested)."
@@ -732,6 +732,7 @@ def prefetch(config: AgriboundConfig) -> list[str]:
 
 def _rgb_band_indices(config: AgriboundConfig, n_bands: int, rgb_bands: Any = None) -> list[int]:
     """1-based band indices used as SAM's R, G, B for *config.source*."""
+    from agribound.config import effective_bands
     from agribound.engines.base import get_canonical_band_indices
     from agribound.registry import source_value_scale
 
@@ -748,7 +749,9 @@ def _rgb_band_indices(config: AgriboundConfig, n_bands: int, rgb_bands: Any = No
             "in sam_stats), or call refine_boundaries() with an imagery raster and its config."
         )
     else:
-        indices = get_canonical_band_indices(config.source, ["R", "G", "B"], bands=config.bands)
+        indices = get_canonical_band_indices(
+            config.source, ["R", "G", "B"], bands=effective_bands(config)
+        )
     bad = [i for i in indices if not 1 <= i <= n_bands]
     if bad:
         raise ValueError(f"RGB band indices {indices} are out of range for a {n_bands}-band raster")
@@ -1198,9 +1201,11 @@ def refine_boundaries(
     Raises
     ------
     ValueError
-        For a rotated raster, bad band indices, an embedding raster without
-        ``sam_rgb_bands``, or an invalid ``sam_window_px``, ``sam_batch_size``,
-        ``sam_overlaps`` or ``sam_min_coverage``.
+        For a raster of class codes (its ``AGRIBOUND_VALUE_SCALE`` tag is
+        ``"categorical"``, or a crop-type map source), a rotated raster, bad
+        band indices, an embedding raster without ``sam_rgb_bands``, or an
+        invalid ``sam_window_px``, ``sam_batch_size``, ``sam_overlaps`` or
+        ``sam_min_coverage``.
     RuntimeError
         If SAM raised for every window that had prompts.
 
@@ -1215,8 +1220,10 @@ def refine_boundaries(
     from rasterio.enums import Resampling
     from rasterio.windows import Window
 
+    from agribound.io.raster import refuse_categorical
     from agribound.registry import source_value_scale
 
+    refuse_categorical(raster_path, config, "SAM refinement")
     backend = config.sam_backend
     min_crop_px = int(config.sam_min_crop_px)
     padding = float(config.sam_crop_padding)

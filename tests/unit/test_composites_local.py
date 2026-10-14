@@ -166,3 +166,135 @@ class TestBuild:
         big = _aoi(tmp_path, "big", -117.1, 36.0, -116.9, 36.3)
         assert LocalCompositeBuilder().build(_config(tmp_path, tif, big)) == tif
         assert not list((tmp_path / ".agribound_cache").glob("local_crop_*"))
+
+
+class TestCropSequenceMargin:
+    """For engine crop-sequence the crop keeps 10 px around the study area's bounding box."""
+
+    ZONES = {
+        "engine": "crop-sequence",
+        "engine_params": {"value_scale": "categorical", "dataset": "cdl"},
+    }
+
+    def test_margin_window_key_and_tags(self, tmp_path):
+        from agribound._cache import cache_path
+
+        tif = _tif(tmp_path / "a.tif")  # 64 x 64 px of 10 m
+        aoi = _aoi(tmp_path, "inner", -116.99833, 36.14653, -116.99500, 36.14877)
+        plain_cfg = _config(tmp_path, tif, aoi)
+        builder = LocalCompositeBuilder()
+        plain = builder.build(plain_cfg)
+        assert "AGRIBOUND_LOCAL_CROP_MARGIN_PX" not in builder.last_metadata
+        # Other engines keep the crop and the cache key they had (no margin part).
+        assert plain == str(
+            cache_path(plain_cfg, "local_crop_a", ".tif", LocalCompositeBuilder.CROP_VERSION)
+        )
+        zones_cfg = _config(tmp_path, tif, aoi, **self.ZONES)
+        assert LocalCompositeBuilder.crop_margin_px(zones_cfg) == 10
+        assert LocalCompositeBuilder.crop_margin_px(plain_cfg) == 0
+        padded = builder.build(zones_cfg)
+        assert padded != plain
+        assert builder.last_metadata["AGRIBOUND_LOCAL_CROP_MARGIN_PX"] == 10
+        with rasterio.open(plain) as p, rasterio.open(padded) as q:
+            assert (q.width, q.height) == (p.width + 20, p.height + 20)
+            assert q.transform.c == pytest.approx(p.transform.c - 10 * p.res[0])
+            assert q.transform.f == pytest.approx(p.transform.f + 10 * p.res[1])
+            np.testing.assert_array_equal(q.read()[:, 10:-10, 10:-10], p.read())
+            assert q.tags()["AGRIBOUND_LOCAL_CROP_MARGIN_PX"] == "10"
+            assert "AGRIBOUND_LOCAL_CROP_MARGIN_PX" not in p.tags()
+
+    def test_margin_stops_at_the_raster_edge(self, tmp_path):
+        tif = _tif(tmp_path / "a.tif")
+        # 3 px from the west edge: the margin is cut there, and kept on the other sides.
+        west = _aoi(tmp_path, "west", -116.99967, 36.14653, -116.99833, 36.14877)
+        builder = LocalCompositeBuilder()
+        plain = builder.build(_config(tmp_path, tif, west))
+        padded = builder.build(_config(tmp_path, tif, west, **self.ZONES))
+        with rasterio.open(tif) as full, rasterio.open(plain) as p, rasterio.open(padded) as q:
+            assert q.transform.c == full.transform.c  # column 0
+            assert p.transform.c > full.transform.c
+            left = round((p.transform.c - full.transform.c) / full.res[0])
+            assert left < 10 and q.width == p.width + left + 10
+            assert q.height == p.height + 20
+        # A study area whose box plus the margin covers the raster: the file itself.
+        most = _aoi(tmp_path, "most", -116.99940, 36.14560, -116.99350, 36.14960)
+        assert builder.build(_config(tmp_path, tif, most)) != tif
+        assert builder.build(_config(tmp_path, tif, most, **self.ZONES)) == tif
+
+
+class TestCropColourInterpretation:
+    """The crop keeps the source's colour interpretation (GDAL's default is RGBA for 4 uint8 bands).
+
+    Band 4 tagged as alpha is transparency to GDAL's warper: read through a ``WarpedVRT``
+    (as DINOv3's processing copy reads the crop), R, G and B became 0 wherever band 4 was 0.
+    """
+
+    @staticmethod
+    def _rgbn(path, **creation):
+        data = np.full((4, 64, 64), 120, np.uint8)
+        data[1] = 90
+        data[2] = 60
+        data[3, 25:35, 25:35] = 0  # NIR 0 (dark water) under valid R, G, B
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            count=4,
+            height=64,
+            width=64,
+            dtype="uint8",
+            crs="EPSG:32611",
+            transform=from_bounds(500000, 4000000, 500640, 4000640, 64, 64),
+            nodata=None,
+            **creation,
+        ) as dst:
+            dst.write(data)
+        return str(path)
+
+    @pytest.mark.parametrize(
+        ("creation", "expected"),
+        [
+            ({"ALPHA": "UNSPECIFIED"}, ["red", "green", "blue", "undefined"]),  # R, G, B, NIR
+            ({"photometric": "MINISBLACK"}, ["gray", "undefined", "undefined", "undefined"]),
+            ({}, ["red", "green", "blue", "alpha"]),  # a source tagged RGBA stays RGBA
+        ],
+    )
+    def test_crop_keeps_the_tags_and_the_pixels(self, tmp_path, creation, expected):
+        from rasterio.vrt import WarpedVRT
+
+        tif = self._rgbn(tmp_path / "rgbn.tif", **creation)
+        aoi = _aoi(tmp_path, "inner", -116.99833, 36.14653, -116.99500, 36.14877)
+        crop = LocalCompositeBuilder().build(_config(tmp_path, tif, aoi))
+        assert crop != tif
+        with rasterio.open(crop) as src:
+            assert [c.name for c in src.colorinterp] == expected
+            data = src.read()
+            nir0 = data[3] == 0
+            assert nir0.sum() == 100  # the whole NIR-0 block is in the crop
+            if expected[3] != "alpha":
+                with WarpedVRT(src) as vrt:  # GDAL's warper, as DINOv3's grid copy
+                    warped = vrt.read()
+                np.testing.assert_array_equal(warped[:3, nir0], data[:3, nir0])
+                assert (warped[:3, nir0] > 0).all()
+
+    def test_palette_band_keeps_its_colour_table(self, tmp_path):
+        path = tmp_path / "classes.tif"
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            count=1,
+            height=64,
+            width=64,
+            dtype="uint8",
+            crs="EPSG:32611",
+            transform=from_bounds(500000, 4000000, 500640, 4000640, 64, 64),
+            nodata=0,
+        ) as dst:
+            dst.write(np.ones((1, 64, 64), np.uint8))
+            dst.write_colormap(1, {0: (0, 0, 0, 0), 1: (255, 211, 0, 255)})
+        aoi = _aoi(tmp_path, "inner", -116.99833, 36.14653, -116.99500, 36.14877)
+        crop = LocalCompositeBuilder().build(_config(tmp_path, str(path), aoi))
+        with rasterio.open(crop) as src:
+            assert [c.name for c in src.colorinterp] == ["palette"]
+            assert src.colormap(1)[1] == (255, 211, 0, 255)

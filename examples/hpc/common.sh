@@ -15,7 +15,8 @@
 #                        FTW_CACHE_DIR (ftw-tools crop calendar) and XDG_CACHE_HOME below
 #                        it, so `agribound tiles prefetch` on a login node and the compute
 #                        jobs use the same files
-#   AGB_OFFLINE=1        export HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1
+#   AGB_OFFLINE=1        export HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1 and
+#                        AGRIBOUND_TESSERA_STORE_CHECK=0 (jobs without internet access)
 #   AGB_GEE_SERVICE_ACCOUNT_KEY  exported as AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY
 # ------------------------------------------------------------------------------
 
@@ -125,6 +126,11 @@ agb_setup_env() {
   fi
   if [[ "${AGB_OFFLINE:-0}" == "1" ]]; then
     export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+    # No requests to the TESSERA store, which these jobs cannot reach (a firewall that
+    # drops packets would cost a connection timeout); agribound then compares the store
+    # stamps of the staged rasters and outputs locally. Only for offline jobs: the stage
+    # jobs must check the store to read changed rasters again.
+    export AGRIBOUND_TESSERA_STORE_CHECK=0
   fi
   if [[ -n "${AGB_GEE_SERVICE_ACCOUNT_KEY:-}" ]]; then
     export AGRIBOUND_GEE_SERVICE_ACCOUNT_KEY="${AGB_GEE_SERVICE_ACCOUNT_KEY}"

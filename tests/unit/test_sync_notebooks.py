@@ -128,3 +128,56 @@ def test_repository_notebooks_match_their_scripts():
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _ids(notebook: Path) -> list[str]:
+    return [c["id"] for c in json.loads(notebook.read_text())["cells"]]
+
+
+def test_a_rewrite_keeps_the_ids_of_unchanged_and_edited_cells(tool, repo):
+    """Regeneration used to give every cell a new random id, so each rewrite touched every cell.
+
+    The stored ids are set to values that no rule derives (``keep0000``...), so a kept id
+    cannot be confused with one derived again from the notebook name and cell index.
+    """
+    tool.main(["--repo", str(repo)])
+    notebook = repo / "examples" / "notebooks" / "01_tiny.ipynb"
+    stored = nbformat.read(notebook, as_version=4)
+    for index, cell in enumerate(stored.cells):
+        cell["id"] = f"keep{index:04d}"
+    nbformat.write(stored, notebook)
+    before = _ids(notebook)
+    assert before == [f"keep{index:04d}" for index in range(9)]
+    script = repo / "examples" / "01_tiny.py"
+    new_function = '\n\ndef other():\n    """Return 1."""\n    return 1\n'
+    edited = SCRIPT.replace("VALUE = 3", "VALUE = 4").replace(
+        "    return VALUE\n", "    return VALUE\n" + new_function
+    )
+    script.write_text(edited)
+    assert tool.main(["--repo", str(repo)]) == 0
+    after = _ids(notebook)
+    nb = nbformat.read(notebook, as_version=4)
+    headings = [c.source.splitlines()[0] for c in nb.cells if c.cell_type == "markdown"]
+    assert headings[3:5] == ["## `helper()`", "## `other()`"]
+    # 7 cells -> 9: the configuration cell (index 4) was edited, other() (5, 6) is new.
+    assert len(before) == 9 and len(after) == 11
+    assert after[:7] == before[:7]  # unchanged cells and the edited configuration cell
+    assert after[4] == "keep0004"  # the edited configuration cell
+    assert after[9:] == before[7:]  # "## Run" and its code after the inserted cells
+    # the new cells get the ids derived from their position
+    assert after[7:9] == [tool.derived_cell_id("01_tiny", i, set(after[:7])) for i in (7, 8)]
+    assert len(set(after)) == len(after)
+    assert tool.main(["--repo", str(repo), "--check"]) == 0
+
+
+def test_a_notebook_written_afresh_gets_the_same_ids(tool, repo):
+    tool.main(["--repo", str(repo)])
+    notebook = repo / "examples" / "notebooks" / "01_tiny.ipynb"
+    first = notebook.read_bytes()
+    notebook.unlink()
+    tool.main(["--repo", str(repo)])
+    assert notebook.read_bytes() == first
+    ids = _ids(notebook)
+    assert ids[0] == tool.derived_cell_id("01_tiny", 0, set())
+    assert len(set(ids)) == len(ids)
+    nbformat.validate(nbformat.read(notebook, as_version=4))

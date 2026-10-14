@@ -39,6 +39,90 @@ def _reset_agribound_state():
     _cache.clear_fingerprint_cache()
 
 
+def fake_tessera_fingerprint(store_url, bbox, year) -> str:
+    """Fingerprint of the unit tests' TESSERA store stamp: SHA-256 of the store, box and year.
+
+    It differs for another store URL, read box (rounded to 1e-9 degrees, as the
+    builder compares boxes) or year, so a check that computes the stamp of
+    another read than the builder recorded does not match.
+    """
+    import hashlib
+
+    box = ",".join(f"{float(v):.9f}" for v in bbox)
+    text = f"{str(store_url).rstrip('/')}|{box}|{int(year)}"
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _fake_tessera_stamp(store_url, bbox, year, fingerprint=None):
+    """A :class:`~agribound.composites.tessera_stamp.StoreStamp` that needs no network."""
+    from agribound.composites import tessera_stamp
+
+    return tessera_stamp.StoreStamp(
+        store_url=str(store_url).rstrip("/"),
+        bbox=tuple(float(v) for v in bbox),
+        year=int(year),
+        fingerprint=fingerprint or fake_tessera_fingerprint(store_url, bbox, year),
+        last_modified="2026-10-07T12:40:56Z",
+        objects=(tessera_stamp.ObjectState("utm20/embeddings/c/7/0/316/13", "unit-test"),),
+        zones=(20,),
+    )
+
+
+@pytest.fixture
+def tessera_stamp_factory():
+    """``factory(store_url, bbox, year, fingerprint=None)``: network-free TESSERA store stamps.
+
+    Without *fingerprint*, the stamp's fingerprint is
+    :func:`fake_tessera_fingerprint` of the store, box and year.
+    """
+    return _fake_tessera_stamp
+
+
+@pytest.fixture
+def tessera_fingerprint():
+    """``fingerprint(store_url, bbox, year)``: the unit tests' store fingerprint of a read."""
+    return fake_tessera_fingerprint
+
+
+@pytest.fixture(autouse=True)
+def _tessera_store_check_offline(request, monkeypatch):
+    """Keep the TESSERA store check off the network, except in tests marked ``network``.
+
+    ``store_stamp`` returns a stamp whose fingerprint depends on the store, box
+    and year (:func:`fake_tessera_fingerprint`), and ``refresh_local_cache``
+    does nothing, unless a test passes its own ``client``; any other request
+    of a ``StoreClient`` raises ``StoreCheckError``. Tests of the check patch
+    these again.
+    """
+    from agribound.composites import tessera_stamp
+
+    tessera_stamp.clear_memo()
+    if request.node.get_closest_marker("network") is None:
+        real_stamp = tessera_stamp.store_stamp
+        real_refresh = tessera_stamp.refresh_local_cache
+
+        def store_stamp(store_url, bbox, year, *, client=None, **kwargs):
+            if client is not None:
+                return real_stamp(store_url, bbox, year, client=client, **kwargs)
+            return _fake_tessera_stamp(store_url, bbox, year)
+
+        def refresh_local_cache(cache_dir, stamp, *, client=None):
+            if client is not None:
+                return real_refresh(cache_dir, stamp, client=client)
+            return {}
+
+        def no_network(self, method, key):
+            raise tessera_stamp.StoreCheckError(
+                f"network access is off in the unit tests ({method} {self.url(key)})"
+            )
+
+        monkeypatch.setattr(tessera_stamp, "store_stamp", store_stamp)
+        monkeypatch.setattr(tessera_stamp, "refresh_local_cache", refresh_local_cache)
+        monkeypatch.setattr(tessera_stamp.StoreClient, "_request", no_network)
+    yield
+    tessera_stamp.clear_memo()
+
+
 # ---------------------------------------------------------------------------
 # Raster fixtures
 # ---------------------------------------------------------------------------

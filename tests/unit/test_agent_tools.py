@@ -293,8 +293,12 @@ def test_recommendations_follow_documented_rules(registry, tmp_path):
     assert any("no reference" in r for r in excl[("sentinel2", "geoai")])
     assert ("spot", None) in excl and ("local", None) in excl
     assert ("naip", "delineate-anything") in pairs  # California is inside the CONUS box
-    # Finer GSD first among label-free runs.
-    gsds = [c["metrics"]["gsd_m"] for c in out["candidates"]]
+    # SAR sources rank after every other source; finer GSD first among the others.
+    from agribound.registry import SAR_SOURCES
+
+    sar = [c["source"] in SAR_SOURCES for c in out["candidates"]]
+    assert any(sar) and sar == sorted(sar)
+    gsds = [c["metrics"]["gsd_m"] for c in out["candidates"] if c["source"] not in SAR_SOURCES]
     known = [g for g in gsds if g is not None]
     assert known == sorted(known)
     assert gsds[len(known) :] == [None] * (len(gsds) - len(known))  # unknown GSD ranks last
@@ -594,8 +598,111 @@ def _fake_live_ee(monkeypatch, ctx, counts: dict[str, int]) -> list:
 
 
 def test_live_gee_check_counts_each_collection(ctx, monkeypatch):
-    counts = {"NASA/HLS/HLSL30/v002": 11, "NASA/HLS/HLSS30/v002": 29}
+    counts = {"COPERNICUS/S2_SR_HARMONIZED": 37}
     seen = _fake_live_ee(monkeypatch, ctx, counts)
+    out = _call(
+        ToolRegistry(ctx),
+        "check_availability",
+        {"year": 2023, "sources": ["sentinel2"], "live": True},
+    )
+    live = out["results"][0]["live"]
+    assert live["status"] == "ok"
+    assert live["per_collection"] == counts and live["image_count"] == 37
+    assert live["message"] is None
+    dates = {s[1]: s[2:] for s in seen if s[0] == "date"}
+    assert dates == {cid: ("2023-01-01", "2024-01-01") for cid in counts}
+    region = next(s[2] for s in seen if s[0] == "bounds")
+    assert region[0] == pytest.approx(list(CA_BBOX)) and region[1:] == ("EPSG:4326", False)
+
+
+HLSL30 = "NASA/HLS/HLSL30/v002"
+HLSS30 = "NASA/HLS/HLSS30/v002"
+#: A 5 km square inside MGRS tile T01KAA (Fiji), 0.3 degrees west of 180 degrees.
+FIJI_BBOX = (179.6761, -17.6230, 179.7239, -17.5769)
+
+
+def _fake_hls_live_ee(
+    monkeypatch, ctx, counts: dict[str, int], antimeridian: dict[str, int] | None = None
+) -> list:
+    """Fake ``ee`` for the hls live check.
+
+    Each collection keeps its steps; ``size()`` records them and gives
+    ``counts[collection]`` for a collection bounded by the study-area box, and
+    ``antimeridian[collection]`` (default 0) for one bounded by a point (the images of
+    the MGRS tiles at 180 degrees). Sizes add up as ``ee.Number`` does.
+    """
+    antimeridian = antimeridian or {}
+    import sys
+    from types import SimpleNamespace
+
+    sized = []
+
+    class Number:
+        def __init__(self, n):
+            self.n = n
+
+        def add(self, other):
+            return Number(self.n + other.n)
+
+        def getInfo(self):  # noqa: N802 - Earth Engine API name
+            return self.n
+
+    class Collection:
+        def __init__(self, cid, steps=()):
+            self.cid, self.steps = cid, tuple(steps)
+
+        def filterBounds(self, region):  # noqa: N802 - Earth Engine API name
+            return Collection(self.cid, (*self.steps, ("bounds", region)))
+
+        def filter(self, value):
+            return Collection(self.cid, (*self.steps, ("filter", value)))
+
+        def filterDate(self, start, end):  # noqa: N802 - Earth Engine API name
+            return Collection(self.cid, (*self.steps, ("date", start, end)))
+
+        def map(self, fn):
+            return Collection(self.cid, (*self.steps, ("map",)))
+
+        def size(self):
+            sized.append((self.cid, self.steps))
+            bounds = self.steps[0][1]
+            return Number(
+                antimeridian.get(self.cid, 0) if bounds[0] == "point" else counts[self.cid]
+            )
+
+    class OrFilter(tuple):
+        def Not(self):  # noqa: N802 - Earth Engine API name
+            return ("not", tuple(self))
+
+    fake_ee = SimpleNamespace(
+        ImageCollection=Collection,
+        Geometry=SimpleNamespace(
+            Rectangle=lambda coords, proj, geodesic: (coords, proj, geodesic),
+            Point=lambda coords: ("point", tuple(coords)),
+        ),
+        Filter=SimpleNamespace(
+            bounds=lambda geometry: ("bounds", geometry),
+            Or=lambda *filters: OrFilter(("or", *filters)),
+            lte=lambda prop, value: ("lte", prop, value),
+            eq=lambda prop, value: ("eq", prop, value),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "ee", fake_ee)
+    monkeypatch.setattr(tools_mod, "_init_gee", lambda ctx: None)
+    ctx.allow_network = True
+    return sized
+
+
+def _far_filter(bbox) -> tuple:
+    from agribound.composites.gee import hls_far_points
+
+    p1, p2 = hls_far_points(box(*bbox))
+    return ("not", ("or", ("bounds", ("point", p1)), ("bounds", ("point", p2))))
+
+
+def test_live_check_of_hls_drops_the_far_point_images(ctx, monkeypatch):
+    counts = {HLSL30: 11, HLSS30: 29}
+    sized = _fake_hls_live_ee(monkeypatch, ctx, counts, antimeridian={HLSL30: 7, HLSS30: 99})
     out = _call(
         ToolRegistry(ctx),
         "check_availability",
@@ -605,10 +712,55 @@ def test_live_gee_check_counts_each_collection(ctx, monkeypatch):
     assert live["status"] == "ok"
     assert live["per_collection"] == counts and live["image_count"] == 40
     assert live["message"] is None
-    dates = {s[1]: s[2:] for s in seen if s[0] == "date"}
-    assert dates == {cid: ("2023-01-01", "2024-01-01") for cid in counts}
-    region = next(s[2] for s in seen if s[0] == "bounds")
-    assert region[0] == pytest.approx(list(CA_BBOX)) and region[1:] == ("EPSG:4326", False)
+    # One count per collection: the study-area box, the far-point exclusion, the calendar
+    # year, no cloud filter. Away from 180 degrees nothing else is counted.
+    assert [cid for cid, _ in sized] == [HLSL30, HLSS30]
+    for _, steps in sized:
+        (bounds, far, date) = steps
+        assert bounds[0] == "bounds" and bounds[1][0] == pytest.approx(list(CA_BBOX))
+        assert bounds[1][1:] == ("EPSG:4326", False)
+        assert far == ("filter", _far_filter(CA_BBOX))
+        assert date == ("date", "2023-01-01", "2024-01-01")
+    method = live["method"]
+    assert "before cloud filtering, without the images whose footprint meets the antipode" in method
+    assert "within 5 degrees of 180 degrees" not in method
+
+
+def test_live_check_of_hls_near_180_counts_the_images_of_the_tiles_there(ctx, monkeypatch):
+    from agribound.composites.gee import hls_far_points
+
+    counts = {HLSL30: 50, HLSS30: 120}
+    sized = _fake_hls_live_ee(monkeypatch, ctx, counts, antimeridian={HLSL30: 2, HLSS30: 29})
+    out = _call(
+        ToolRegistry(ctx),
+        "check_availability",
+        {
+            "year": 2022,
+            "sources": ["hls"],
+            "live": True,
+            "study_area": "bbox:" + ",".join(str(v) for v in FIJI_BBOX),
+        },
+    )
+    live = out["results"][0]["live"]
+    assert live["status"] == "ok"
+    assert live["per_collection"] == {HLSL30: 52, HLSS30: 149}
+    assert live["image_count"] == 201
+    # Per collection: the images over the box without the far-point ones, and the images
+    # of the tiles at 180 degrees whose tile meets the box (bounded by the first far point,
+    # in the calendar year, flagged per image), added to that collection's count.
+    p1, _ = hls_far_points(box(*FIJI_BBOX))
+    assert [cid for cid, _ in sized] == [HLSL30, HLSL30, HLSS30, HLSS30]
+    for i in (1, 3):
+        assert sized[i][1] == (
+            ("bounds", ("point", p1)),
+            ("date", "2022-01-01", "2023-01-01"),
+            ("map",),
+            ("filter", ("eq", "agribound_real_footprint", 1)),
+        )
+    for i in (0, 2):
+        assert sized[i][1][1] == ("filter", _far_filter(FIJI_BBOX))
+    assert "the bbox lies within 5 degrees of 180 degrees" in live["method"]
+    assert "each count includes the collection's images of those tiles" in live["method"]
 
 
 def _pan_collection(mission: str) -> str:
@@ -650,6 +802,217 @@ def test_live_gee_check_of_landsat_pan_counts_the_missions_auto_uses(
     assert ("Not used by default" in message) is bool(unused)
 
 
+def _fake_s1_ee(monkeypatch, ctx, per_pass: dict[str, dict[str, float]]) -> list:
+    """Fake ``ee`` for the sentinel1 live check: one histogram of platform_number per pass.
+
+    Each collection keeps the filters (and ``distinct``) applied to it;
+    ``Dictionary(query).getInfo()`` records them and returns ``per_pass[orbit]`` for
+    the pass each query filters on.
+    """
+    import sys
+    from types import SimpleNamespace
+
+    requests = []
+
+    class Collection:
+        def __init__(self, cid, steps=()):
+            self.cid, self.steps = cid, tuple(steps)
+
+        def filterBounds(self, region):  # noqa: N802 - Earth Engine API name
+            return Collection(self.cid, (*self.steps, ("bounds", region)))
+
+        def filter(self, value):
+            return Collection(self.cid, (*self.steps, value))
+
+        def filterDate(self, start, end):  # noqa: N802 - Earth Engine API name
+            return Collection(self.cid, (*self.steps, ("date", start, end)))
+
+        def distinct(self, properties):
+            return Collection(self.cid, (*self.steps, ("distinct", tuple(properties))))
+
+        def aggregate_histogram(self, prop):
+            return (prop, self)
+
+    class Dictionary:
+        def __init__(self, query):
+            self.query = query
+
+        def getInfo(self):  # noqa: N802 - Earth Engine API name
+            requests.append({k: (prop, c.cid, c.steps) for k, (prop, c) in self.query.items()})
+            out = {}
+            for key, (_, collection) in self.query.items():
+                pass_filter = ("eq", "orbitProperties_pass")
+                (orbit,) = [s[2] for s in collection.steps if s[:2] == pass_filter]
+                out[key] = per_pass.get(orbit)
+            return out
+
+    fake_ee = SimpleNamespace(
+        ImageCollection=Collection,
+        Dictionary=Dictionary,
+        Filter=SimpleNamespace(
+            eq=lambda prop, value: ("eq", prop, value),
+            listContains=lambda prop, value: ("listContains", prop, value),
+        ),
+        Geometry=SimpleNamespace(Rectangle=lambda coords, proj, geodesic: (coords, proj, geodesic)),
+    )
+    monkeypatch.setitem(sys.modules, "ee", fake_ee)
+    monkeypatch.setattr(tools_mod, "_init_gee", lambda ctx: None)
+    ctx.allow_network = True
+    return requests
+
+
+def _s1_live(ctx, monkeypatch, per_pass):
+    """Run check_availability(live=True) for sentinel1 in 2025 with a fake ``ee``."""
+    requests = _fake_s1_ee(monkeypatch, ctx, per_pass)
+    out = _call(
+        ToolRegistry(ctx),
+        "check_availability",
+        {"year": 2025, "sources": ["sentinel1"], "live": True},
+    )
+    return out["results"][0]["live"], requests
+
+
+@pytest.mark.parametrize(
+    ("per_pass", "used", "count", "texts"),
+    [
+        (
+            {"ASCENDING": {"A": 12.0}, "DESCENDING": {"A": 16.0, "C": 14.0}},
+            "DESCENDING",
+            30,
+            ["ASCENDING 12 acquisitions (S1A 12)", "DESCENDING 30 acquisitions (S1A 16, S1C 14)"],
+        ),
+        (
+            {"ASCENDING": {"C": 20, "D": 9}, "DESCENDING": {"C": 10}},
+            "ASCENDING",
+            29,
+            ["ASCENDING 29 acquisitions (S1C 20, S1D 9)", "DESCENDING 10 acquisitions (S1C 10)"],
+        ),
+        (
+            {"ASCENDING": {"A": 31}, "DESCENDING": {"A": 31}},  # a tie
+            "DESCENDING",
+            31,
+            ["ASCENDING 31 acquisitions (S1A 31)", "DESCENDING 31 acquisitions (S1A 31)"],
+        ),
+        (
+            {"ASCENDING": {"A": 4}},
+            "ASCENDING",
+            4,
+            ["ASCENDING 4 acquisitions (S1A 4)", "DESCENDING 0 acquisitions (none)"],
+        ),
+    ],
+)
+def test_live_check_of_sentinel1_counts_acquisitions_per_pass_and_satellite(
+    ctx, monkeypatch, per_pass, used, count, texts
+):
+    live, requests = _s1_live(ctx, monkeypatch, per_pass)
+    assert live["status"] == "ok"
+    assert live["image_count"] == count
+    assert live["per_collection"] == {"COPERNICUS/S1_GRD": count}
+    for text in texts:
+        assert text in live["message"]
+    assert "images" not in live["message"]
+    assert f"A calendar-year sentinel1 composite of 2025 would use {used}" in live["message"]
+    assert "one pass can combine relative orbits" in live["message"]
+    assert "instrumentMode IW" in live["method"] and "VV and VH" in live["method"]
+    assert "platform_number and orbitNumber_start count once" in live["method"]
+    # One request; both passes are counted with the composite's scene filters, as
+    # acquisitions (distinct satellite and absolute orbit).
+    (request,) = requests
+    assert set(request) == {"ASCENDING", "DESCENDING"}
+    for orbit, (prop, cid, steps) in request.items():
+        assert prop == "platform_number" and cid == "COPERNICUS/S1_GRD"
+        bounds, *filters = steps
+        assert bounds[0] == "bounds" and bounds[1][0] == pytest.approx(list(CA_BBOX))
+        assert filters == [
+            ("eq", "instrumentMode", "IW"),
+            ("eq", "resolution_meters", 10),
+            ("listContains", "transmitterReceiverPolarisation", "VV"),
+            ("listContains", "transmitterReceiverPolarisation", "VH"),
+            ("date", "2025-01-01", "2026-01-01"),
+            ("distinct", ("platform_number", "orbitNumber_start")),
+            ("eq", "orbitProperties_pass", orbit),
+        ]
+
+
+@pytest.mark.parametrize("per_pass", [{}, {"ASCENDING": {}, "DESCENDING": None}])
+def test_live_check_of_sentinel1_without_acquisitions_names_no_pass(ctx, monkeypatch, per_pass):
+    live, _ = _s1_live(ctx, monkeypatch, per_pass)
+    assert live["status"] == "ok"
+    assert live["image_count"] == 0 and live["per_collection"] == {"COPERNICUS/S1_GRD": 0}
+    assert live["message"] == (
+        "No IW acquisition with VV and VH intersects the study-area bounding box in 2025, in "
+        "either orbit pass, so a sentinel1 composite of 2025 would fail (NoDataError)."
+    )
+    assert "ASCENDING" not in live["message"] and "DESCENDING" not in live["message"]
+
+
+def test_sentinel1_is_listed_and_ranked_after_every_other_source(registry):
+    sources = {s["source"]: s for s in _call(registry, "list_sources")["sources"]}
+    s1 = sources["sentinel1"]
+    assert s1["export_resolution_m"] == 10 and s1["value_scale"] == "uint8"
+    assert s1["canonical_bands"] == {"R": "VV", "G": "VH", "B": "VV_VH"}
+    assert s1["year_first"] == 2015 and s1["year_last"] is None and s1["requires_gee"]
+
+    out = _call(registry, "recommend_configurations", {"year": 2023, "max_candidates": 50})
+    ranked = [(c["source"], c["engine"]) for c in out["candidates"]]
+    first_s1 = ranked.index(("sentinel1", "delineate-anything"))
+    # Every optical and embedding candidate, including the 30 m Landsat and HLS ones,
+    # ranks above Sentinel-1 (10 m).
+    assert {s for s, _ in ranked[:first_s1]} >= {"sentinel2", "landsat", "hls", "naip"}
+    assert {s for s, _ in ranked[first_s1:]} == {"sentinel1"}
+    assert ("sentinel1", "ftw") not in ranked and ("sentinel1", "prithvi") not in ranked
+    cand = out["candidates"][first_s1]
+    assert cand["metrics"]["gsd_m"] == 10.0
+    assert any(
+        w.startswith("Delineate-Anything: Sentinel-1 SAR") and "expect to need fine-tuning" in w
+        for w in cand["warnings"]
+    )
+    assert out["ordering"].startswith(
+        "1) candidates on the SAR sources ['sentinel1', 'umbra', 'capella'] last"
+    )
+    ordering = out["ordering"]
+    assert "0.18 and 0.39 on two 5 km smoke squares" in ordering and "not held out" in ordering
+    assert "0.80 on the tree crops of a Madera square" in ordering
+    assert "0.455 near Davis (2024), 0.173 in Lea County (2024)" in ordering
+    assert "0.11, 0.06 and 0.00 on oil palm and olive squares" in ordering
+    est = {e["source"]: e for e in _call(registry, "describe_study_area")["composite_estimates"]}
+    assert est["sentinel1"]["dtype"] == "uint8" and est["sentinel1"]["n_bands"] == 3
+
+
+def test_sentinel1_ranks_last_before_the_sentinel2_years(tmp_path, ctx):
+    """2016, outside the US: Sentinel-1 is the finest source, but still ranks last."""
+    ctx.study_area = _aoi_file(tmp_path, bbox=AU_BBOX, name="au.geojson")
+    out = _call(ToolRegistry(ctx), "recommend_configurations", {"year": 2016})
+    ranked = [(c["source"], c["engine"]) for c in out["candidates"]]
+    assert ranked[0] == ("landsat-pan", "delineate-anything")
+    assert ranked[-1] == ("sentinel1", "delineate-anything")
+    assert {"landsat", "hls"} <= {s for s, _ in ranked[:-1]}
+    excl = {(e["source"], e["engine"]) for e in out["excluded"]}
+    assert ("sentinel2", None) in excl  # before the registry's Sentinel-2 years
+
+
+def test_sentinel1_ranks_last_when_fine_tuning_is_preferred(tmp_path, ctx):
+    """With reference boundaries and fine-tuning preferred, SAR candidates still come last."""
+    ctx.study_area = _aoi_file(tmp_path, bbox=AU_BBOX, name="au.geojson")
+    import pyproj
+
+    lon, lat = box(*AU_BBOX).centroid.coords[0]
+    x, y = pyproj.Transformer.from_crs(4326, 32756, always_xy=True).transform(lon, lat)
+    ref = _squares(tmp_path, [200.0, 300.0], crs="EPSG:32756", origin=(x, y))
+    out = _call(
+        ToolRegistry(ctx),
+        "recommend_configurations",
+        {"year": 2023, "reference_path": ref, "prefer_label_free": False, "max_candidates": 50},
+    )
+    ranked = [(c["source"], c["proposal"]["fine_tune"]) for c in out["candidates"]]
+    first_s1 = [s for s, _ in ranked].index("sentinel1")
+    assert {s for s, _ in ranked[first_s1:]} == {"sentinel1"}
+    assert (("sentinel2", False) in ranked[:first_s1]) and (("sentinel1", True) in ranked)
+    # Within the SAR candidates the other rules still apply: fine-tuning first here.
+    s1 = [ft for s, ft in ranked if s == "sentinel1"]
+    assert s1 == sorted(s1, reverse=True)
+
+
 def test_plan_network_services(monkeypatch):
     from agribound.agent.tools import plan_network_services
 
@@ -683,6 +1046,122 @@ def test_plan_network_services(monkeypatch):
     ]
     asset = cfg(source="sentinel2", lulc_filter=False, study_area="projects/p/assets/aoi")
     assert plan_network_services(asset)[0] == "Earth Engine (study-area asset)"
+
+
+def test_plan_network_services_for_crop_maps(monkeypatch):
+    from agribound.agent.tools import plan_network_services
+
+    monkeypatch.setenv("GEE_PROJECT", "test-project")
+    base = {"study_area": "bbox:-93.6,42.0,-93.5,42.1", "year": 2023, "engine": "crop-sequence"}
+    for source in ("cdl-sequence", "aci-sequence"):
+        cfg = AgriboundConfig.from_dict({**base, "source": source, "lulc_filter": False})
+        assert plan_network_services(cfg) == ["Earth Engine (crop maps)"]
+        assert cfg.requires_gee()
+
+
+def test_crop_sequence_is_not_recommended_unless_named(registry):
+    out = _call(registry, "recommend_configurations", {"year": 2023, "max_candidates": 50})
+    assert not any(c["engine"] == "crop-sequence" for c in out["candidates"])
+    assert not any(c["source"] in ("cdl-sequence", "aci-sequence") for c in out["candidates"])
+    excl = {(e["source"], e["engine"]): e["reasons"] for e in out["excluded"]}
+    for key in (("cdl-sequence", None), ("aci-sequence", None), ("*", "crop-sequence")):
+        assert any(
+            r.startswith("opt-in; crop-history zones, not field instances") for r in excl[key]
+        ), key
+
+
+@pytest.mark.parametrize(
+    "named", [{"sources": ["cdl-sequence"]}, {"engines": ["crop-sequence", "delineate-anything"]}]
+)
+def test_crop_sequence_is_recommended_when_named(registry, named):
+    out = _call(
+        registry,
+        "recommend_configurations",
+        {"year": 2023, "max_candidates": 50, "want_sam_refine": True, **named},
+    )
+    crop = [c for c in out["candidates"] if c["engine"] == "crop-sequence"]
+    assert [c["source"] for c in crop] == ["cdl-sequence"]  # California: ACI has no map
+    (cand,) = crop
+    assert "sam_refine" not in cand["proposal"].get("config", {})  # refused for class codes
+    assert any("not field instances" in w for w in cand["warnings"])
+    assert any("lulc_filter=False" in w for w in cand["warnings"])
+    excl = {(e["source"], e["engine"]) for e in out["excluded"]}
+    assert ("*", "crop-sequence") not in excl
+    plan = registry.call("propose_run", cand["proposal"])
+    assert plan.ok, plan.error
+    assert "Earth Engine (crop maps)" in plan.output["network_services"]
+
+
+def test_sam_auto_is_not_recommended_unless_named(registry):
+    """Engine sam-auto is opt-in: never proposed unless named, and excluded once for all."""
+    out = _call(registry, "recommend_configurations", {"year": 2023, "max_candidates": 50})
+    assert not any(c["engine"] == "sam-auto" for c in out["candidates"])
+    excl = {(e["source"], e["engine"]): e["reasons"] for e in out["excluded"]}
+    (reason,) = excl[("*", "sam-auto")]
+    assert reason.startswith("opt-in; SAM 2.1 automatic masks, never chosen by default")
+    assert [e for e in out["excluded"] if e["engine"] == "sam-auto"] == [
+        {"source": "*", "engine": "sam-auto", "reasons": [reason]}
+    ]
+    # Engines named without it: not considered, so not listed either.
+    out = _call(
+        registry, "recommend_configurations", {"year": 2023, "engines": ["delineate-anything"]}
+    )
+    assert not any(e["engine"] == "sam-auto" for e in out["excluded"])
+    engines = {e["engine"]: e for e in _call(registry, "list_engines")["engines"]}
+    assert set(engines["sam-auto"]["python_packages_found"]) == {"sam2", "cv2"}
+
+
+def test_sam_auto_is_recommended_when_named_after_delineate_anything(registry):
+    out = _call(
+        registry,
+        "recommend_configurations",
+        {
+            "year": 2023,
+            "engines": ["delineate-anything", "sam-auto"],
+            "sources": ["naip", "sentinel1"],
+            "want_sam_refine": True,
+            "max_candidates": 50,
+        },
+    )
+    ranked = [(c["source"], c["engine"]) for c in out["candidates"]]
+    assert ranked == [
+        ("naip", "delineate-anything"),
+        ("naip", "sam-auto"),
+        ("sentinel1", "delineate-anything"),
+    ]
+    da, sam = out["candidates"][:2]
+    assert da["proposal"]["config"]["sam_refine"] is True
+    assert "sam_refine" not in sam["proposal"].get("config", {})  # refused by sam-auto
+    assert any("refuses sam_refine" in w for w in sam["warnings"])
+    excl = {(e["source"], e["engine"]): e["reasons"] for e in out["excluded"]}
+    assert ("*", "sam-auto") not in excl
+    (reason,) = excl[("sentinel1", "sam-auto")]
+    assert "no default setting for sentinel1" in reason
+    plan = registry.call("propose_run", sam["proposal"])
+    assert plan.ok, plan.error
+
+
+def test_crop_sequence_window_before_the_first_map_is_excluded(registry):
+    out = _call(
+        registry,
+        "recommend_configurations",
+        {"year": 2014, "sources": ["cdl-sequence"], "max_candidates": 50},
+    )
+    assert not out["candidates"]
+    (reasons,) = [e["reasons"] for e in out["excluded"] if e["source"] == "cdl-sequence"]
+    assert any("start in 2007, before 2008" in r for r in reasons)
+
+
+def test_composite_estimate_of_a_crop_map_stack():
+    from agribound.agent.tools import _composite_estimate
+
+    est = _composite_estimate("cdl-sequence", (0.0, 0.0, 3000.0, 1500.0), 10_000)
+    assert (est.width_px, est.height_px, est.n_bands, est.dtype) == (120, 70, 8, "uint8")
+    assert est.uncompressed_mb == pytest.approx(120 * 70 * 8 / 1e6, abs=0.1)
+    est5 = _composite_estimate(
+        "aci-sequence", (0.0, 0.0, 3000.0, 1500.0), 10_000, crop_sequence_years=5
+    )
+    assert est5.n_bands == 5 and "padded by 10 px" in est5.note
 
 
 def test_offline_execute_plan_is_refused_before_the_reviewer_is_asked(tmp_path, monkeypatch):
@@ -807,6 +1286,15 @@ def test_propose_run_flags_method_and_filter_changes(registry, config, field, ki
     assert any(w.startswith(f"{field} is") and kind in w for w in out.output["warnings"])
 
 
+@pytest.mark.parametrize("source", ["sentinel1", "landsat-pan"])
+def test_propose_run_refuses_ndvi_composites_without_nir_and_red(registry, ctx, source):
+    out = _propose(registry, source=source, config={"composite_method": "max_ndvi"})
+    assert not out.ok
+    assert f"needs NIR and red bands, which source '{source}' does not have" in out.error
+    assert ctx.plans == {}
+    assert _propose(registry, source=source).ok
+
+
 def test_propose_run_flags_landsat_pan_missions(registry):
     out = _propose(registry, source="landsat-pan", config={"landsat_pan_missions": ["LC08"]})
     assert out.ok, out.error
@@ -834,13 +1322,18 @@ def _run_key_1_0_1(config: dict) -> str:
     """The plan-directory key that agribound 1.0.1 computed for a frozen plan configuration."""
     from agribound._results import results_versions
     from agribound.agent.plans import canonical_json, compute_plan_hash, input_fingerprints
+    from agribound.provenance import HASH_CONDITIONAL_FIELDS
 
     cfg = AgriboundConfig.from_dict(config)
+    # 1.0.1 had none of the fields added since (HASH_CONDITIONAL_FIELDS), and its
+    # usgs_retries default was 3 (5 since 1.1.0).
     key = {
         k: v
         for k, v in cfg.to_dict().items()
-        if k not in ("output_path", "landsat_pan_missions", "lulc_tree_crops")
+        if k != "output_path" and k not in HASH_CONDITIONAL_FIELDS
     }
+    if key["usgs_retries"] == 5:
+        key["usgs_retries"] = 3
     versions = results_versions(cfg)
     if versions:
         key["results_versions"] = versions
@@ -886,6 +1379,45 @@ def test_plan_directory_changes_with_the_new_fields(registry):
     assert _plan_dir_name(pan) != f"landsat-pan_2023_delineate-anything_{_run_key_1_0_1(cfg)}"
     lc08 = _propose(registry, source="landsat-pan", config={"landsat_pan_missions": "LC08"})
     assert _plan_dir_name(lc08) != _plan_dir_name(pan)
+
+
+def test_tessera_plan_directory_follows_the_store(
+    registry, ctx, monkeypatch, tessera_stamp_factory
+):
+    """A TESSERA output read from store objects that have changed since is not reused
+    (agribound.provenance.reuse_mismatch) and agent runs never overwrite, so with network
+    access the plan directory includes the fingerprint of the store's objects."""
+    pytest.importorskip("geotessera")
+    from agribound.composites import tessera_stamp
+
+    tessera = {"source": "tessera-embedding", "engine": "embedding", "year": 2024}
+    out = _propose(registry, **tessera)
+    cfg = out.output["config"]
+    offline = _plan_dir_name(out)  # no network access: the key of 1.0.1
+    assert offline == f"tessera-embedding_2024_embedding_{_run_key_1_0_1(cfg)}"
+
+    ctx.allow_network = True
+    first = _plan_dir_name(_propose(registry, **tessera))
+    assert first != offline
+    assert _plan_dir_name(_propose(registry, **tessera)) == first  # the same store
+    monkeypatch.setattr(
+        tessera_stamp,
+        "store_stamp",
+        lambda url, bbox, year, **kw: tessera_stamp_factory(url, bbox, year, "d" * 64),
+    )
+    assert _plan_dir_name(_propose(registry, **tessera)) not in (first, offline)
+
+    calls = []
+
+    def fail(*args, **kwargs):
+        calls.append(args)
+        raise tessera_stamp.StoreCheckError("no network")
+
+    monkeypatch.setattr(tessera_stamp, "store_stamp", fail)
+    assert _plan_dir_name(_propose(registry, **tessera)) == offline
+    assert len(calls) == 1
+    assert _propose(registry).ok  # other sources: never checked
+    assert len(calls) == 1
 
 
 GHANA_BBOX = "bbox:-1.60,5.58,-1.57,5.61"  # Twifo Praso, Ghana (oil palm)
@@ -1155,3 +1687,113 @@ def test_min_refinable_side_bisection_matches_formula():
         assert math.isclose(side * 10, round(side * 10))
         assert is_refinable((0, 0, side, side), (gsd, gsd), 64, 0.15)
         assert not is_refinable((0, 0, side - 0.2, side - 0.2), (gsd, gsd), 64, 0.15)
+
+
+# ---------------------------------------------------------------------------
+# Open VHR SAR sources (umbra, capella)
+# ---------------------------------------------------------------------------
+
+
+def test_vhr_sar_is_recommended_only_when_named_with_the_tested_da_settings(registry):
+    out = _call(registry, "recommend_configurations", {"year": 2024, "max_candidates": 50})
+    assert not any(c["source"] in ("umbra", "capella") for c in out["candidates"])
+    excl = {(e["source"], e["engine"]): e["reasons"] for e in out["excluded"]}
+    assert any("few sites" in r for r in excl[("umbra", None)])
+    assert any("few sites" in r for r in excl[("capella", None)])
+    out = _call(
+        registry, "recommend_configurations", {"year": 2024, "sources": ["umbra", "capella"]}
+    )
+    assert {(c["source"], c["engine"]) for c in out["candidates"]} == {
+        ("umbra", "delineate-anything"),
+        ("capella", "delineate-anything"),
+    }
+    for cand in out["candidates"]:
+        assert cand["proposal"]["config"]["engine_params"] == {
+            "processing_gsd_m": 3,
+            "merge_tile_pieces": False,
+        }
+        assert cand["metrics"]["gsd_m"] == 1.0
+        assert any("processing_gsd_m=3" in rule for rule in cand["rules_applied"])
+        assert any("CC BY 4.0" in w for w in cand["warnings"])
+    assert any("Delineate-Anything's engine_params" in note for note in out["notes"])
+
+
+def test_plan_network_services_for_vhr_sar():
+    from agribound.agent.tools import plan_network_services
+
+    base = {"study_area": "bbox:-121.8,38.5,-121.79,38.51", "year": 2024, "lulc_filter": False}
+    umbra = AgriboundConfig.from_dict({**base, "source": "umbra"})
+    assert plan_network_services(umbra) == [
+        "AWS Registry of Open Data: s3://umbra-open-data-catalog (archive index and GEC downloads)",
+        "AWS Registry of Open Data: Copernicus GLO-30 DEM (GLO-90 where GLO-30 has no public "
+        "tile), and cdn.proj.org (EGM2008 geoid) for the RPC orthorectification",
+        "USGS NAIP Plus ImageServer (co-registration base, where available)",
+    ]
+    capella = AgriboundConfig.from_dict(
+        {**base, "source": "capella", "year": 2023, "vhr_sar_coregister": "sar"}
+    )
+    assert plan_network_services(capella) == [
+        "AWS Registry of Open Data: s3://capella-open-data (archive index and GEO downloads)"
+    ]
+
+
+def test_propose_run_for_vhr_sar(registry):
+    out = _propose(
+        registry,
+        source="umbra",
+        year=2024,
+        config={"lulc_filter": False, "vhr_sar_max_collects": 4},
+    )
+    assert out.ok, out.error
+    warnings = out.output["warnings"]
+    assert any("SAR data: Umbra Lab, Inc., CC BY 4.0" in w for w in warnings)
+    assert any("the tested recipe sets engine_params" in w for w in warnings)
+    tuned = _propose(
+        registry,
+        source="capella",
+        year=2023,
+        config={"lulc_filter": False, "engine_params": {"processing_gsd_m": 3,
+                                                        "merge_tile_pieces": False}},
+    )  # fmt: skip
+    assert tuned.ok, tuned.error
+    assert not any("the tested recipe sets engine_params" in w for w in tuned.output["warnings"])
+    cached = _propose(registry, source="umbra", year=2024, config={"vhr_sar_cache_dir": "/x"})
+    assert not cached.ok and "vhr_sar_cache_dir" in cached.error
+
+
+def test_live_check_for_vhr_sar_uses_the_index(registry, ctx, monkeypatch):
+    from agribound.composites import vhr_sar
+
+    footprint = ((-119.4, 36.2), (-119.2, 36.2), (-119.2, 36.4), (-119.4, 36.4), (-119.4, 36.2))
+    records = [
+        vhr_sar.CollectRecord(
+            source="umbra",
+            collect_id=f"c{i}",
+            datetime=f"2023-0{i + 5}-01T10:00:00.000000Z",
+            polarization="VV",
+            orbit_state="ascending",
+            look_side="left",
+            incidence_deg=40.0 + i,
+            view_azimuth_deg=90.0,
+            footprint=footprint,
+            product_key=f"k/c{i}_GEC.tif",
+            product_bytes=1,
+            product_etag="e",
+            product_last_modified="2023-01-01T00:00:00Z",
+        )
+        for i in range(3)
+    ]
+    index = vhr_sar.ArchiveIndex("umbra", "2026-10-09T00:00:00Z", records)
+    monkeypatch.setattr(vhr_sar, "load_index", lambda source, **kw: index)
+    ctx.allow_network = True
+    out = _call(registry, "check_availability", {"year": 2023, "sources": ["umbra"], "live": True})
+    live = out["results"][0]["live"]
+    assert live["status"] == "ok" and live["image_count"] == 3
+    assert "3 collects cover the bounding box in 2023" in live["message"]
+    assert "2023-05-01, 2023-06-01, 2023-07-01" in live["message"]
+    # Keyed by the bucket that holds the collects (not "s3://umbra").
+    assert live["per_collection"] == {"s3://umbra-open-data-catalog": 3}
+    from agribound.agent.tools import TOOL_SPECS
+
+    (spec,) = [t for t in TOOL_SPECS if t.name == "check_availability"]
+    assert "Umbra and Capella collects" in spec.description

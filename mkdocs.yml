@@ -1,5 +1,5 @@
 site_name: Agribound
-site_description: Agricultural field boundary delineation from satellite imagery with published segmentation models, geospatial foundation models and embeddings.
+site_description: Agricultural field boundary delineation from satellite imagery with published segmentation models, geospatial and general-purpose foundation models and embeddings.
 site_url: https://montimaj.github.io/agribound
 repo_url: https://github.com/montimaj/agribound
 repo_name: montimaj/agribound
@@ -103,11 +103,12 @@ nav:
       - Evaluation: api/evaluate.md
       - Provenance and Reproducibility: api/provenance.md
       - Published FTW Polygons: api/ftw-query.md
+      - Published CSB Polygons: api/csb-query.md
       - HPC Tiling: api/hpc.md
       - Agent: api/agent.md
       - Visualization: api/visualize.md
   - Gallery:
-      - agribound 1.0: gallery.md
+      - agribound 1.1: gallery.md
       - agribound 0.1.x (archived): gallery-0.1x.md
   - Blog: blog/index.md
   - Contributing: contributing.md

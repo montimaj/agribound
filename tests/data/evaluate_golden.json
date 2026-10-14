@@ -1,0 +1,1962 @@
+{
+ "stratified": {
+  "iou_mean": 0.9999999999999999,
+  "precision": 0.6,
+  "recall": 0.75,
+  "f1": 0.6666666666666665,
+  "over_segmentation": 0.0,
+  "under_segmentation": 0.0,
+  "area_error_mean_m2": 0.0,
+  "count_predicted": 5,
+  "count_reference": 4,
+  "count_tp": 3,
+  "count_fp": 2,
+  "count_fn": 1,
+  "best_iou_mean": 0.7725000000392592,
+  "area_weighted_precision": 0.7334964440184525,
+  "area_weighted_recall": 0.7500000054246777,
+  "area_weighted_f1": 0.741656425533508,
+  "reference_area_ha": 4.003201853580843,
+  "predicted_area_ha": 4.093273302666728,
+  "area_error_signed_mean_m2": 0.0,
+  "oversegmentation_mean": 0.2274999999600816,
+  "undersegmentation_mean": 8.137063245428067e-11,
+  "hausdorff_mean_m": 0.0,
+  "boundary_distance_mean_m": 0.0,
+  "boundary_precision": 0.7383720930232558,
+  "boundary_recall": 0.7937500000000002,
+  "boundary_f1": 0.7650602409638555,
+  "coverage_within_tolerance": 0.75,
+  "coverage_within_tolerance_area": 0.7500000054246777,
+  "median_area_ha": 1.0008004658532808,
+  "hausdorff_median_m": 0.0,
+  "boundary_distance_median_m": 0.0,
+  "iou_threshold": 0.5,
+  "matching": "one_to_one",
+  "equal_area_crs": "EPSG:6933",
+  "distance_crs": "WGS 84 / UTM zone of each polygon's centroid",
+  "proj_network": false,
+  "boundary_sample_spacing_m": 1.0,
+  "boundary_sample_spacing_max_m": 1.0,
+  "utm_epsg_codes": [
+   32613
+  ],
+  "count_fp_unassigned": 1,
+  "count_reference_dropped": 0,
+  "count_predicted_dropped": 0,
+  "count_reference_repaired": 0,
+  "count_predicted_repaired": 0,
+  "boundary_tolerance_m": 5.0,
+  "strata_column": "basin",
+  "count_reference_no_stratum": 0,
+  "per_stratum": {
+   "a": {
+    "n": 2,
+    "iou_mean": 0.9999999999999998,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "over_segmentation": 0.0,
+    "under_segmentation": 0.0,
+    "area_error_mean_m2": 0.0,
+    "count_predicted": 2,
+    "count_reference": 2,
+    "count_tp": 2,
+    "count_fp": 0,
+    "count_fn": 0,
+    "best_iou_mean": 0.9999999999999998,
+    "area_weighted_precision": 1.0,
+    "area_weighted_recall": 1.0,
+    "area_weighted_f1": 1.0,
+    "reference_area_ha": 2.0016009588782055,
+    "predicted_area_ha": 2.0016009588782055,
+    "area_error_signed_mean_m2": 0.0,
+    "oversegmentation_mean": 1.1102230246251565e-16,
+    "undersegmentation_mean": 1.1102230246251565e-16,
+    "hausdorff_mean_m": 0.0,
+    "boundary_distance_mean_m": 0.0,
+    "boundary_precision": 1.0,
+    "boundary_recall": 1.0,
+    "boundary_f1": 1.0,
+    "coverage_within_tolerance": 1.0,
+    "coverage_within_tolerance_area": 1.0,
+    "median_area_ha": 1.0008004794391028,
+    "hausdorff_median_m": 0.0,
+    "boundary_distance_median_m": 0.0,
+    "ci": {
+     "precision": [
+      1.0,
+      1.0
+     ],
+     "recall": [
+      1.0,
+      1.0
+     ],
+     "f1": [
+      1.0,
+      1.0
+     ],
+     "iou_mean": [
+      0.9999999999999997,
+      1.0
+     ],
+     "best_iou_mean": [
+      0.9999999999999997,
+      1.0
+     ],
+     "area_weighted_precision": [
+      1.0,
+      1.0
+     ],
+     "area_weighted_recall": [
+      1.0,
+      1.0
+     ],
+     "area_weighted_f1": [
+      1.0,
+      1.0
+     ],
+     "oversegmentation_mean": [
+      0.0,
+      2.220446049250313e-16
+     ],
+     "undersegmentation_mean": [
+      0.0,
+      2.220446049250313e-16
+     ],
+     "hausdorff_mean_m": [
+      0.0,
+      0.0
+     ],
+     "boundary_distance_mean_m": [
+      0.0,
+      0.0
+     ],
+     "boundary_precision": [
+      1.0,
+      1.0
+     ],
+     "boundary_recall": [
+      1.0,
+      1.0
+     ],
+     "boundary_f1": [
+      1.0,
+      1.0
+     ],
+     "coverage_within_tolerance": [
+      1.0,
+      1.0
+     ],
+     "coverage_within_tolerance_area": [
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "b": {
+    "n": 2,
+    "iou_mean": 1.0,
+    "precision": 0.5,
+    "recall": 0.5,
+    "f1": 0.5,
+    "over_segmentation": 0.0,
+    "under_segmentation": 0.0,
+    "area_error_mean_m2": 0.0,
+    "count_predicted": 2,
+    "count_reference": 2,
+    "count_tp": 1,
+    "count_fp": 1,
+    "count_fn": 1,
+    "best_iou_mean": 0.5450000000785187,
+    "area_weighted_precision": 0.9174311933601633,
+    "area_weighted_recall": 0.5000000028338256,
+    "area_weighted_f1": 0.6472491934869791,
+    "reference_area_ha": 2.001600894702637,
+    "predicted_area_ha": 1.0908724929637466,
+    "area_error_signed_mean_m2": 0.0,
+    "oversegmentation_mean": 0.4549999999201631,
+    "undersegmentation_mean": 1.6274115388625887e-10,
+    "hausdorff_mean_m": 0.0,
+    "boundary_distance_mean_m": 0.0,
+    "boundary_precision": 0.903846153846154,
+    "boundary_recall": 0.5875000000000004,
+    "boundary_f1": 0.7121212121212124,
+    "coverage_within_tolerance": 0.5,
+    "coverage_within_tolerance_area": 0.5000000028338256,
+    "median_area_ha": 1.0008004473513186,
+    "hausdorff_median_m": 0.0,
+    "boundary_distance_median_m": 0.0,
+    "ci": {
+     "precision": [
+      0.0,
+      1.0
+     ],
+     "recall": [
+      0.0,
+      1.0
+     ],
+     "f1": [
+      0.0,
+      1.0
+     ],
+     "iou_mean": [
+      1.0,
+      1.0
+     ],
+     "best_iou_mean": [
+      0.09000000015703744,
+      1.0
+     ],
+     "area_weighted_precision": [
+      0.0,
+      1.0
+     ],
+     "area_weighted_recall": [
+      0.0,
+      1.0
+     ],
+     "area_weighted_f1": [
+      0.0,
+      1.0
+     ],
+     "oversegmentation_mean": [
+      0.0,
+      0.9099999998403262
+     ],
+     "undersegmentation_mean": [
+      0.0,
+      3.2548230777251774e-10
+     ],
+     "hausdorff_mean_m": [
+      0.0,
+      0.0
+     ],
+     "boundary_distance_mean_m": [
+      0.0,
+      0.0
+     ],
+     "boundary_precision": [
+      0.5833333333333339,
+      1.0
+     ],
+     "boundary_recall": [
+      0.1750000000000007,
+      1.0
+     ],
+     "boundary_f1": [
+      0.2692307692307701,
+      1.0
+     ],
+     "coverage_within_tolerance": [
+      0.0,
+      1.0
+     ],
+     "coverage_within_tolerance_area": [
+      0.0,
+      1.0
+     ]
+    },
+    "ci_n_undefined": {
+     "iou_mean": 6,
+     "hausdorff_mean_m": 6,
+     "boundary_distance_mean_m": 6
+    }
+   }
+  },
+  "size_class_edges_ha": [
+   1.0,
+   2.0
+  ],
+  "count_reference_outside_size_classes": 0,
+  "per_size_class": {
+   "1-2": {
+    "lower_ha": 1.0,
+    "upper_ha": 2.0,
+    "n": 4,
+    "iou_mean": 0.9999999999999999,
+    "precision": 0.75,
+    "recall": 0.75,
+    "f1": 0.75,
+    "over_segmentation": 0.0,
+    "under_segmentation": 0.0,
+    "area_error_mean_m2": 0.0,
+    "count_predicted": 4,
+    "count_reference": 4,
+    "count_tp": 3,
+    "count_fp": 1,
+    "count_fn": 1,
+    "best_iou_mean": 0.7725000000392592,
+    "area_weighted_precision": 0.9708737871665184,
+    "area_weighted_recall": 0.7500000054246777,
+    "area_weighted_f1": 0.846262345067328,
+    "reference_area_ha": 4.003201853580843,
+    "predicted_area_ha": 3.0924734518419523,
+    "area_error_signed_mean_m2": 0.0,
+    "oversegmentation_mean": 0.2274999999600816,
+    "undersegmentation_mean": 8.137063245428067e-11,
+    "hausdorff_mean_m": 0.0,
+    "boundary_distance_mean_m": 0.0,
+    "boundary_precision": 0.9621212121212122,
+    "boundary_recall": 0.7937500000000002,
+    "boundary_f1": 0.8698630136986303,
+    "coverage_within_tolerance": 0.75,
+    "coverage_within_tolerance_area": 0.7500000054246777,
+    "median_area_ha": 1.0008004658532808,
+    "hausdorff_median_m": 0.0,
+    "boundary_distance_median_m": 0.0,
+    "ci": {
+     "precision": [
+      0.5,
+      1.0
+     ],
+     "recall": [
+      0.5,
+      1.0
+     ],
+     "f1": [
+      0.5,
+      1.0
+     ],
+     "iou_mean": [
+      0.9999999999999997,
+      1.0
+     ],
+     "best_iou_mean": [
+      0.5450000000785186,
+      0.9999999999999999
+     ],
+     "area_weighted_precision": [
+      0.9174311953023502,
+      1.0
+     ],
+     "area_weighted_recall": [
+      0.5000000092435821,
+      1.0
+     ],
+     "area_weighted_f1": [
+      0.6472491993408218,
+      1.0
+     ],
+     "oversegmentation_mean": [
+      5.551115123125783e-17,
+      0.45499999992016316
+     ],
+     "undersegmentation_mean": [
+      5.551115123125783e-17,
+      1.627412093974101e-10
+     ],
+     "hausdorff_mean_m": [
+      0.0,
+      0.0
+     ],
+     "boundary_distance_mean_m": [
+      0.0,
+      0.0
+     ],
+     "boundary_precision": [
+      0.903846153846154,
+      1.0
+     ],
+     "boundary_recall": [
+      0.5875000000000004,
+      1.0
+     ],
+     "boundary_f1": [
+      0.7121212121212124,
+      1.0
+     ],
+     "coverage_within_tolerance": [
+      0.5,
+      1.0
+     ],
+     "coverage_within_tolerance_area": [
+      0.5000000092435821,
+      1.0
+     ]
+    }
+   }
+  },
+  "bootstrap": {
+   "n_resamples": 20,
+   "seed": 42,
+   "confidence_level": 0.95,
+   "method": "percentile",
+   "resampling": "reference fields with replacement within strata",
+   "ci": {
+    "precision": [
+     0.4,
+     0.8
+    ],
+    "recall": [
+     0.5,
+     1.0
+    ],
+    "f1": [
+     0.4444444444444445,
+     0.888888888888889
+    ],
+    "iou_mean": [
+     0.9999999999999997,
+     1.0
+    ],
+    "best_iou_mean": [
+     0.5450000000785186,
+     0.9999999999999999
+    ],
+    "area_weighted_precision": [
+     0.6289309429282198,
+     0.8000000984467373
+    ],
+    "area_weighted_recall": [
+     0.5000000092435821,
+     1.0
+    ],
+    "area_weighted_f1": [
+     0.5571031189688368,
+     0.8888889496584764
+    ],
+    "oversegmentation_mean": [
+     5.551115123125783e-17,
+     0.45499999992016316
+    ],
+    "undersegmentation_mean": [
+     5.551115123125783e-17,
+     1.627412093974101e-10
+    ],
+    "hausdorff_mean_m": [
+     0.0,
+     0.0
+    ],
+    "boundary_distance_mean_m": [
+     0.0,
+     0.0
+    ],
+    "boundary_precision": [
+     0.6527777777777779,
+     0.8
+    ],
+    "boundary_recall": [
+     0.5875000000000004,
+     1.0
+    ],
+    "boundary_f1": [
+     0.6184210526315792,
+     0.888888888888889
+    ],
+    "coverage_within_tolerance": [
+     0.5,
+     1.0
+    ],
+    "coverage_within_tolerance_area": [
+     0.5000000092435821,
+     1.0
+    ]
+   },
+   "n_undefined": {}
+  }
+ },
+ "stratified_frame": {
+  "index": [
+   "0",
+   "1",
+   "2",
+   "3"
+  ],
+  "columns": [
+   "area_m2",
+   "area_ha",
+   "perimeter_m",
+   "utm_epsg",
+   "stratum",
+   "size_class",
+   "matched",
+   "pred_index",
+   "iou",
+   "pred_area_m2",
+   "best_iou",
+   "n_overlapping_pred",
+   "max_overlap_pred_index",
+   "oversegmentation",
+   "undersegmentation",
+   "hausdorff_m",
+   "boundary_mean_distance_m",
+   "boundary_sample_spacing_m",
+   "boundary_within_tolerance_m",
+   "boundary_recall",
+   "within_tolerance"
+  ],
+  "records": [
+   {
+    "area_m2": 10008.004801951505,
+    "area_ha": 1.0008004801951504,
+    "perimeter_m": 400.0,
+    "utm_epsg": 32613,
+    "stratum": "a",
+    "size_class": "0.5-2",
+    "matched": true,
+    "pred_index": 0,
+    "iou": 0.9999999999999997,
+    "pred_area_m2": 10008.004801951505,
+    "best_iou": 0.9999999999999997,
+    "n_overlapping_pred": 1,
+    "max_overlap_pred_index": 0,
+    "oversegmentation": 2.220446049250313e-16,
+    "undersegmentation": 2.220446049250313e-16,
+    "hausdorff_m": 0.0,
+    "boundary_mean_distance_m": 0.0,
+    "boundary_sample_spacing_m": 1.0,
+    "boundary_within_tolerance_m": 400.0,
+    "boundary_recall": 1.0,
+    "within_tolerance": true
+   },
+   {
+    "area_m2": 10008.004786830552,
+    "area_ha": 1.000800478683055,
+    "perimeter_m": 400.0,
+    "utm_epsg": 32613,
+    "stratum": "a",
+    "size_class": "0.5-2",
+    "matched": true,
+    "pred_index": 1,
+    "iou": 1.0,
+    "pred_area_m2": 10008.004786830552,
+    "best_iou": 1.0,
+    "n_overlapping_pred": 1,
+    "max_overlap_pred_index": 1,
+    "oversegmentation": 0.0,
+    "undersegmentation": 0.0,
+    "hausdorff_m": 0.0,
+    "boundary_mean_distance_m": 0.0,
+    "boundary_sample_spacing_m": 1.0,
+    "boundary_within_tolerance_m": 400.0,
+    "boundary_recall": 1.0,
+    "within_tolerance": true
+   },
+   {
+    "area_m2": 10008.004530235065,
+    "area_ha": 1.0008004530235064,
+    "perimeter_m": 400.0,
+    "utm_epsg": 32613,
+    "stratum": "b",
+    "size_class": "0.5-2",
+    "matched": true,
+    "pred_index": 2,
+    "iou": 1.0,
+    "pred_area_m2": 10008.004530235065,
+    "best_iou": 1.0,
+    "n_overlapping_pred": 1,
+    "max_overlap_pred_index": 2,
+    "oversegmentation": 0.0,
+    "undersegmentation": 0.0,
+    "hausdorff_m": 0.0,
+    "boundary_mean_distance_m": 0.0,
+    "boundary_sample_spacing_m": 1.0,
+    "boundary_within_tolerance_m": 400.0,
+    "boundary_recall": 1.0,
+    "within_tolerance": true
+   },
+   {
+    "area_m2": 10008.004416791306,
+    "area_ha": 1.0008004416791305,
+    "perimeter_m": 400.0,
+    "utm_epsg": 32613,
+    "stratum": "b",
+    "size_class": "0.5-2",
+    "matched": false,
+    "pred_index": null,
+    "iou": null,
+    "pred_area_m2": null,
+    "best_iou": 0.09000000015703744,
+    "n_overlapping_pred": 1,
+    "max_overlap_pred_index": 3,
+    "oversegmentation": 0.9099999998403262,
+    "undersegmentation": 3.2548230777251774e-10,
+    "hausdorff_m": null,
+    "boundary_mean_distance_m": null,
+    "boundary_sample_spacing_m": null,
+    "boundary_within_tolerance_m": 70.00000000000028,
+    "boundary_recall": 0.1750000000000007,
+    "within_tolerance": false
+   }
+  ],
+  "attrs": {
+   "iou_threshold": 0.5,
+   "matching": "one_to_one",
+   "equal_area_crs": "EPSG:6933",
+   "boundary_tolerance_m": 5.0,
+   "boundary_sample_spacing_m": 1.0
+  }
+ },
+ "geographic": {
+  "iou_mean": 1.0,
+  "precision": 0.6,
+  "recall": 0.75,
+  "f1": 0.6666666666666665,
+  "over_segmentation": 0.0,
+  "under_segmentation": 0.0,
+  "area_error_mean_m2": 0.0,
+  "count_predicted": 5,
+  "count_reference": 4,
+  "count_tp": 3,
+  "count_fp": 2,
+  "count_fn": 1,
+  "best_iou_mean": 0.7725000000223318,
+  "area_weighted_precision": 0.733496444019456,
+  "area_weighted_recall": 0.7500000054231021,
+  "area_weighted_f1": 0.7416564255332506,
+  "reference_area_ha": 4.003201853597774,
+  "predicted_area_ha": 4.09327330266984,
+  "area_error_signed_mean_m2": 0.0,
+  "oversegmentation_mean": 0.22749999997563097,
+  "undersegmentation_mean": 2.5150900806458765e-10,
+  "hausdorff_mean_m": 2.3206222568799425e-10,
+  "boundary_distance_mean_m": 3.5163880571232625e-11,
+  "median_area_ha": 1.0008004658606238,
+  "hausdorff_median_m": 2.3283064365373413e-10,
+  "boundary_distance_median_m": 3.6373610675078114e-11,
+  "iou_threshold": 0.5,
+  "matching": "one_to_one",
+  "equal_area_crs": "EPSG:6933",
+  "distance_crs": "WGS 84 / UTM zone of each polygon's centroid",
+  "proj_network": false,
+  "boundary_sample_spacing_m": 1.0,
+  "boundary_sample_spacing_max_m": 1.0,
+  "utm_epsg_codes": [
+   32613
+  ],
+  "count_fp_unassigned": 1,
+  "count_reference_dropped": 0,
+  "count_predicted_dropped": 0,
+  "count_reference_repaired": 0,
+  "count_predicted_repaired": 0
+ },
+ "many_to_one": {
+  "iou_mean": 0.6122495590610287,
+  "precision": 0.6666666666666666,
+  "recall": 0.8,
+  "f1": 0.7272727272727272,
+  "over_segmentation": 0.2,
+  "under_segmentation": 0.2,
+  "area_error_mean_m2": 8006.403810973272,
+  "count_predicted": 5,
+  "count_reference": 5,
+  "count_tp": 4,
+  "count_fp": 2,
+  "count_fn": 1,
+  "best_iou_mean": 0.48979964724882297,
+  "area_weighted_precision": 0.6790123540024655,
+  "area_weighted_recall": 0.9779614328127201,
+  "area_weighted_f1": 0.8015188893170525,
+  "reference_area_ha": 7.265811435759849,
+  "predicted_area_ha": 8.106483738494745,
+  "area_error_signed_mean_m2": 2.948277369796415e-05,
+  "oversegmentation_mean": 0.29633338100733264,
+  "undersegmentation_mean": 0.27041670852553323,
+  "hausdorff_mean_m": 61.76776695296637,
+  "boundary_distance_mean_m": 16.768781399603935,
+  "boundary_precision": 0.7099236641221376,
+  "boundary_recall": 0.8532110091743119,
+  "boundary_f1": 0.7750000000000001,
+  "coverage_within_tolerance": 0.2,
+  "coverage_within_tolerance_area": 0.2066115686269176,
+  "median_area_ha": 1.0008004801951504,
+  "hausdorff_median_m": 70.0,
+  "boundary_distance_median_m": 17.68719806763285,
+  "iou_threshold": 0.3,
+  "matching": "many_to_one",
+  "equal_area_crs": "EPSG:6933",
+  "distance_crs": "WGS 84 / UTM zone of each polygon's centroid",
+  "proj_network": false,
+  "boundary_sample_spacing_m": null,
+  "boundary_sample_spacing_max_m": 1.0,
+  "utm_epsg_codes": [
+   32613
+  ],
+  "count_fp_unassigned": 1,
+  "count_reference_dropped": 0,
+  "count_predicted_dropped": 1,
+  "count_reference_repaired": 0,
+  "count_predicted_repaired": 0,
+  "boundary_tolerance_m": 10.0,
+  "strata_column": "system",
+  "count_reference_no_stratum": 1,
+  "per_stratum": {
+   "flood": {
+    "n": 2,
+    "iou_mean": 0.7244992002429578,
+    "precision": 0.6666666666666666,
+    "recall": 1.0,
+    "f1": 0.8,
+    "over_segmentation": 0.5,
+    "under_segmentation": 0.0,
+    "area_error_mean_m2": 8006.403781490498,
+    "count_predicted": 3,
+    "count_reference": 2,
+    "count_tp": 2,
+    "count_fp": 1,
+    "count_fn": 0,
+    "best_iou_mean": 0.7244992002429578,
+    "area_weighted_precision": 0.7090909088301126,
+    "area_weighted_recall": 1.0,
+    "area_weighted_f1": 0.829787233863986,
+    "reference_area_ha": 5.5044025941582895,
+    "predicted_area_ha": 5.504402593878578,
+    "area_error_signed_mean_m2": -8006.403781490498,
+    "oversegmentation_mean": 0.24083335160133773,
+    "undersegmentation_mean": 0.04083336416543776,
+    "hausdorff_mean_m": 43.53553390593274,
+    "boundary_distance_mean_m": 13.568618699828987,
+    "boundary_precision": 0.7882352941176474,
+    "boundary_recall": 1.0,
+    "boundary_f1": 0.8815789473684212,
+    "coverage_within_tolerance": 0.5,
+    "coverage_within_tolerance_area": 0.2727272710180997,
+    "median_area_ha": 2.752201297079145,
+    "hausdorff_median_m": 43.53553390593274,
+    "boundary_distance_median_m": 13.568618699828987,
+    "ci": {
+     "precision": [
+      0.5,
+      1.0
+     ],
+     "recall": [
+      1.0,
+      1.0
+     ],
+     "f1": [
+      0.6666666666666666,
+      1.0
+     ],
+     "iou_mean": [
+      0.5999999413270827,
+      0.8489984591588329
+     ],
+     "best_iou_mean": [
+      0.5999999413270827,
+      0.8489984591588329
+     ],
+     "area_weighted_precision": [
+      0.6000000006018764,
+      1.0
+     ],
+     "area_weighted_recall": [
+      1.0,
+      1.0
+     ],
+     "area_weighted_f1": [
+      0.750000000470216,
+      1.0
+     ],
+     "oversegmentation_mean": [
+      0.0816666667578605,
+      0.40000003644481497
+     ],
+     "undersegmentation_mean": [
+      6.174473488052001e-08,
+      0.08166666658614063
+     ],
+     "hausdorff_mean_m": [
+      7.0710678118654755,
+      80.0
+     ],
+     "boundary_distance_mean_m": [
+      4.915015177435753,
+      22.22222222222222
+     ],
+     "boundary_precision": [
+      0.7000000000000005,
+      1.0
+     ],
+     "boundary_recall": [
+      1.0,
+      1.0
+     ],
+     "boundary_f1": [
+      0.8235294117647062,
+      1.0
+     ],
+     "coverage_within_tolerance": [
+      0.0,
+      1.0
+     ],
+     "coverage_within_tolerance_area": [
+      0.0,
+      1.0
+     ]
+    }
+   },
+   "pivot": {
+    "n": 2,
+    "iou_mean": 0.4999999178790997,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "over_segmentation": 0.0,
+    "under_segmentation": 1.0,
+    "area_error_mean_m2": 8006.403840456045,
+    "count_predicted": 1,
+    "count_reference": 2,
+    "count_tp": 2,
+    "count_fp": 0,
+    "count_fn": 0,
+    "best_iou_mean": 0.4999999178790997,
+    "area_weighted_precision": 1.0,
+    "area_weighted_recall": 1.0,
+    "area_weighted_f1": 1.0,
+    "reference_area_ha": 1.6012807681044579,
+    "predicted_area_ha": 1.6012807680978334,
+    "area_error_signed_mean_m2": 8006.403840456045,
+    "oversegmentation_mean": 1.0091699387260178e-07,
+    "undersegmentation_mean": 0.5000000528856288,
+    "hausdorff_mean_m": 80.0,
+    "boundary_distance_mean_m": 19.96894409937888,
+    "boundary_precision": 1.0,
+    "boundary_recall": 0.7777777777777778,
+    "boundary_f1": 0.8750000000000001,
+    "coverage_within_tolerance": 0.0,
+    "coverage_within_tolerance_area": 0.0,
+    "median_area_ha": 0.8006403840522289,
+    "hausdorff_median_m": 80.0,
+    "boundary_distance_median_m": 19.96894409937888,
+    "ci": {
+     "precision": [
+      1.0,
+      1.0
+     ],
+     "recall": [
+      1.0,
+      1.0
+     ],
+     "f1": [
+      1.0,
+      1.0
+     ],
+     "iou_mean": [
+      0.4031249488996208,
+      0.6249998778526208
+     ],
+     "best_iou_mean": [
+      0.4031249488996208,
+      0.6249998778526208
+     ],
+     "area_weighted_precision": [
+      1.0,
+      1.0
+     ],
+     "area_weighted_recall": [
+      1.0,
+      1.0
+     ],
+     "area_weighted_f1": [
+      1.0,
+      1.0
+     ],
+     "oversegmentation_mean": [
+      8.585595201726638e-08,
+      1.2035059626658295e-07
+     ],
+     "undersegmentation_mean": [
+      0.37500007513543676,
+      0.5968750356420276
+     ],
+     "hausdorff_mean_m": [
+      60.0,
+      95.5
+     ],
+     "boundary_distance_mean_m": [
+      13.152173913043478,
+      25.25194099378882
+     ],
+     "boundary_precision": [
+      1.0,
+      1.0
+     ],
+     "boundary_recall": [
+      0.7562499999999999,
+      0.8
+     ],
+     "boundary_f1": [
+      0.8750000000000001,
+      0.888888888888889
+     ],
+     "coverage_within_tolerance": [
+      0.0,
+      0.0
+     ],
+     "coverage_within_tolerance_area": [
+      0.0,
+      0.0
+     ]
+    },
+    "ci_n_undefined": {
+     "area_weighted_precision": 1,
+     "area_weighted_f1": 1,
+     "boundary_precision": 1,
+     "boundary_f1": 1
+    }
+   }
+  },
+  "size_class_edges_ha": [
+   0.0,
+   1.0,
+   5.0,
+   null
+  ],
+  "count_reference_outside_size_classes": 0,
+  "per_size_class": {
+   "0-1": {
+    "lower_ha": 0.0,
+    "upper_ha": 1.0,
+    "n": 2,
+    "iou_mean": 0.37499995790557855,
+    "precision": 1.0,
+    "recall": 0.5,
+    "f1": 0.6666666666666666,
+    "over_segmentation": 0.0,
+    "under_segmentation": 0.0,
+    "area_error_mean_m2": 10008.004801885261,
+    "count_predicted": 0,
+    "count_reference": 2,
+    "count_tp": 1,
+    "count_fp": 0,
+    "count_fn": 1,
+    "best_iou_mean": 0.18749997895278928,
+    "area_weighted_precision": 0.0,
+    "area_weighted_recall": 0.7894736876136689,
+    "area_weighted_f1": 0.0,
+    "reference_area_ha": 0.7606083614064082,
+    "predicted_area_ha": 0.0,
+    "area_error_signed_mean_m2": 10008.004801885261,
+    "oversegmentation_mean": 0.5000000407416958,
+    "undersegmentation_mean": 0.6250000306358208,
+    "hausdorff_mean_m": 100.0,
+    "boundary_distance_mean_m": 26.785714285714285,
+    "boundary_precision": 0.0,
+    "boundary_recall": 0.4999999999999999,
+    "boundary_f1": 0.0,
+    "coverage_within_tolerance": 0.0,
+    "coverage_within_tolerance_area": 0.0,
+    "median_area_ha": 0.3803041807032041,
+    "hausdorff_median_m": 100.0,
+    "boundary_distance_median_m": 26.785714285714285,
+    "ci": {
+     "precision": [
+      1.0,
+      1.0
+     ],
+     "recall": [
+      0.0,
+      0.6291666666666667
+     ],
+     "f1": [
+      0.6666666666666666,
+      0.7866666666666667
+     ],
+     "iou_mean": [
+      0.37499995790557855,
+      0.37499995790557855
+     ],
+     "best_iou_mean": [
+      0.0,
+      0.2359374735155932
+     ],
+     "area_weighted_precision": [
+      null,
+      null
+     ],
+     "area_weighted_recall": [
+      0.0,
+      0.8614551107720967
+     ],
+     "area_weighted_f1": [
+      null,
+      null
+     ],
+     "oversegmentation_mean": [
+      0.3708333845999672,
+      1.0
+     ],
+     "undersegmentation_mean": [
+      0.6250000306358208,
+      0.6250000306358208
+     ],
+     "hausdorff_mean_m": [
+      100.0,
+      100.0
+     ],
+     "boundary_distance_mean_m": [
+      26.785714285714285,
+      26.785714285714285
+     ],
+     "boundary_precision": [
+      null,
+      null
+     ],
+     "boundary_recall": [
+      0.0,
+      0.5774999999999999
+     ],
+     "boundary_f1": [
+      null,
+      null
+     ],
+     "coverage_within_tolerance": [
+      0.0,
+      0.0
+     ],
+     "coverage_within_tolerance_area": [
+      0.0,
+      0.0
+     ]
+    },
+    "ci_n_undefined": {
+     "precision": 5,
+     "f1": 5,
+     "iou_mean": 5,
+     "area_weighted_precision": 10,
+     "area_weighted_f1": 10,
+     "undersegmentation_mean": 5,
+     "hausdorff_mean_m": 5,
+     "boundary_distance_mean_m": 5,
+     "boundary_precision": 10,
+     "boundary_f1": 10
+    }
+   },
+   "1-5": {
+    "lower_ha": 1.0,
+    "upper_ha": 5.0,
+    "n": 3,
+    "iou_mean": 0.6913327594461789,
+    "precision": 0.75,
+    "recall": 1.0,
+    "f1": 0.8571428571428571,
+    "over_segmentation": 0.3333333333333333,
+    "under_segmentation": 0.25,
+    "area_error_mean_m2": 7339.203480669275,
+    "count_predicted": 4,
+    "count_reference": 3,
+    "count_tp": 3,
+    "count_fp": 1,
+    "count_fn": 0,
+    "best_iou_mean": 0.6913327594461789,
+    "area_weighted_precision": 0.7746478875505368,
+    "area_weighted_recall": 1.0,
+    "area_weighted_f1": 0.8730158731597701,
+    "reference_area_ha": 6.505203074353441,
+    "predicted_area_ha": 7.1056833619764115,
+    "area_error_signed_mean_m2": -3336.0015613180553,
+    "oversegmentation_mean": 0.16055560785109058,
+    "undersegmentation_mean": 0.1522222678221041,
+    "hausdorff_mean_m": 49.02368927062182,
+    "boundary_distance_mean_m": 13.429803770900484,
+    "boundary_precision": 0.837837837837838,
+    "boundary_recall": 0.9529411764705882,
+    "boundary_f1": 0.891690340909091,
+    "coverage_within_tolerance": 0.3333333333333333,
+    "coverage_within_tolerance_area": 0.23076922902040914,
+    "median_area_ha": 1.5012006980897388,
+    "hausdorff_median_m": 60.0,
+    "boundary_distance_median_m": 13.152173913043478,
+    "ci": {
+     "precision": [
+      0.5225,
+      1.0
+     ],
+     "recall": [
+      1.0,
+      1.0
+     ],
+     "f1": [
+      0.6854166666666667,
+      1.0
+     ],
+     "iou_mean": [
+      0.601874936566498,
+      0.7659323185911125
+     ],
+     "best_iou_mean": [
+      0.601874936566498,
+      0.7659323185911125
+     ],
+     "area_weighted_precision": [
+      0.6150000006547927,
+      1.0
+     ],
+     "area_weighted_recall": [
+      1.0,
+      1.0
+     ],
+     "area_weighted_f1": [
+      0.761250000500021,
+      1.0
+     ],
+     "oversegmentation_mean": [
+      0.04083339355422838,
+      0.3700000427377486
+     ],
+     "undersegmentation_mean": [
+      0.028125062749037547,
+      0.2283333708607887
+     ],
+     "hausdorff_mean_m": [
+      26.698880164965363,
+      78.5
+     ],
+     "boundary_distance_mean_m": [
+      7.969628208556951,
+      21.541968599033815
+     ],
+     "boundary_precision": [
+      0.712020547945206,
+      1.0
+     ],
+     "boundary_recall": [
+      0.9111111111111111,
+      0.991
+     ],
+     "boundary_f1": [
+      0.8281937207246189,
+      0.9667407660738714
+     ],
+     "coverage_within_tolerance": [
+      0.0,
+      0.6291666666666667
+     ],
+     "coverage_within_tolerance_area": [
+      0.0,
+      0.7162499970521378
+     ]
+    }
+   },
+   "5-inf": {
+    "lower_ha": 5.0,
+    "upper_ha": null,
+    "n": 0,
+    "iou_mean": null,
+    "precision": null,
+    "recall": null,
+    "f1": null,
+    "over_segmentation": null,
+    "under_segmentation": null,
+    "area_error_mean_m2": null,
+    "count_predicted": 0,
+    "count_reference": 0,
+    "count_tp": 0,
+    "count_fp": 0,
+    "count_fn": 0,
+    "best_iou_mean": null,
+    "area_weighted_precision": null,
+    "area_weighted_recall": null,
+    "area_weighted_f1": null,
+    "reference_area_ha": 0.0,
+    "predicted_area_ha": 0.0,
+    "area_error_signed_mean_m2": null,
+    "oversegmentation_mean": null,
+    "undersegmentation_mean": null,
+    "hausdorff_mean_m": null,
+    "boundary_distance_mean_m": null,
+    "boundary_precision": null,
+    "boundary_recall": null,
+    "boundary_f1": null,
+    "coverage_within_tolerance": null,
+    "coverage_within_tolerance_area": null,
+    "median_area_ha": null,
+    "hausdorff_median_m": null,
+    "boundary_distance_median_m": null,
+    "ci": {
+     "precision": [
+      null,
+      null
+     ],
+     "recall": [
+      null,
+      null
+     ],
+     "f1": [
+      null,
+      null
+     ],
+     "iou_mean": [
+      null,
+      null
+     ],
+     "best_iou_mean": [
+      null,
+      null
+     ],
+     "area_weighted_precision": [
+      null,
+      null
+     ],
+     "area_weighted_recall": [
+      null,
+      null
+     ],
+     "area_weighted_f1": [
+      null,
+      null
+     ],
+     "oversegmentation_mean": [
+      null,
+      null
+     ],
+     "undersegmentation_mean": [
+      null,
+      null
+     ],
+     "hausdorff_mean_m": [
+      null,
+      null
+     ],
+     "boundary_distance_mean_m": [
+      null,
+      null
+     ],
+     "boundary_precision": [
+      null,
+      null
+     ],
+     "boundary_recall": [
+      null,
+      null
+     ],
+     "boundary_f1": [
+      null,
+      null
+     ],
+     "coverage_within_tolerance": [
+      null,
+      null
+     ],
+     "coverage_within_tolerance_area": [
+      null,
+      null
+     ]
+    },
+    "ci_n_undefined": {
+     "precision": 10,
+     "recall": 10,
+     "f1": 10,
+     "iou_mean": 10,
+     "best_iou_mean": 10,
+     "area_weighted_precision": 10,
+     "area_weighted_recall": 10,
+     "area_weighted_f1": 10,
+     "oversegmentation_mean": 10,
+     "undersegmentation_mean": 10,
+     "hausdorff_mean_m": 10,
+     "boundary_distance_mean_m": 10,
+     "boundary_precision": 10,
+     "boundary_recall": 10,
+     "boundary_f1": 10,
+     "coverage_within_tolerance": 10,
+     "coverage_within_tolerance_area": 10
+    }
+   }
+  },
+  "bootstrap": {
+   "n_resamples": 10,
+   "seed": 7,
+   "confidence_level": 0.95,
+   "method": "percentile",
+   "resampling": "reference fields with replacement within strata",
+   "ci": {
+    "precision": [
+     0.5714285714285714,
+     0.8
+    ],
+    "recall": [
+     0.8,
+     0.8
+    ],
+    "f1": [
+     0.6666666666666666,
+     0.8000000000000002
+    ],
+    "iou_mean": [
+     0.5015624451133517,
+     0.7369991685057269
+    ],
+    "best_iou_mean": [
+     0.40124995609068137,
+     0.5895993348045815
+    ],
+    "area_weighted_precision": [
+     0.549182396257899,
+     0.861111122625815
+    ],
+    "area_weighted_recall": [
+     0.9669728360068698,
+     0.9834489283749543
+    ],
+    "area_weighted_f1": [
+     0.7042441858887037,
+     0.9118719915544845
+    ],
+    "oversegmentation_mean": [
+     0.23266670881896595,
+     0.36000005319569933
+    ],
+    "undersegmentation_mean": [
+     0.20791671965043726,
+     0.3076250417380394
+    ],
+    "hausdorff_mean_m": [
+     33.53553390593274,
+     87.75
+    ],
+    "boundary_distance_mean_m": [
+     9.033594545239616,
+     23.73708160800552
+    ],
+    "boundary_precision": [
+     0.614096385542169,
+     0.8360655737704918
+    ],
+    "boundary_recall": [
+     0.8313504125054277,
+     0.87
+    ],
+    "boundary_f1": [
+     0.7188941620974061,
+     0.8364000000000001
+    ],
+    "coverage_within_tolerance": [
+     0.0,
+     0.4
+    ],
+    "coverage_within_tolerance_area": [
+     0.0,
+     0.619259328606226
+    ]
+   },
+   "n_undefined": {}
+  }
+ },
+ "one_to_one": {
+  "iou_mean": 0.6913328168010798,
+  "precision": 0.6,
+  "recall": 0.6,
+  "f1": 0.6,
+  "over_segmentation": 0.0,
+  "under_segmentation": 0.0,
+  "area_error_mean_m2": 7339.203480524481,
+  "count_predicted": 5,
+  "count_reference": 5,
+  "count_tp": 3,
+  "count_fp": 2,
+  "count_fn": 2,
+  "best_iou_mean": 0.48979968962685855,
+  "area_weighted_precision": 0.6790123540028978,
+  "area_weighted_recall": 0.8953168041679465,
+  "area_weighted_f1": 0.7723050387795165,
+  "reference_area_ha": 7.265811435587687,
+  "predicted_area_ha": 8.106483738309233,
+  "area_error_signed_mean_m2": -3336.001561205747,
+  "oversegmentation_mean": 0.29633333571749604,
+  "undersegmentation_mean": 0.2704166688247759,
+  "hausdorff_mean_m": 49.02368927062182,
+  "boundary_distance_mean_m": 13.429803770900484,
+  "boundary_precision": 0.7099236641221376,
+  "boundary_recall": 0.8532110091743119,
+  "boundary_f1": 0.7750000000000001,
+  "coverage_within_tolerance": 0.2,
+  "coverage_within_tolerance_area": 0.20661156862853267,
+  "median_area_ha": 1.0008004801668522,
+  "hausdorff_median_m": 60.0,
+  "boundary_distance_median_m": 13.152173913043478,
+  "iou_threshold": 0.5,
+  "matching": "one_to_one",
+  "equal_area_crs": "EPSG:5070",
+  "distance_crs": "WGS 84 / UTM zone of each polygon's centroid",
+  "proj_network": false,
+  "boundary_sample_spacing_m": 1.0,
+  "boundary_sample_spacing_max_m": 1.0,
+  "utm_epsg_codes": [
+   32613
+  ],
+  "count_fp_unassigned": 1,
+  "count_reference_dropped": 0,
+  "count_predicted_dropped": 1,
+  "count_reference_repaired": 0,
+  "count_predicted_repaired": 0,
+  "boundary_tolerance_m": 10.0
+ },
+ "one_to_one_frame": {
+  "index": [
+   "0",
+   "1",
+   "2",
+   "3",
+   "4"
+  ],
+  "columns": [
+   "area_m2",
+   "area_ha",
+   "perimeter_m",
+   "utm_epsg",
+   "matched",
+   "pred_index",
+   "iou",
+   "pred_area_m2",
+   "best_iou",
+   "n_overlapping_pred",
+   "max_overlap_pred_index",
+   "oversegmentation",
+   "undersegmentation",
+   "hausdorff_m",
+   "boundary_mean_distance_m",
+   "boundary_sample_spacing_m",
+   "boundary_within_tolerance_m",
+   "boundary_recall",
+   "within_tolerance"
+  ],
+  "records": [
+   {
+    "area_m2": 10008.004801951505,
+    "area_ha": 1.0008004801951504,
+    "perimeter_m": 400.0,
+    "utm_epsg": 32613,
+    "matched": true,
+    "pred_index": 0,
+    "iou": 0.6249998778526208,
+    "pred_area_m2": 16012.807680978334,
+    "best_iou": 0.6249998778526208,
+    "n_overlapping_pred": 1,
+    "max_overlap_pred_index": 0,
+    "oversegmentation": 1.2035059626658295e-07,
+    "undersegmentation": 0.37500007513543676,
+    "hausdorff_m": 60.0,
+    "boundary_mean_distance_m": 13.152173913043478,
+    "boundary_sample_spacing_m": 1.0,
+    "boundary_within_tolerance_m": 320.0,
+    "boundary_recall": 0.8,
+    "within_tolerance": false
+   },
+   {
+    "area_m2": 6004.802879093073,
+    "area_ha": 0.6004802879093073,
+    "perimeter_m": 320.0,
+    "utm_epsg": 32613,
+    "matched": false,
+    "pred_index": null,
+    "iou": null,
+    "pred_area_m2": null,
+    "best_iou": 0.37499995790557855,
+    "n_overlapping_pred": 1,
+    "max_overlap_pred_index": 0,
+    "oversegmentation": 8.14833914786206e-08,
+    "undersegmentation": 0.6250000306358208,
+    "hausdorff_m": null,
+    "boundary_mean_distance_m": null,
+    "boundary_sample_spacing_m": null,
+    "boundary_within_tolerance_m": 239.99999999999994,
+    "boundary_recall": 0.7499999999999998,
+    "within_tolerance": false
+   },
+   {
+    "area_m2": 40032.01896068551,
+    "area_ha": 4.003201896068552,
+    "perimeter_m": 800.0,
+    "utm_epsg": 32613,
+    "matched": true,
+    "pred_index": 1,
+    "iou": 0.5999999413270827,
+    "pred_area_m2": 24019.211400511624,
+    "best_iou": 0.5999999413270827,
+    "n_overlapping_pred": 2,
+    "max_overlap_pred_index": 1,
+    "oversegmentation": 0.40000003644481497,
+    "undersegmentation": 6.174473488052001e-08,
+    "hausdorff_m": 80.0,
+    "boundary_mean_distance_m": 22.22222222222222,
+    "boundary_sample_spacing_m": 1.0,
+    "boundary_within_tolerance_m": 800.0,
+    "boundary_recall": 1.0,
+    "within_tolerance": false
+   },
+   {
+    "area_m2": 15012.006980897388,
+    "area_ha": 1.5012006980897388,
+    "perimeter_m": 500.0,
+    "utm_epsg": 32613,
+    "matched": true,
+    "pred_index": 3,
+    "iou": 0.8489984591588329,
+    "pred_area_m2": 15012.006978090281,
+    "best_iou": 0.8489984591588329,
+    "n_overlapping_pred": 1,
+    "max_overlap_pred_index": 3,
+    "oversegmentation": 0.0816666667578605,
+    "undersegmentation": 0.08166666658614063,
+    "hausdorff_m": 7.0710678118654755,
+    "boundary_mean_distance_m": 4.915015177435753,
+    "boundary_sample_spacing_m": 1.0,
+    "boundary_within_tolerance_m": 500.0,
+    "boundary_recall": 1.0,
+    "within_tolerance": true
+   },
+   {
+    "area_m2": 1601.2807349710092,
+    "area_ha": 0.16012807349710093,
+    "perimeter_m": 160.0,
+    "utm_epsg": 32613,
+    "matched": false,
+    "pred_index": null,
+    "iou": null,
+    "pred_area_m2": null,
+    "best_iou": 0.0,
+    "n_overlapping_pred": 0,
+    "max_overlap_pred_index": null,
+    "oversegmentation": 1.0,
+    "undersegmentation": null,
+    "hausdorff_m": null,
+    "boundary_mean_distance_m": null,
+    "boundary_sample_spacing_m": null,
+    "boundary_within_tolerance_m": 0.0,
+    "boundary_recall": 0.0,
+    "within_tolerance": false
+   }
+  ],
+  "attrs": {
+   "iou_threshold": 0.5,
+   "matching": "one_to_one",
+   "equal_area_crs": "EPSG:6933",
+   "boundary_tolerance_m": 10.0,
+   "boundary_sample_spacing_m": 1.0
+  }
+ },
+ "baselines": {
+  "iou_mean": 0.7299857549852149,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0,
+  "over_segmentation": 0.0,
+  "under_segmentation": 0.0,
+  "area_error_mean_m2": 3903.1218713803205,
+  "count_predicted": 3,
+  "count_reference": 3,
+  "count_tp": 3,
+  "count_fp": 0,
+  "count_fn": 0,
+  "best_iou_mean": 0.7299857549852149,
+  "area_weighted_precision": 1.0,
+  "area_weighted_recall": 1.0,
+  "area_weighted_f1": 1.0,
+  "reference_area_ha": 4.213370020304658,
+  "predicted_area_ha": 3.0424334588905615,
+  "area_error_signed_mean_m2": -3903.1218713803205,
+  "oversegmentation_mean": 0.27001424501478505,
+  "undersegmentation_mean": 7.401486830834377e-17,
+  "hausdorff_mean_m": 11.785113019775793,
+  "boundary_distance_mean_m": 8.428261555637212,
+  "boundary_precision": 0.3125,
+  "boundary_recall": 0.27027027027027034,
+  "boundary_f1": 0.2898550724637681,
+  "coverage_within_tolerance": 0.0,
+  "coverage_within_tolerance_area": 0.0,
+  "median_area_ha": 1.4411526914138435,
+  "hausdorff_median_m": 14.142135623730951,
+  "boundary_distance_median_m": 10.114140695370882,
+  "iou_threshold": 0.5,
+  "matching": "one_to_one",
+  "equal_area_crs": "EPSG:6933",
+  "distance_crs": "WGS 84 / UTM zone of each polygon's centroid",
+  "proj_network": false,
+  "boundary_sample_spacing_m": 1.0,
+  "boundary_sample_spacing_max_m": 1.0,
+  "utm_epsg_codes": [
+   32613
+  ],
+  "count_fp_unassigned": 0,
+  "count_reference_dropped": 0,
+  "count_predicted_dropped": 0,
+  "count_reference_repaired": 0,
+  "count_predicted_repaired": 0,
+  "boundary_tolerance_m": 5.0,
+  "baselines": {
+   "iou_threshold": 0.5,
+   "matching": "one_to_one",
+   "boundary_tolerance_m": 5.0,
+   "equal_area_crs": "EPSG:6933",
+   "grid_crs": "EPSG:32613",
+   "extent": "predictions_bbox",
+   "min_area_m2": 9607.684609242388,
+   "blind_grid": {
+    "cell_side_m": 100.04001600108074,
+    "median_predicted_area_ha": 1.000800480149649,
+    "footprint": false,
+    "offset_steps": 2,
+    "n_grids": 4,
+    "precision": 0.125,
+    "recall": 0.16666666666666666,
+    "f1": 0.14285714285714288,
+    "iou_mean": 0.16737159185266542,
+    "best_iou_mean": 0.30843620222834955,
+    "area_weighted_precision": 0.12500000003247227,
+    "area_weighted_recall": 0.15498812355552538,
+    "area_weighted_f1": 0.13838812304754475,
+    "oversegmentation_mean": 0.618805620122338,
+    "undersegmentation_mean": 0.4785180014607364,
+    "count_predicted": 2.25,
+    "count_tp": 0.5,
+    "count_fp": 1.75,
+    "count_fn": 2.5,
+    "count_fp_unassigned": 0.0,
+    "predicted_area_ha": 2.253603601892151,
+    "boundary_precision": 0.22808375000547385,
+    "boundary_recall": 0.14868920543688668,
+    "boundary_f1": 0.1715924769891544,
+    "coverage_within_tolerance": 0.0,
+    "coverage_within_tolerance_area": 0.0,
+    "f1_min": 0.0,
+    "f1_max": 0.5714285714285715,
+    "boundary_f1_min": 0.06382435320130365,
+    "boundary_f1_max": 0.31834149143511364,
+    "grids": [
+     {
+      "offset_x_m": 0.0,
+      "offset_y_m": 0.0,
+      "precision": 0.5,
+      "recall": 0.6666666666666666,
+      "f1": 0.5714285714285715,
+      "iou_mean": 0.6694863674106617,
+      "best_iou_mean": 0.5576315359071737,
+      "area_weighted_precision": 0.5000000001298891,
+      "area_weighted_recall": 0.6199524942221015,
+      "area_weighted_f1": 0.553552492190179,
+      "oversegmentation_mean": 0.39043344042636186,
+      "undersegmentation_mean": 0.16660002380297764,
+      "count_predicted": 4,
+      "count_tp": 2,
+      "count_fp": 2,
+      "count_fn": 1,
+      "count_fp_unassigned": 0,
+      "predicted_area_ha": 4.00640640328699,
+      "boundary_precision": 0.31247500000331774,
+      "boundary_recall": 0.32443247580012713,
+      "boundary_f1": 0.31834149143511364,
+      "coverage_within_tolerance": 0.0,
+      "coverage_within_tolerance_area": 0.0
+     },
+     {
+      "offset_x_m": 0.0,
+      "offset_y_m": 50.02000800054037,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "iou_mean": 0.0,
+      "best_iou_mean": 0.2725160691505204,
+      "area_weighted_precision": 0.0,
+      "area_weighted_recall": 0.0,
+      "area_weighted_f1": 0.0,
+      "oversegmentation_mean": 0.6371596160979137,
+      "undersegmentation_mean": 0.4831400066291727,
+      "count_predicted": 2,
+      "count_tp": 0,
+      "count_fp": 2,
+      "count_fn": 3,
+      "count_fp_unassigned": 0,
+      "predicted_area_ha": 2.0032032016477648,
+      "boundary_precision": 0.22496000000530778,
+      "boundary_recall": 0.1148919027034395,
+      "boundary_f1": 0.1521020316601001,
+      "coverage_within_tolerance": 0.0,
+      "coverage_within_tolerance_area": 0.0
+     },
+     {
+      "offset_x_m": 50.02000800054037,
+      "offset_y_m": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "iou_mean": 0.0,
+      "best_iou_mean": 0.2800383588260077,
+      "area_weighted_precision": 0.0,
+      "area_weighted_recall": 0.0,
+      "area_weighted_f1": 0.0,
+      "oversegmentation_mean": 0.6365600942590531,
+      "undersegmentation_mean": 0.5210332969068273,
+      "count_predicted": 2,
+      "count_tp": 0,
+      "count_fp": 2,
+      "count_fn": 3,
+      "count_fp_unassigned": 0,
+      "predicted_area_ha": 2.0032032017629557,
+      "boundary_precision": 0.22496000000530778,
+      "boundary_recall": 0.11489190270343957,
+      "boundary_f1": 0.15210203166010017,
+      "coverage_within_tolerance": 0.0,
+      "coverage_within_tolerance_area": 0.0
+     },
+     {
+      "offset_x_m": 50.02000800054037,
+      "offset_y_m": 50.02000800054037,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "iou_mean": 0.0,
+      "best_iou_mean": 0.12355884502969654,
+      "area_weighted_precision": 0.0,
+      "area_weighted_recall": 0.0,
+      "area_weighted_f1": 0.0,
+      "oversegmentation_mean": 0.8110693297060233,
+      "undersegmentation_mean": 0.7432986785039679,
+      "count_predicted": 1,
+      "count_tp": 0,
+      "count_fp": 1,
+      "count_fn": 3,
+      "count_fp_unassigned": 0,
+      "predicted_area_ha": 1.0016016008708941,
+      "boundary_precision": 0.14994000000796204,
+      "boundary_recall": 0.04054054054054056,
+      "boundary_f1": 0.06382435320130365,
+      "coverage_within_tolerance": 0.0,
+      "coverage_within_tolerance_area": 0.0
+     }
+    ]
+   },
+   "shifted_reference": {
+    "shift_m": 20.0,
+    "precision": 0.5,
+    "recall": 0.3333333333333333,
+    "f1": 0.4,
+    "iou_mean": 0.5555555555570996,
+    "best_iou_mean": 0.3598611683284358,
+    "area_weighted_precision": 0.48000000000685694,
+    "area_weighted_recall": 0.3420427554353836,
+    "area_weighted_f1": 0.3994452150435997,
+    "oversegmentation_mean": 0.5535434473029311,
+    "undersegmentation_mean": 0.47720797719174674,
+    "count_predicted": 2,
+    "count_tp": 1,
+    "count_fp": 1,
+    "count_fn": 2,
+    "count_fp_unassigned": 0,
+    "predicted_area_ha": 2.2518010801301607,
+    "boundary_precision": 0.1976744186046509,
+    "boundary_recall": 0.11486486486486537,
+    "boundary_f1": 0.14529914529914564,
+    "coverage_within_tolerance": 0.0,
+    "coverage_within_tolerance_area": 0.0
+   }
+  }
+ },
+ "chance_baselines": {
+  "iou_threshold": 0.5,
+  "matching": "one_to_one",
+  "boundary_tolerance_m": 5.0,
+  "equal_area_crs": "EPSG:6933",
+  "grid_crs": "EPSG:32613",
+  "extent": "study_area",
+  "min_area_m2": 0.0,
+  "blind_grid": {
+   "cell_side_m": 100.04001600108074,
+   "median_predicted_area_ha": 1.000800480149649,
+   "footprint": true,
+   "offset_steps": 2,
+   "n_grids": 4,
+   "precision": 0.022727272727272728,
+   "recall": 0.08333333333333333,
+   "f1": 0.03571428571428572,
+   "iou_mean": 0.15229272179732345,
+   "best_iou_mean": 0.38156414919677395,
+   "area_weighted_precision": 0.058612659389555885,
+   "area_weighted_recall": 0.06947743469667947,
+   "area_weighted_f1": 0.06358426456295645,
+   "oversegmentation_mean": 0.618435850803226,
+   "undersegmentation_mean": 4.625929269271485e-17,
+   "count_predicted": 12.5,
+   "count_tp": 0.25,
+   "count_fp": 12.25,
+   "count_fn": 2.75,
+   "count_fp_unassigned": 0.0,
+   "predicted_area_ha": 3.042433458888964,
+   "boundary_precision": 0.16083376222336593,
+   "boundary_recall": 0.27027027027027034,
+   "boundary_f1": 0.201417004048583,
+   "coverage_within_tolerance": 0.0,
+   "coverage_within_tolerance_area": 0.0,
+   "f1_min": 0.0,
+   "f1_max": 0.14285714285714288,
+   "boundary_f1_min": 0.19230769230769232,
+   "boundary_f1_max": 0.2105263157894737,
+   "grids": [
+    {
+     "offset_x_m": 0.0,
+     "offset_y_m": 0.0,
+     "precision": 0.0,
+     "recall": 0.0,
+     "f1": 0.0,
+     "iou_mean": 0.0,
+     "best_iou_mean": 0.33673980689187416,
+     "area_weighted_precision": 0.0,
+     "area_weighted_recall": 0.0,
+     "area_weighted_f1": 0.0,
+     "oversegmentation_mean": 0.6632601931081258,
+     "undersegmentation_mean": 1.1102230246251565e-16,
+     "count_predicted": 14,
+     "count_tp": 0,
+     "count_fp": 14,
+     "count_fn": 3,
+     "count_fp_unassigned": 0,
+     "predicted_area_ha": 3.0424334588917876,
+     "boundary_precision": 0.14925373134328357,
+     "boundary_recall": 0.27027027027027034,
+     "boundary_f1": 0.19230769230769232,
+     "coverage_within_tolerance": 0.0,
+     "coverage_within_tolerance_area": 0.0
+    },
+    {
+     "offset_x_m": 0.0,
+     "offset_y_m": 50.02000800054037,
+     "precision": 0.0,
+     "recall": 0.0,
+     "f1": 0.0,
+     "iou_mean": 0.0,
+     "best_iou_mean": 0.3098395123221017,
+     "area_weighted_precision": 0.0,
+     "area_weighted_recall": 0.0,
+     "area_weighted_f1": 0.0,
+     "oversegmentation_mean": 0.6901604876778983,
+     "undersegmentation_mean": 3.700743415417188e-17,
+     "count_predicted": 14,
+     "count_tp": 0,
+     "count_fp": 14,
+     "count_fn": 3,
+     "count_fp_unassigned": 0,
+     "predicted_area_ha": 3.04243345888267,
+     "boundary_precision": 0.14925373134328357,
+     "boundary_recall": 0.27027027027027034,
+     "boundary_f1": 0.19230769230769232,
+     "coverage_within_tolerance": 0.0,
+     "coverage_within_tolerance_area": 0.0
+    },
+    {
+     "offset_x_m": 50.02000800054037,
+     "offset_y_m": 0.0,
+     "precision": 0.09090909090909091,
+     "recall": 0.3333333333333333,
+     "f1": 0.14285714285714288,
+     "iou_mean": 0.6091708871892938,
+     "best_iou_mean": 0.4578523669623427,
+     "area_weighted_precision": 0.23445063755822354,
+     "area_weighted_recall": 0.2779097387867179,
+     "area_weighted_f1": 0.2543370582518258,
+     "oversegmentation_mean": 0.5421476330376573,
+     "undersegmentation_mean": 3.700743415417188e-17,
+     "count_predicted": 11,
+     "count_tp": 1,
+     "count_fp": 10,
+     "count_fn": 2,
+     "count_fp_unassigned": 0,
+     "predicted_area_ha": 3.0424334588952586,
+     "boundary_precision": 0.1724137931034483,
+     "boundary_recall": 0.27027027027027034,
+     "boundary_f1": 0.2105263157894737,
+     "coverage_within_tolerance": 0.0,
+     "coverage_within_tolerance_area": 0.0
+    },
+    {
+     "offset_x_m": 50.02000800054037,
+     "offset_y_m": 50.02000800054037,
+     "precision": 0.0,
+     "recall": 0.0,
+     "f1": 0.0,
+     "iou_mean": 0.0,
+     "best_iou_mean": 0.42182491061077715,
+     "area_weighted_precision": 0.0,
+     "area_weighted_recall": 0.0,
+     "area_weighted_f1": 0.0,
+     "oversegmentation_mean": 0.5781750893892229,
+     "undersegmentation_mean": 0.0,
+     "count_predicted": 11,
+     "count_tp": 0,
+     "count_fp": 11,
+     "count_fn": 3,
+     "count_fp_unassigned": 0,
+     "predicted_area_ha": 3.0424334588861406,
+     "boundary_precision": 0.1724137931034483,
+     "boundary_recall": 0.27027027027027034,
+     "boundary_f1": 0.2105263157894737,
+     "coverage_within_tolerance": 0.0,
+     "coverage_within_tolerance_area": 0.0
+    }
+   ]
+  },
+  "shifted_reference": {
+   "shift_m": 45.0,
+   "precision": 0.0,
+   "recall": 0.0,
+   "f1": 0.0,
+   "iou_mean": 0.0,
+   "best_iou_mean": 0.24296918097884454,
+   "area_weighted_precision": 0.0,
+   "area_weighted_recall": 0.0,
+   "area_weighted_f1": 0.0,
+   "oversegmentation_mean": 0.6477964744050871,
+   "undersegmentation_mean": 0.5579427882201088,
+   "count_predicted": 3,
+   "count_tp": 0,
+   "count_fp": 3,
+   "count_fn": 3,
+   "count_fp_unassigned": 0,
+   "predicted_area_ha": 3.3852076242089635,
+   "boundary_precision": 0.08759124087591237,
+   "boundary_recall": 0.08108108108108124,
+   "boundary_f1": 0.08421052631578954,
+   "coverage_within_tolerance": 0.0,
+   "coverage_within_tolerance_area": 0.0
+  }
+ },
+ "empty_predictions": {
+  "iou_mean": 0.0,
+  "precision": 0.0,
+  "recall": 0.0,
+  "f1": 0.0,
+  "over_segmentation": 0.0,
+  "under_segmentation": 0.0,
+  "area_error_mean_m2": 0.0,
+  "count_predicted": 0,
+  "count_reference": 3,
+  "count_tp": 0,
+  "count_fp": 0,
+  "count_fn": 3,
+  "best_iou_mean": 0.0,
+  "area_weighted_precision": 0.0,
+  "area_weighted_recall": 0.0,
+  "area_weighted_f1": 0.0,
+  "reference_area_ha": 4.213370020304658,
+  "predicted_area_ha": 0.0,
+  "area_error_signed_mean_m2": null,
+  "oversegmentation_mean": 1.0,
+  "undersegmentation_mean": null,
+  "hausdorff_mean_m": null,
+  "boundary_distance_mean_m": null,
+  "boundary_precision": 0.0,
+  "boundary_recall": 0.0,
+  "boundary_f1": 0.0,
+  "coverage_within_tolerance": 0.0,
+  "coverage_within_tolerance_area": 0.0,
+  "median_area_ha": 1.4411526914138435,
+  "hausdorff_median_m": null,
+  "boundary_distance_median_m": null,
+  "iou_threshold": 0.5,
+  "matching": "one_to_one",
+  "equal_area_crs": "EPSG:6933",
+  "distance_crs": "WGS 84 / UTM zone of each polygon's centroid",
+  "proj_network": false,
+  "boundary_sample_spacing_m": 1.0,
+  "boundary_sample_spacing_max_m": null,
+  "utm_epsg_codes": [
+   32613
+  ],
+  "count_fp_unassigned": 0,
+  "count_reference_dropped": 0,
+  "count_predicted_dropped": 0,
+  "count_reference_repaired": 0,
+  "count_predicted_repaired": 0,
+  "boundary_tolerance_m": 5.0
+ }
+}

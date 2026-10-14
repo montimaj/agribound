@@ -11,11 +11,12 @@ keep their geometry, and so does a polygon whose mask covers less than
 it (``gdf.attrs["sam_stats"]`` counts both).
 
 Input: the Sentinel-2 DINOv3 output of example 12
-(``outputs/lea_county_ensemble/fields_sentinel2_dinov3_2022.gpkg``; run
+(``outputs/lea_county_ensemble/fields_sentinel2_dinov3_2024.gpkg``; run
 example 12 first, or pass ``--input``). The raster the polygons were
 delineated from and the run's configuration are read from the input's
 provenance record (``<input>.provenance.json``), so SAM sees exactly that
-composite.
+composite. The refined output is named after the input
+(``<input stem>_<backend>.gpkg``), so it carries the input's year.
 
 Backends (``--sam-backend``): ``sam2`` (default; SAM 2.0 via segment-geospatial),
 ``sam2.1``, ``sam3`` (Meta SAM 3: CUDA GPU and triton required; Linux,
@@ -26,14 +27,32 @@ with ``sam_refine=True`` (example 14).
 
 Evaluation: against the reference boundaries recorded in the input's
 provenance record (``config.reference_boundaries``; for the default input,
-example 12's NMOSE polygons) or given with ``--reference``, restricted to the
-input's study area by the pipeline's rule (representative point inside). It
-is labelled in-sample when the input was fine-tuned (``config.fine_tune``)
-on that same reference file, as the default DINOv3 input was. Without a
-reference the evaluation is skipped.
+example 12's DRI/NMOSE field boundaries (V18) of the study area) or given
+with ``--reference``, restricted to the input's study area by the pipeline's
+rule (representative point inside), without the polygons smaller than
+2,500 m2, the predictions' minimum area (areas in EPSG:6933, as agribound's
+area filter computes them; the script prints how many it drops: for the
+default input 1 of the 389 V18 polygons in its study area). ``--reference``
+also takes a file inside a zip archive. For example, to evaluate example
+20's output, which was not fine-tuned, against the whole V18 layer (1,355 of
+the 1,705 V18 polygons in its study area are at least 2,500 m2), pass
 
-Estimated runtime (not measured for 1.0): a few minutes on a GPU for a few
-hundred polygons.
+    --input outputs/stratified_evaluation/fields_sentinel2_delineate-anything_2024.gpkg
+    --reference 'zip://examples/NM_Field_Boundaries.zip!Master_NM_Field_Boundaries_V18.shp'
+
+When the input was fine-tuned (``config.fine_tune``), as the default DINOv3
+input was, the evaluation is labelled in-sample if the reference is the
+fine-tuning reference file. With another reference, the script counts the
+evaluated polygons whose representative point lies in a polygon of the
+fine-tuning reference and labels the evaluation in-sample (all of them),
+partly in-sample (some) or not in-sample (none); "possibly in-sample" when the
+fine-tuning reference file is missing. Without a reference the evaluation is
+skipped.
+
+Runtime: 16 s in the development run of agribound 1.1 (2026-10-09, Apple M2
+Max with MPS, the SAM 2 weights already cached), with example 20's output as
+input (357 polygons, 72 of them prompted; SAM 2 10 s), the evaluation
+included.
 
 Prerequisites:
     pip install "agribound[samgeo]"      (sam3: "agribound[sam3]")
@@ -58,13 +77,53 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 
 # --- Configuration ---
 OUTPUT_DIR = Path("outputs/lea_county_ensemble")
-INPUT_GPKG = OUTPUT_DIR / "fields_sentinel2_dinov3_2022.gpkg"
+INPUT_GPKG = OUTPUT_DIR / "fields_sentinel2_dinov3_2024.gpkg"
+MIN_AREA = 2500  # m^2; the predictions' minimum area (agribound's default), also the reference's
+
+
+def reference_exists(path):
+    """True if *path* exists; for ``zip://ARCHIVE!MEMBER``, if the archive exists."""
+    if str(path).startswith("zip://"):
+        return Path(str(path)[len("zip://") :].split("!", 1)[0]).exists()
+    return Path(path).exists()
+
+
+def n_in_training(ref, training_path):
+    """Number of *ref* polygons whose representative point lies in a polygon of *training_path*."""
+    import numpy as np
+
+    training = gpd.read_file(training_path).to_crs(ref.crs)
+    points = ref.representative_point().to_numpy()
+    return len(np.unique(training.sindex.query(points, predicate="within")[0]))
+
+
+def evaluation_label(input_config, ref_file, ref):
+    """Label of the evaluation: in-sample, partly in-sample or neither.
+
+    An input fine-tuned on the same reference file is evaluated in-sample. With
+    another reference, the evaluated polygons that lie in the fine-tuning reference
+    (by representative point) are counted.
+    """
+    recorded = input_config.get("reference_boundaries")
+    if not input_config.get("fine_tune") or not recorded:
+        return "Evaluation"
+    if Path(ref_file).resolve() == Path(recorded).resolve():
+        return "In-sample evaluation"
+    if not reference_exists(recorded):
+        return f"Evaluation (possibly in-sample: the input was fine-tuned on {recorded})"
+    shared = n_in_training(ref, recorded)
+    where = f"the fine-tuning reference {recorded}"
+    if shared == len(ref) and shared:
+        return f"In-sample evaluation (all {shared} polygons lie in {where})"
+    if shared:
+        return f"Partly in-sample evaluation ({shared} of {len(ref)} polygons lie in {where})"
+    return f"Evaluation (no polygon lies in {where})"
 
 
 def parse_args(argv=None):
@@ -88,7 +147,8 @@ def parse_args(argv=None):
     parser.add_argument(
         "--reference",
         default=None,
-        help="Reference boundaries for the evaluation (default: the input's recorded reference).",
+        help="Reference boundaries for the evaluation (default: the input's recorded "
+        "reference); a file in a zip archive as zip://ARCHIVE!MEMBER.",
     )
     if argv is None and "ipykernel" in sys.modules:
         argv = []  # Jupyter passes its own kernel arguments in sys.argv
@@ -174,29 +234,34 @@ def main():
 
     layers, labels = [gdf, refined], ["Before SAM", f"After {args.sam_backend}"]
     input_config = record["config"]
-    recorded_ref = input_config.get("reference_boundaries")
-    ref_file = args.reference or recorded_ref
-    if ref_file and Path(ref_file).exists():
+    ref_file = args.reference or input_config.get("reference_boundaries")
+    if ref_file and reference_exists(ref_file):
         from agribound.config import AgriboundConfig
         from agribound.evaluate import evaluate
         from agribound.pipeline import select_in_study_area, study_area_in_crs
+        from agribound.postprocess import filter_polygons
 
         ref = gpd.read_file(ref_file)
         n_total = len(ref)
         if input_config.get("study_area"):
             aoi = study_area_in_crs(AgriboundConfig.from_dict(input_config), ref.crs)
             ref = select_in_study_area(ref, aoi, "representative_point")[0]
-        in_sample = bool(input_config.get("fine_tune")) and (
-            recorded_ref is not None and Path(ref_file).resolve() == Path(recorded_ref).resolve()
-        )
-        label = "In-sample evaluation" if in_sample else "Evaluation"
+        n_area = len(ref)
+        # The predictions' minimum-area filter (areas in EPSG:6933), applied to the reference.
+        ref = filter_polygons(ref, min_area_m2=MIN_AREA)
+        label = evaluation_label(input_config, ref_file, ref)
         m_before, m_after = evaluate(gdf, ref), evaluate(refined, ref)
-        print(f"\n{label} against {len(ref)} of {n_total} reference polygons ({ref_file}):")
+        print(
+            f"\n{label} against {len(ref)} of {n_total} reference polygons ({ref_file}; "
+            f"{n_area - len(ref)} in the study area smaller than {MIN_AREA:,} m2 dropped):"
+        )
         print(f"{'':<26} {'Before':>10} {'After':>10}")
         for key in ("f1", "precision", "recall", "iou_mean", "boundary_distance_mean_m"):
             print(f"{key:<26} {m_before[key]:>10.3f} {m_after[key]:>10.3f}")
         layers.append(ref)
         labels.append("Reference")
+    elif ref_file:
+        print(f"\nReference {ref_file} not found; evaluation skipped.")
     else:
         print("\nNo reference boundaries recorded for the input; evaluation skipped (--reference).")
 

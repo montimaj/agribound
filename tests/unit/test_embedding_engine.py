@@ -261,6 +261,7 @@ class TestCaching:
             {"tessera_version": "v1.1"},
             {"seed": 7},
             {"study_area": "bbox:-117.0,36.0,-116.98,36.02"},
+            {"engine_params": {"standardize": "zscore"}},
         ],
     )
     def test_cache_key_changes(self, tmp_path, emb, change):
@@ -276,6 +277,24 @@ class TestCaching:
         current = EmbeddingEngine.cluster_cache_path(emb[0], _config(tmp_path))
         monkeypatch.setattr(embedding, "_CACHE_VERSION", "embedding-clusters-v3")
         assert EmbeddingEngine.cluster_cache_path(emb[0], _config(tmp_path)) != current
+
+    def test_standardize_none_keeps_existing_cache_keys(self, tmp_path, emb, monkeypatch):
+        """standardize="none" (the default) adds nothing to the key parts."""
+        import agribound._cache as cache
+
+        seen = {}
+        real = cache.cache_path
+
+        def spy(config, name, ext, *parts):
+            seen["parts"] = parts
+            return real(config, name, ext, *parts)
+
+        monkeypatch.setattr(cache, "cache_path", spy)
+        EmbeddingEngine.cluster_cache_path(emb[0], _config(tmp_path))
+        assert not any(str(p).startswith("standardize=") for p in seen["parts"])
+        cfg = _config(tmp_path, engine_params={"standardize": "robust"})
+        EmbeddingEngine.cluster_cache_path(emb[0], cfg)
+        assert "standardize=robust" in seen["parts"]
 
     def test_block_size_shares_cache_entry(self, tmp_path, emb):
         engine = EmbeddingEngine()
@@ -336,6 +355,7 @@ class TestParameterValidation:
             {"k_candidates": [1, 2]},
             {"pca_components": 0},
             {"max_block_mb": 0},
+            {"standardize": "minmax"},
         ],
     )
     def test_invalid(self, tmp_path, params):
@@ -389,3 +409,305 @@ def test_polygons_have_expected_area(tmp_path, emb):
     for value, group in gdf.groupby("class_value"):
         assert group.area.sum() == pytest.approx((labels == value).sum() * 100.0)
     assert isinstance(gdf, gpd.GeoDataFrame)
+
+
+def _mixed_units_raster(path, h=60, w=80, seed=0):
+    """Quadrant classes in two small-unit bands and one large-unit band
+    without class signal (like entropy and DpRVI next to a noisy dB band)."""
+    rng = np.random.default_rng(seed)
+    labels = np.zeros((h, w), dtype=int)
+    labels[:, w // 2 :] += 1
+    labels[h // 2 :, :] += 2
+    centres = np.array([[0.2, 0.3], [0.8, 0.3], [0.2, 0.9], [0.8, 0.9]])
+    small = centres[labels].transpose(2, 0, 1) + rng.normal(0, 0.03, (2, h, w))
+    large = rng.normal(0, 40.0, (1, h, w))
+    data = np.concatenate([small, large]).astype(np.float32)
+    data[:, :4, :4] = np.nan
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=h,
+        width=w,
+        count=3,
+        dtype="float32",
+        crs=UTM,
+        transform=from_origin(500000, 4000600, 10, 10),
+        nodata=float("nan"),
+    ) as dst:
+        dst.write(data)
+    return str(path), labels
+
+
+def _purity(pred, truth):
+    valid = pred > 0
+    p, t = pred[valid], truth[valid]
+    return sum(np.bincount(t[p == c]).max() for c in np.unique(p)) / len(p)
+
+
+class TestStandardisation:
+    def _local_config(self, tmp_path, path, **params):
+        return _config(
+            tmp_path,
+            source="local",
+            local_tif_path=path,
+            engine_params={"n_clusters": 4, **params},
+        )
+
+    def test_local_feature_raster_needs_standardisation(self, tmp_path):
+        path, truth = _mixed_units_raster(tmp_path / "feat.tif")
+        engine = EmbeddingEngine()
+        raw = engine.delineate(path, self._local_config(tmp_path, path)).attrs["engine_meta"]
+        std = engine.delineate(path, self._local_config(tmp_path, path, standardize="zscore"))
+        meta = std.attrs["engine_meta"]
+        assert meta["standardize"]["method"] == "zscore" and len(meta["standardize"]["scale"]) == 3
+        assert meta["standardize"]["scale"][2] > 30 > 1 > meta["standardize"]["scale"][0]
+        assert "standardize" not in raw
+        assert _purity(_labels(meta), truth) > 0.99
+        assert _purity(_labels(raw), truth) < 0.6
+
+    @pytest.mark.parametrize("method", ["zscore", "robust"])
+    def test_same_as_clustering_a_prestandardised_raster(self, tmp_path, method):
+        path, _ = _mixed_units_raster(tmp_path / "feat.tif")
+        engine = EmbeddingEngine()
+        meta = engine.delineate(path, self._local_config(tmp_path, path, standardize=method))
+        meta = meta.attrs["engine_meta"]
+        centre = np.array(meta["standardize"]["centre"])
+        scale = np.array(meta["standardize"]["scale"])
+        with rasterio.open(path) as src:
+            data, profile = src.read(), src.profile
+        pre = ((data.reshape(3, -1).T - centre) / scale).astype(np.float32).T.reshape(data.shape)
+        pre_path = str(tmp_path / "pre.tif")
+        with rasterio.open(pre_path, "w", **profile) as dst:
+            dst.write(pre)
+        other = engine.delineate(pre_path, self._local_config(tmp_path, pre_path)).attrs[
+            "engine_meta"
+        ]
+        assert np.array_equal(_labels(meta), _labels(other))
+
+
+def _write(path, data, nodata=None):
+    """Write a ``(bands, h, w)`` array as a 10 m UTM GeoTIFF of its dtype."""
+    count, h, w = data.shape
+    with rasterio.open(
+        path, "w", driver="GTiff", height=h, width=w, count=count, dtype=str(data.dtype),
+        crs=UTM, transform=from_origin(500000, 4000000 + 10 * h, 10, 10), nodata=nodata,
+    ) as dst:  # fmt: skip
+        dst.write(data)
+    return str(path)
+
+
+class TestLocalFeatureRasters:
+    def _cfg(self, tmp_path, path, **params):
+        return _config(
+            tmp_path, source="local", local_tif_path=path, engine_params={"n_clusters": 2, **params}
+        )
+
+    def test_any_band_at_nodata_or_nan_is_invalid(self, tmp_path):
+        """A feature pixel is skipped when any band is nodata or NaN; for embedding
+        sources the nodata rule stays "every band"."""
+        rng = np.random.default_rng(0)
+        h, w = 40, 40
+        data = rng.normal(0, 1, (4, h, w)).astype(np.float32)
+        data[:, :, :20] += 5
+        data[:, :10, :10] = -9999.0  # every band
+        data[0, 30, 30] = -9999.0  # one band
+        data[2, 31, 31] = np.nan  # one band, NaN
+        path = _write(tmp_path / "feat.tif", data, nodata=-9999.0)
+        meta = EmbeddingEngine().delineate(path, self._cfg(tmp_path, path)).attrs["engine_meta"]
+        assert meta["n_valid_pixels"] == h * w - 102
+        labels = _labels(meta)
+        assert (labels[:10, :10] == 0).all() and labels[30, 30] == 0 and labels[31, 31] == 0
+        emb_cfg = _config(tmp_path, engine_params={"n_clusters": 2})
+        emb_meta = EmbeddingEngine().delineate(path, emb_cfg).attrs["engine_meta"]
+        assert emb_meta["n_valid_pixels"] == h * w - 101
+        assert _labels(emb_meta)[30, 30] > 0
+
+    def test_no_valid_pixel_names_the_rule(self, tmp_path):
+        data = np.full((2, 5, 5), -1.0, dtype=np.float32)
+        data[1] = np.nan  # one band NaN everywhere: no pixel is valid
+        path = _write(tmp_path / "feat.tif", data, nodata=-1.0)
+        with pytest.raises(ValueError, match="0 valid feature pixels.*not any band equals it"):
+            EmbeddingEngine().delineate(path, self._cfg(tmp_path, path))
+
+    def test_complex_pixels_are_rejected(self, tmp_path):
+        data = (np.ones((1, 8, 8)) + 1j * np.arange(64).reshape(1, 8, 8)).astype(np.complex64)
+        path = _write(tmp_path / "slc.tif", data)
+        with pytest.raises(ValueError, match=r"complex pixels \(complex64\)"):
+            EmbeddingEngine().delineate(path, self._cfg(tmp_path, path))
+        assert not list(tmp_path.glob("**/embedding_clusters_*.tif"))
+
+    def test_integer_bands_cluster_like_their_float32_copy(self, tmp_path):
+        path, truth = _mixed_units_raster(tmp_path / "feat.tif")
+        with rasterio.open(path) as src:
+            data = src.read()
+        ints = np.where(np.isfinite(data), np.round(data * 100), -32768).astype(np.int16)
+        int_path = _write(tmp_path / "int16.tif", ints, nodata=-32768)
+        float_path = _write(tmp_path / "float32.tif", ints.astype(np.float32), nodata=-32768)
+        engine = EmbeddingEngine()
+        metas = [
+            engine.delineate(p, self._cfg(tmp_path, p, n_clusters=4, standardize="zscore")).attrs[
+                "engine_meta"
+            ]
+            for p in (int_path, float_path)
+        ]
+        assert metas[0]["n_valid_pixels"] == 60 * 80 - 16
+        assert np.array_equal(_labels(metas[0]), _labels(metas[1]))
+        assert _purity(_labels(metas[0]), truth) > 0.99
+
+    def test_single_band_and_constant_band(self, tmp_path):
+        rng = np.random.default_rng(1)
+        truth = np.zeros((30, 40), dtype=int)
+        truth[:, 20:] = 1
+        db = np.array([-15.0, -8.0])[truth] + rng.normal(0, 0.5, truth.shape)
+        single = _write(tmp_path / "one.tif", db[None].astype(np.float32))
+        two = _write(tmp_path / "two.tif", np.stack([db, np.full_like(db, 7.0)]).astype(np.float32))
+        engine = EmbeddingEngine()
+        for path, n_scales in ((single, 1), (two, 2)):
+            meta = engine.delineate(path, self._cfg(tmp_path, path, standardize="zscore"))
+            meta = meta.attrs["engine_meta"]
+            assert len(meta["standardize"]["scale"]) == n_scales
+            assert _purity(_labels(meta), truth) == 1.0
+        assert meta["standardize"]["scale"][1] == 1.0  # zero spread: scale 1, not a division by 0
+
+    def test_unequal_spread_warns_only_without_standardisation(self, tmp_path, caplog):
+        import logging
+
+        path, _ = _mixed_units_raster(tmp_path / "feat.tif")
+        engine = EmbeddingEngine()
+        logger = "agribound.engines.embedding"
+        with caplog.at_level(logging.WARNING, logger=logger):
+            engine.delineate(path, self._cfg(tmp_path, path, n_clusters=4))
+        assert "band standard deviations range from" in caplog.text
+        assert "(band 3)" in caplog.text
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger=logger):
+            engine.delineate(path, self._cfg(tmp_path, path, n_clusters=4, standardize="robust"))
+            emb_cfg = _config(tmp_path, engine_params={"n_clusters": 4})
+            engine.delineate(path, emb_cfg)  # embedding sources: no warning
+        assert "band standard deviations" not in caplog.text
+
+    def test_params_record_leaves_out_standardize_none(self, tmp_path, emb):
+        """engine_meta of an existing configuration is the one written before the parameter."""
+        meta = EmbeddingEngine().delineate(emb[0], _config(tmp_path)).attrs["engine_meta"]
+        assert "standardize" not in meta["params"] and "standardize" not in meta
+        cfg = _config(tmp_path, engine_params={"standardize": "zscore"})
+        meta = EmbeddingEngine().delineate(emb[0], cfg).attrs["engine_meta"]
+        assert (
+            meta["params"]["standardize"] == "zscore" and meta["standardize"]["method"] == "zscore"
+        )
+
+
+def _field_grid(path, n=5, field_px=12, road_px=2, seed=0):
+    """``n`` x ``n`` square fields of three classes on a road grid (10 m pixels).
+
+    Two bands in small units carry the classes (fields and roads at the corners
+    of the feature square, like entropy and DpRVI); a third band in large units
+    (standard deviation 40, like an uncalibrated backscatter band) has no class
+    signal. Returns the raster path and the field polygons.
+    """
+    from shapely.geometry import box
+
+    rng = np.random.default_rng(seed)
+    step = field_px + road_px
+    size = n * step + road_px
+    cls = np.full((size, size), 3)  # roads
+    x0, y0 = 500000.0, 4000000.0 + 10 * size
+    fields = []
+    for i in range(n):
+        for j in range(n):
+            r, c = road_px + i * step, road_px + j * step
+            cls[r : r + field_px, c : c + field_px] = rng.integers(0, 3)
+            fields.append(
+                box(x0 + 10 * c, y0 - 10 * (r + field_px), x0 + 10 * (c + field_px), y0 - 10 * r)
+            )
+    centres = np.array([[0.2, 0.3], [0.8, 0.3], [0.2, 0.9], [0.8, 0.9]])
+    small = centres[cls].transpose(2, 0, 1) + rng.normal(0, 0.03, (2, size, size))
+    large = rng.normal(0, 40.0, (1, size, size))
+    data = np.concatenate([small, large]).astype(np.float32)
+    return _write(path, data, nodata=float("nan")), gpd.GeoDataFrame(geometry=fields, crs=UTM)
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+def test_pipeline_on_a_local_feature_raster_recovers_fields_only_when_standardised(tmp_path, seed):
+    """source="local" through agribound.delineate (builder, engine, post-processing)."""
+    import agribound
+
+    path, reference = _field_grid(tmp_path / "features.tif", seed=seed)
+    scores = {}
+    for standardize in ("none", "zscore"):
+        gdf = agribound.delineate(
+            source="local",
+            local_tif_path=path,
+            engine="embedding",
+            output_path=str(tmp_path / f"fields_{standardize}.gpkg"),
+            lulc_filter=False,
+            engine_params={"n_clusters": 4, "standardize": standardize},
+        )
+        scores[standardize] = agribound.evaluate(gdf, reference)
+    assert scores["zscore"]["recall"] == 1.0  # every field; the road grid is one extra polygon
+    assert scores["zscore"]["f1"] > 0.95
+    assert scores["none"]["f1"] == 0.0  # the large-unit noise band decides the clusters
+
+
+class TestExistingConfigurationsUnchanged:
+    """Configurations that agribound 1.0.1 could express keep their hashes and cache keys."""
+
+    @pytest.mark.parametrize(
+        ("source", "year", "square", "expected"),
+        [
+            ("google-embedding", 2022, "madera", "0f9e5094f9689a4df819f1e8065ccafcaf5103ab"),
+            ("tessera-embedding", 2020, "twifo", "c017077622bd1e6243f43bb77c1c9a8b961e158e"),
+        ],
+    )
+    def test_config_hash_is_that_of_agribound_1_0_1(self, source, year, square, expected):
+        """Example 23's k = 20 runs: the config_hash their 1.0.1 provenance recorded."""
+        from agribound.provenance import config_hash
+
+        config = AgriboundConfig(
+            source=source,
+            year=year,
+            engine="embedding",
+            engine_params={"n_clusters": 20},
+            lulc_filter=False,
+            study_area=f"outputs/tree_crops/{square}/study_area.geojson",
+            gee_project="p" if source == "google-embedding" else None,  # not hashed
+        )
+        assert config_hash(config) == expected
+        zscore = config.merged(engine_params={"n_clusters": 20, "standardize": "zscore"})
+        assert config_hash(zscore) != expected
+
+    @pytest.mark.parametrize(
+        ("kw", "expected"),
+        [
+            ({"source": "tessera-embedding", "year": 2024}, "embedding_clusters_32b75fbab8e4.tif"),
+            (
+                {
+                    "source": "google-embedding",
+                    "year": 2022,
+                    "gee_project": "p",
+                    "study_area": "bbox:-120.5,36.9,-120.4,37.0",
+                    "engine_params": {"n_clusters": 20},
+                },
+                "embedding_clusters_433ec606b1d1.tif",
+            ),
+        ],
+    )
+    def test_cluster_cache_key_is_unchanged(self, tmp_path, monkeypatch, kw, expected):
+        """Cache names computed before engine_params["standardize"] existed (2026-10-08)."""
+        from agribound._results import results_versions
+        from agribound.engines import embedding
+
+        monkeypatch.setattr(
+            embedding, "_file_signature", lambda p: "raster=/fixed/emb.tif:1234:5678"
+        )
+        config = AgriboundConfig(
+            **{
+                "engine": "embedding",
+                "study_area": "bbox:-117.0,36.0,-116.99,36.01",
+                "output_path": str(tmp_path / "out.gpkg"),
+                **kw,
+            }
+        )
+        assert EmbeddingEngine.cluster_cache_path("/fixed/emb.tif", config).name == expected
+        assert results_versions(config) == {"embedding": 2}

@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import decimal
+import io
 import json
+import logging
+import re
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+import rasterio
+from rasterio.transform import from_bounds
+from rasterio.warp import transform_bounds
 from shapely.geometry import Point, box
 
 from agribound.config import AgriboundConfig
@@ -133,3 +140,157 @@ def test_json_safe_copy_converts_non_json_columns():
     assert out.geometry.name == "geometry" and out.crs == gdf.crs
     # The input is not modified.
     pd.testing.assert_frame_equal(pd.DataFrame(gdf), pd.DataFrame(snapshot))
+
+
+def _overlay_state(html: str) -> dict:
+    """Widget state of the "Satellite Composite" layer in an exported map."""
+    state = json.loads(
+        re.search(
+            r'<script type="application/vnd.jupyter.widget-state\+json">(.*?)</script>', html, re.S
+        ).group(1)
+    )["state"]
+    layers = [m["state"] for m in state.values() if m["state"].get("name") == "Satellite Composite"]
+    assert len(layers) == 1, "no Satellite Composite layer in the map"
+    return layers[0]
+
+
+def _rgba(url: str) -> np.ndarray:
+    from PIL import Image
+
+    assert url.startswith("data:image/png;base64,")
+    return np.asarray(
+        Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))).convert("RGBA")
+    )
+
+
+def test_show_boundaries_embeds_nan_nodata_composite(
+    pipeline_output, s2_reflectance_tif, tmp_path, caplog
+):
+    """Example 10's map.html had no composite layer (1.0 and 1.1 runs).
+
+    leafmap's add_raster asked localtileserver 1.0 for the raster's metadata,
+    which holds the NaN nodata of every agribound float composite; its JSON
+    response failed (HTTP 500) and the layer was skipped with a warning. A
+    localtileserver layer would also point at a tile server that stops with
+    the Python process. The composite is now an image embedded in the HTML.
+    """
+    pytest.importorskip("leafmap")
+    out = tmp_path / "map.html"
+    with caplog.at_level(logging.WARNING, logger="agribound.visualize"):
+        show_boundaries(pipeline_output, satellite_tif=s2_reflectance_tif, output_html=str(out))
+    assert not [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    html = out.read_text()
+    assert "127.0.0.1" not in html and "localhost" not in html
+    overlay = _overlay_state(html)
+    rgba = _rgba(overlay["url"])
+    alpha = rgba[..., 3]
+    assert set(np.unique(alpha)) <= {0, 255}
+    # The fixture's NaN corner (top-left 2 x 2 pixels) is transparent; the centre is opaque.
+    assert alpha[0, 0] == 0
+    assert alpha[alpha.shape[0] // 2, alpha.shape[1] // 2] == 255
+    # The overlay's edges are within one image pixel of the raster's footprint.
+    with rasterio.open(s2_reflectance_tif) as src:
+        west, south, east, north = transform_bounds(src.crs, "EPSG:4326", *src.bounds)
+    (s, w), (n, e) = overlay["bounds"]
+    pixel_lat, pixel_lon = (n - s) / rgba.shape[0], (e - w) / rgba.shape[1]
+    assert abs(s - south) <= pixel_lat and abs(n - north) <= pixel_lat
+    assert abs(w - west) <= pixel_lon and abs(e - east) <= pixel_lon
+
+
+def _band_order_raster(path):
+    """Four float32 bands: 1 rises to the east, 2 to the south, 3 falls to the east, 4 flat."""
+    rows, cols = np.mgrid[0:60, 0:80].astype(np.float32)
+    data = np.stack([100 + cols, 100 + rows, 300 - cols, np.full_like(cols, 50)])
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=80,
+        height=60,
+        count=4,
+        dtype="float32",
+        crs="EPSG:32611",
+        transform=from_bounds(500000, 4000000, 500800, 4000600, 80, 60),
+        nodata=float("nan"),
+    ) as dst:
+        dst.write(data)
+    return path
+
+
+def _assert_red_is_band_3(rgba):
+    rgba = rgba.astype(int)
+    mid_row, mid_col = rgba.shape[0] // 2, rgba.shape[1] // 2
+    red, green, blue = rgba[..., 0], rgba[..., 1], rgba[..., 2]
+    # Band 3 (red) falls to the east, band 1 (blue) rises to the east, band 2 (green) rises south.
+    assert red[mid_row, 3] > red[mid_row, -4]
+    assert blue[mid_row, 3] < blue[mid_row, -4]
+    assert green[3, mid_col] < green[-4, mid_col]
+
+
+def test_composite_overlay_band_order_and_size_cap(tmp_path):
+    """R, G, B follow ``satellite_bands`` (1-based) and the long side is capped."""
+    from agribound.visualize import _composite_overlay
+
+    path = _band_order_raster(tmp_path / "bands.tif")
+    url, _ = _composite_overlay(path, bands={"R": 3, "G": 2, "B": 1}, max_side=40)
+    rgba = _rgba(url)
+    assert max(rgba.shape[:2]) <= 40
+    _assert_red_is_band_3(rgba)
+
+
+def test_show_boundaries_passes_satellite_bands_to_the_overlay(pipeline_output, tmp_path):
+    """``show_boundaries(satellite_bands=...)`` sets the overlay's band order (example 10)."""
+    pytest.importorskip("leafmap")
+    path = _band_order_raster(tmp_path / "bands.tif")
+    out = tmp_path / "map.html"
+    show_boundaries(
+        pipeline_output,
+        satellite_tif=str(path),
+        satellite_bands={"R": 3, "G": 2, "B": 1},
+        output_html=str(out),
+    )
+    # The export holds the state of every widget alive in the process (maps of earlier
+    # tests too): take the overlay whose eastern edge is this raster's.
+    state = json.loads(
+        re.search(
+            r'<script type="application/vnd.jupyter.widget-state\+json">(.*?)</script>',
+            out.read_text(),
+            re.S,
+        ).group(1)
+    )["state"]
+    with rasterio.open(path) as src:
+        east = transform_bounds(src.crs, "EPSG:4326", *src.bounds)[2]
+    (layer,) = [
+        m["state"]
+        for m in state.values()
+        if m["state"].get("name") == "Satellite Composite"
+        and abs(m["state"]["bounds"][1][1] - east) < 1e-4
+    ]
+    _assert_red_is_band_3(_rgba(layer["url"]))
+
+
+def test_composite_overlay_shows_a_single_band_raster_in_grey(tmp_path):
+    """A panchromatic composite (one band, NaN nodata, as SPOT-Pan) is drawn in grey."""
+    from agribound.visualize import _composite_overlay
+
+    rows, cols = np.mgrid[0:50, 0:50].astype(np.float32)
+    path = tmp_path / "pan.tif"
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=50,
+        height=50,
+        count=1,
+        dtype="float32",
+        crs="EPSG:32611",
+        transform=from_bounds(500000, 4000000, 500500, 4000500, 50, 50),
+        nodata=float("nan"),
+    ) as dst:
+        dst.write((100 + rows + cols)[None])
+    rgba = _rgba(_composite_overlay(path)[0])
+    opaque = rgba[..., 3] == 255
+    assert opaque.mean() > 0.9
+    assert (rgba[..., 0] == rgba[..., 1])[opaque].all() and (rgba[..., 1] == rgba[..., 2])[
+        opaque
+    ].all()

@@ -926,16 +926,23 @@ def write_tile_manifest(
     FileExistsError
         If a different manifest exists in *out_dir* and *overwrite* is False.
     ValueError
-        If *tiles* did not come from :func:`make_tiles`, or the base
-        configuration fine-tunes and *allow_fine_tune_per_tile* is False.
+        If *tiles* did not come from :func:`make_tiles`, the base
+        configuration fine-tunes and *allow_fine_tune_per_tile* is False, or
+        it runs engine ``"sam-auto"`` (directly or as an ensemble member),
+        which HPC tiling does not support
+        (:func:`agribound.engines.sam_auto.hpc_tiling_problem`).
     """
     from agribound._version import __version__
+    from agribound.engines.sam_auto import hpc_tiling_problem
     from agribound.provenance import config_hash, drop_inapplicable_fields, to_jsonable
 
     grid = tiles.attrs.get("grid")
     if not grid or len(tiles) == 0:
         raise ValueError("tiles must be a non-empty GeoDataFrame returned by make_tiles()")
     config = _as_config(base_config)
+    problem = hpc_tiling_problem(config)
+    if problem:
+        raise ValueError(problem)
     path_overrides = _absolute_path_overrides(config)
     if path_overrides:
         config = config.merged(**path_overrides)
@@ -1216,13 +1223,39 @@ def _working_dir(config: Any) -> Path:
 def _stage_marker_path(config: Any) -> Path:
     """Content-addressed "stage A done" marker inside the tile's cache directory.
 
-    Named by :func:`agribound._cache.cache_key` of the configuration, so
-    configurations that share the composite (same study area, source, year,
-    compositing and export settings) also share the marker.
+    Named by :func:`agribound._cache.cache_key` of the configuration and
+    :func:`_marker_parts`, so configurations that share the composite (same
+    study area, source, year, compositing and export settings) also share the
+    marker.
     """
     from agribound._cache import cache_key
 
-    return _working_dir(config) / f"stage_{cache_key(config, 'stage-a')}.json"
+    key = cache_key(config, "stage-a", *_marker_parts(config))
+    return _working_dir(config) / f"stage_{key}.json"
+
+
+def _marker_parts(config: Any) -> tuple[str, ...]:
+    """The source's own recipe parts of its composite key, for the stage-marker keys.
+
+    For an Earth Engine source, the parts of
+    :func:`agribound.composites.gee._recipe_parts` after
+    :data:`~agribound.composites.gee.COMPOSITE_RECIPE_VERSION`:
+    ``("hls-recipe-<HLS_RECIPE_VERSION>",)`` for ``hls``,
+    ``("sentinel1-recipe-<S1_RECIPE_VERSION>",)`` for ``sentinel1``, nothing for
+    the others. When such a recipe changes, the composite is cached under a new
+    key, and the delineation stage would download it again instead of reading
+    the staged raster; with the recipe in the marker key, the tiles of that
+    source show as not staged (also no longer recorded as having no data) and
+    the composite stage makes them again. ``COMPOSITE_RECIPE_VERSION`` (unchanged
+    since agribound 1.0.0) is not part of the key, so the markers of the other
+    sources are those of 1.0; a change of it must change these keys too.
+    """
+    from agribound.composites.gee import _COLLECTION_BUILDERS, _recipe_parts
+
+    source = getattr(config, "source", None)
+    if source not in _COLLECTION_BUILDERS:
+        return ()
+    return tuple(_recipe_parts(source)[1:])
 
 
 def _needs_lulc_raster(config: Any) -> bool:
@@ -1288,10 +1321,16 @@ def _engine_staging(config: Any, *, strict: bool = True) -> str | None:
 
 
 def _engine_marker_path(config: Any) -> Path:
-    """Stage marker for engine inputs, keyed by the stage-A key, engine and its parameters."""
+    """Stage marker for engine inputs, keyed by the stage-A key, engine and its parameters.
+
+    Also by :func:`_marker_parts`: FTW's window composites are cached under the
+    composite key of the source.
+    """
     from agribound._cache import cache_key
 
-    key = cache_key(config, "stage-engine", config.engine, _engine_params_json(config))
+    key = cache_key(
+        config, "stage-engine", config.engine, _engine_params_json(config), *_marker_parts(config)
+    )
     return _working_dir(config) / f"stage_{key}.json"
 
 
@@ -1397,13 +1436,18 @@ def _prefetch_lulc(config: Any) -> str:
     return str(path)
 
 
-def _staged_marker(config: Any, *, strict: bool = False, require_lulc: bool = True) -> dict | None:
+def _staged_marker(
+    config: Any, *, strict: bool = False, require_lulc: bool = True, check_store: bool = False
+) -> dict | None:
     """Return the stage-A marker if it is valid for *config*, else *None*.
 
     Valid means: the composite raster exists; the LULC raster exists when
     ``lulc_mode="raster"`` (unless *require_lulc* is False); and the engine
     inputs (FTW window composites) exist when the engine needs them
-    (:func:`_engine_staging`).
+    (:func:`_engine_staging`). With *check_store*, a TESSERA raster must also
+    match the store's current state
+    (:func:`agribound.composites.local.check_tessera_raster`); when that
+    cannot be checked, the raster counts as staged (WARNING).
     """
     marker = _read_json(_stage_marker_path(config))
     if marker is None:
@@ -1411,6 +1455,20 @@ def _staged_marker(config: Any, *, strict: bool = False, require_lulc: bool = Tr
     raster = marker.get("raster_path")
     if not raster or not Path(raster).exists():
         return None
+    if check_store and getattr(config, "source", None) == "tessera-embedding":
+        from agribound.composites.local import check_tessera_raster
+
+        check = check_tessera_raster(raster, config)
+        if check.state == "stale":
+            logger.info("The staged TESSERA raster %s is read again: %s", raster, check.detail)
+            return None
+        if check.state == "unverified":
+            logger.warning(
+                "Could not check whether the TESSERA store has changed since the staged raster "
+                "%s was read (%s); keeping it",
+                raster,
+                check.detail,
+            )
     if require_lulc and _needs_lulc_raster(config):
         lulc = _lulc_marker(config)
         if lulc is None:
@@ -1496,7 +1554,9 @@ def _output_is_current(config: Any, output: Path) -> dict | None:
 
     The same test as the pipeline's reuse check
     (:func:`agribound.provenance.reuse_mismatch`): configuration hash,
-    study-area fingerprint and results versions.
+    study-area fingerprint, results versions, for TESSERA the state of the
+    store (without network access: the store stamp of the staged raster) and,
+    for HLS at the MGRS tiles at 180 degrees, the HLS recipe of the composite.
     """
     from agribound.provenance import read_provenance, reuse_mismatch
 
@@ -1549,10 +1609,12 @@ def run_tile(
         Re-run even if the stage is already done, and retry tiles recorded as
         no-data (the delineation output is replaced; builders still reuse
         cached rasters -- delete the tile's cache directory to force new
-        downloads). A re-run delineation gets a new run ID, so a merged
-        output made before it no longer matches the tile outputs:
-        :func:`merge_tiles` then raises :class:`FileExistsError` unless it is
-        also given ``overwrite=True`` (``agribound tiles merge --overwrite``).
+        downloads -- except a TESSERA raster whose store objects have changed
+        since it was read, which is read again). A re-run delineation gets a
+        new run ID, so a merged output made before it no longer matches the
+        tile outputs: :func:`merge_tiles` then raises :class:`FileExistsError`
+        unless it is also given ``overwrite=True``
+        (``agribound tiles merge --overwrite``).
 
     Returns
     -------
@@ -1578,10 +1640,22 @@ def run_tile(
     delineation is done when the tile output exists and its provenance
     record reports success with the current configuration hash and results
     versions (the pipeline's reuse test,
-    :func:`agribound.provenance.reuse_mismatch`); a composite
+    :func:`agribound.provenance.reuse_mismatch`, which for TESSERA also
+    compares the state of the store or, without network access, the store
+    stamp of the staged raster, and for HLS at the MGRS tiles at 180 degrees
+    the HLS recipe of the composite); a composite
     stage is done when the content-addressed stage markers in the tile's
     cache directory point to existing rasters (composite; LULC raster when
-    needed; FTW window rasters when needed).
+    needed; FTW window rasters when needed). The marker keys of ``hls`` and
+    ``sentinel1`` tiles include the source's recipe version
+    (:func:`_marker_parts`), so their tiles staged before a change of that
+    recipe show as not staged. The composite stage also reads
+    a staged TESSERA raster again when the store's objects under it have
+    changed since it was read
+    (:func:`agribound.composites.local.check_tessera_raster`). After a
+    rewrite of the TESSERA store, run the composite stage of the stale tiles
+    with network access first: ``stage="delineate"`` with *overwrite* on a
+    node without network access delineates the staged raster as it is.
 
     ``stage="delineate"`` guarantees only that these inputs are cached.
     Other network access during delineation is not prevented: model weights
@@ -1646,7 +1720,7 @@ def _run_composite_stage(
     from agribound.provenance import RunRecorder, write_provenance
 
     if not overwrite:
-        marker = _staged_marker(config, strict=True, require_lulc=require_lulc)
+        marker = _staged_marker(config, strict=True, require_lulc=require_lulc, check_store=True)
         if marker is not None:
             logger.info(
                 "Tile %s: composite already staged (%s)", entry["tile_id"], marker["raster_path"]
@@ -1866,16 +1940,29 @@ def tile_status(manifest: str | Path | dict) -> pd.DataFrame:
         docstring; the delineation can also be ``"stale"`` -- an output
         exists but was made with a different configuration, or by an
         agribound release whose results for it differ
-        (:mod:`agribound._results`) -- and either
+        (:mod:`agribound._results`), or for TESSERA from store objects that
+        have changed since (or without a record of them), or for HLS from a
+        composite selected before HLS recipe 2 at the MGRS tiles at 180
+        degrees; the composite is
+        ``"stale"`` when a staged TESSERA raster was read from store objects
+        that have changed since (or has no record of them), so that
+        ``--list not-done --stage composite`` stages it again -- and either
         column is ``"error"`` when the tile configuration cannot be loaded),
         ``n_output``, ``run_id``, ``error`` (first line of the latest
         failure, if any) and ``no_data_reason``.
+
+        For TESSERA tiles the store is checked (HTTP requests). Tiles whose
+        store state cannot be checked (no network access) are reported from
+        the local files (an output is ``"stale"`` when the staged raster holds
+        another store stamp than its provenance record), listed in
+        ``attrs["tessera_unverified"]`` (tile IDs), and named in one WARNING.
     """
     from agribound.config import AgriboundConfig
     from agribound.provenance import read_provenance, reuse_mismatch
 
     m = load_manifest(manifest)
     rows = []
+    unverified: dict[str, str] = {}  # tile ID -> why the TESSERA store was not checked
     for entry in m["tiles"]:
         paths = _tile_paths(m, entry)
         row: dict[str, Any] = {
@@ -1896,8 +1983,17 @@ def tile_status(manifest: str | Path | dict) -> pd.DataFrame:
             continue
 
         no_data = _no_data_marker(config)
-        if _staged_marker(config) is not None:
+        staged = _staged_marker(config)
+        if staged is not None:
             row["composite"] = _DONE
+            if getattr(config, "source", None) == "tessera-embedding":
+                from agribound.composites.local import check_tessera_raster
+
+                check = check_tessera_raster(staged["raster_path"], config)
+                if check.state == "stale":
+                    row["composite"] = _STALE
+                elif check.state == "unverified":
+                    unverified[entry["tile_id"]] = check.detail
         elif no_data is not None:
             row["composite"] = _NO_DATA
         elif paths["composite_failed"].exists():
@@ -1907,7 +2003,11 @@ def tile_status(manifest: str | Path | dict) -> pd.DataFrame:
         output = paths["output"]
         record = read_provenance(output) if output.exists() else None
         if record is not None and record.get("status") == "success":
-            if reuse_mismatch(record, config, output) is None:
+            notes: list[str] = []
+            mismatch = reuse_mismatch(record, config, output, unverified=notes)
+            if notes:
+                unverified.setdefault(entry["tile_id"], notes[0])
+            if mismatch is None:
                 row["delineate"] = _DONE
                 row["n_output"] = (record.get("facts") or {}).get("n_output")
                 row["run_id"] = record.get("run_id")
@@ -1925,7 +2025,7 @@ def tile_status(manifest: str | Path | dict) -> pd.DataFrame:
             row["delineate"] = _FAILED
             row["error"] = record.get("error")
         rows.append(row)
-    return pd.DataFrame(
+    status = pd.DataFrame(
         rows,
         columns=[
             "index",
@@ -1938,6 +2038,21 @@ def tile_status(manifest: str | Path | dict) -> pd.DataFrame:
             "no_data_reason",
         ],
     )
+    status.attrs["tessera_unverified"] = sorted(unverified)
+    if unverified:
+        first_tile, first_why = next(iter(unverified.items()))
+        logger.warning(
+            "Could not check the TESSERA store for %d of %d tiles (%s: %s); their states come "
+            "from the local files only: a staged raster counts as done, and an output as done "
+            "unless the staged raster holds another store stamp than its provenance record. If "
+            "the store has been rewritten since they were read, they are out of date: run "
+            "'agribound tiles status' with network access to check them.",
+            len(unverified),
+            len(status),
+            first_tile,
+            first_why,
+        )
+    return status
 
 
 def _short_error(path: Path) -> str | None:
@@ -2100,6 +2215,15 @@ def merge_tiles(
     tile_records: list[dict[str, Any]] = []
     warnings: list[str] = []
     candidates: list[np.ndarray] = []
+    done_tiles = set(status.loc[done_mask, "tile_id"])
+    unchecked = [t for t in status.attrs.get("tessera_unverified", []) if t in done_tiles]
+    if unchecked:
+        warnings.append(
+            f"{len(unchecked)} TESSERA tile output(s) could not be checked against the store "
+            f"(no network access?) and were merged as done ({', '.join(unchecked[:20])}"
+            f"{', ...' if len(unchecked) > 20 else ''}); if the store has been rewritten since "
+            "they were read, they are out of date."
+        )
 
     for tile_id in status.loc[done_mask, "tile_id"]:
         entry = entries[tile_id]

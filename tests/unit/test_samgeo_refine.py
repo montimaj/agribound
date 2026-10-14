@@ -529,6 +529,20 @@ class TestRefineBoundaries:
         np.testing.assert_array_equal(fake.images[0], expected)
         assert out.attrs["sam_stats"]["stretch"]["method"] == "none (uint8)"
 
+    def test_sentinel1_composite_is_used_unstretched(self, tmp_path):
+        """A sentinel1 composite (uint8 VV, VH, VV_VH) is SAM's R, G, B as it is."""
+        raster = _raster(tmp_path, count=3, dtype="uint8")
+        with rasterio.open(raster) as src:
+            expected = src.read([1, 2, 3]).transpose(1, 2, 0)
+        gdf = gpd.GeoDataFrame(geometry=[_field(10, 10, 80, 70)], crs=UTM)
+        fake = FakePredictor()
+        cfg = _config(tmp_path, source="sentinel1", gee_project="test-project")
+        out = refine_boundaries(gdf, raster, cfg, predictor=fake)
+        stats = out.attrs["sam_stats"]
+        assert stats["rgb_bands"] == [1, 2, 3] and stats["rgb_source"] == "imagery"
+        assert stats["stretch"]["method"] == "none (uint8)"
+        np.testing.assert_array_equal(fake.images[0], expected)
+
     def test_scene_level_stretch_is_consistent_across_windows(self, tmp_path):
         """The same pixel value maps to the same uint8 in every window."""
         data = np.random.default_rng(5).uniform(100, 4000, (12, 1400, 1400)).astype("float32")

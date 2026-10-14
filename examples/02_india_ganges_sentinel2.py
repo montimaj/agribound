@@ -23,8 +23,12 @@ SPOT 6/7 (AIRBUS/SPOT6_7) is restricted to select Earth Engine users (internal
 DRI use). If your project has no access, approach 4 fails and the script
 continues with the other three.
 
-Estimated runtime (not measured for 1.0): ~15-30 minutes with a GPU (FTW,
-Delineate-Anything); the embedding runs use the CPU.
+Runtime: 64 minutes (3,853 s) in the development run of agribound 1.1
+(2026-10-09, Apple M2 Max with MPS; every composite and FTW's checkpoint
+downloaded, the other model weights already cached): FTW 11 minutes, the
+Google Satellite Embedding run 7 minutes, the TESSERA run 18 minutes and
+Delineate-Anything on SPOT-Pan 27 minutes, downloads included. The embedding
+runs use the CPU.
 
 Prerequisites:
     pip install "agribound[gee,ftw,tessera,delineate-anything]"
@@ -51,7 +55,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"geedim\..*")
 warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"geedim\..*")
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

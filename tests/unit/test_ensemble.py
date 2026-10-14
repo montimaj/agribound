@@ -104,7 +104,7 @@ class TestConfiguration:
         assert [s["engine"] for s in specs] == ["delineate-anything", "ftw"]
 
     @pytest.mark.parametrize(
-        "source", ["naip", "spot", "spot-pan", "usgs-naip-plus", "landsat-pan"]
+        "source", ["naip", "spot", "spot-pan", "usgs-naip-plus", "landsat-pan", "sentinel1"]
     )
     def test_default_members_validated_against_source(self, tmp_path, source):
         """FTW (a default member) cannot run on these sources: raise, never drop it silently.
@@ -179,7 +179,14 @@ class TestConfiguration:
         cfg = _config(tmp_path, raster, model="FTW_PRUE_EFNET_B5")
         with pytest.raises(ValueError, match="not passed to its members"):
             EnsembleEngine.resolve_params(cfg)
-        ok = _config(tmp_path, raster, smooth_iterations=0, regularize="none", sam_model="tiny")
+        ok = _config(
+            tmp_path,
+            raster,
+            smooth_iterations=0,
+            regularize="none",
+            sam_model="tiny",
+            pivots="snap",
+        )
         assert EnsembleEngine.resolve_params(ok)["merge_strategy"] == "intersection"
 
     def test_every_sam_engine_param_is_accepted(self, tmp_path, raster):

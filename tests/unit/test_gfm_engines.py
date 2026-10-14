@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import types
 from pathlib import Path
 
 import geopandas as gpd
@@ -516,6 +515,65 @@ class TestFinetuneGeoAI:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def fake_backbone(monkeypatch):
+    """geoai's DINOv3Segmenter with a tiny backbone instead of torch.hub and the weights.
+
+    Returns the list of inputs the backbone received.
+    """
+    torch = pytest.importorskip("torch")
+    mod = pytest.importorskip("geoai.dinov3_finetune")
+    seen = []
+
+    class FakeViT(torch.nn.Module):
+        patch_size = 16
+        embed_dim = 8
+
+        def __init__(self):
+            super().__init__()
+            self.proj = torch.nn.Conv2d(3, 8, kernel_size=16, stride=16)
+            self.blocks = torch.nn.ModuleList(torch.nn.Identity() for _ in range(12))
+
+        def get_intermediate_layers(self, x, n, reshape=True, norm=True):
+            seen.append(x.detach().clone())
+            f = self.proj(x)
+            return [f, f, f, f]
+
+    monkeypatch.setattr(
+        mod.DINOv3Segmenter, "_load_backbone", staticmethod(lambda name, weights: FakeViT())
+    )
+    return seen
+
+
+def _window_model(gamma=4.0):
+    """Fake model: interior where band 1 > 0.5, shifted by the column inside the window.
+
+    Its prediction depends on where a pixel lies in the window, so overlapping windows
+    disagree, as a real model's do near its window edges.
+    """
+    torch = pytest.importorskip("torch")
+
+    class WindowModel(torch.nn.Module):
+        patch_size = 16
+
+        def forward(self, x):
+            b, _, h, w = x.shape
+            local = (torch.arange(w, dtype=torch.float32) / w - 0.5)[None, None, :]
+            logits = torch.zeros(b, 3, h, w)
+            logits[:, 0] = -10.0
+            logits[:, 1] = 20.0 * (x[:, 0] - 0.5) + gamma * local
+            return logits
+
+    return WindowModel()
+
+
+def _ramp_input(path, n=320):
+    """Padded RGB input whose first band rises from 0 at the top to 1 at the bottom."""
+    rgb = np.zeros((3, n, n), np.float32)
+    rgb[0] = (np.arange(n, dtype=np.float32) / n)[:, None]
+    return _write(path, rgb, res=1.0)
+
+
 class TestDINOv3Options:
     def test_model_aliases(self, tmp_path):
         from agribound.engines.dinov3 import resolve_dinov3_model
@@ -540,110 +598,356 @@ class TestDINOv3Options:
         with pytest.raises(ValueError, match="requires freeze_backbone=True"):
             resolve_lora({"use_lora": True, "freeze_backbone": False})
 
+    def test_input_normalization(self):
+        from agribound.engines.dinov3 import resolve_input_normalization
+
+        # facebookresearch/dinov3 README: the SAT-493M and the LVD-1689M (ImageNet) transforms
+        sat = {"name": "sat493m", "mean": [0.430, 0.411, 0.296], "std": [0.213, 0.156, 0.143]}
+        assert resolve_input_normalization() == sat
+        assert resolve_input_normalization(" SAT493M ") == sat
+        assert resolve_input_normalization(None, "/w/dinov3_vitl16_pretrain_sat493m.pth") == sat
+        lvd = resolve_input_normalization(None, "/w/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth")
+        assert lvd == {
+            "name": "lvd1689m",
+            "mean": [0.485, 0.456, 0.406],
+            "std": [0.229, 0.224, 0.225],
+        }
+        assert resolve_input_normalization("none") is None
+        assert resolve_input_normalization(False) is None
+        custom = resolve_input_normalization({"mean": [0.5, 0.5, 0.5], "std": [0.2, 0.2, 0.2]})
+        assert custom == {"name": "custom", "mean": [0.5] * 3, "std": [0.2] * 3}
+        for bad in (
+            "imagenet",
+            True,
+            {"mean": [0.5] * 3, "std": [0.2, 0.0, 0.2]},
+            {"mean": [0.5] * 2, "std": [0.2] * 2},
+            {"mean": [0.5] * 3},
+        ):
+            with pytest.raises(ValueError, match="input_normalization"):
+                resolve_input_normalization(bad)
+
+    def test_window_stitching_and_dilation_defaults(self):
+        from agribound.engines.dinov3 import resolve_dilate_px, resolve_window_stitching
+
+        assert resolve_window_stitching() == "blend"
+        assert resolve_window_stitching(" Crop ") == "crop"
+        with pytest.raises(ValueError, match="window_stitching"):
+            resolve_window_stitching("average")
+        # engine_params, then the training metadata, then the checkpoint, then 2
+        assert resolve_dilate_px({"dilate_interior_px": 5}, {"boundary_erosion": 8}, {}) == 5
+        assert resolve_dilate_px({}, {"boundary_erosion": 8}, {"boundary_erosion": 3}) == 8
+        assert resolve_dilate_px({"boundary_erosion": 4}, {}, {"boundary_erosion": 3}) == 3
+        assert resolve_dilate_px({"boundary_erosion": 4}, {}, {}) == 4
+        assert resolve_dilate_px({}, {}, {}) == 2
+
+    def test_window_taper_is_a_partition_of_unity(self):
+        from agribound.engines.dinov3 import window_taper
+
+        for window, overlap in ((256, 128), (256, 64), (64, 32), (48, 16), (64, 0)):
+            taper = window_taper(window, overlap).astype(np.float64)
+            assert taper.shape == (window,) and 0 < taper.min() <= taper.max() <= 1.0
+            stride = window - overlap
+            total = np.zeros(window + 3 * stride)
+            for k in range(4):
+                total[k * stride : k * stride + window] += taper
+            # wherever two windows overlap, and in each window's centre, the weights sum to 1
+            np.testing.assert_allclose(total[overlap : 3 * stride + window - overlap], 1.0)
+        # half-window overlap: the Hann window
+        hann = np.sin(np.pi * (np.arange(256) + 0.5) / 256) ** 2
+        np.testing.assert_allclose(window_taper(256, 128), hann, atol=1e-6)
+        assert (window_taper(64, 0) == 1).all() and (window_taper(256, 64)[64:192] == 1).all()
+
+
+class TestDINOv3Stitching:
+    @staticmethod
+    def _change_rates(classes, stride, overlap):
+        """Class changes between neighbouring columns, at the crop seams and elsewhere."""
+        change = (classes[:, 1:] != classes[:, :-1]).mean(axis=0)
+        cols = np.arange(1, classes.shape[1])
+        seam = (cols % stride == overlap // 2) & (cols > overlap // 2)
+        return change[seam], change[~seam]
+
+    def test_blend_leaves_no_window_seams_and_crop_does(self, tmp_path):
+        from agribound.engines.dinov3 import segment_raster
+
+        rgb = _ramp_input(tmp_path / "rgb.tif")
+        out = {}
+        for stitching in ("crop", "blend"):
+            path = tmp_path / f"{stitching}.tif"
+            stats = segment_raster(
+                _window_model(),
+                rgb,
+                path,
+                height=300,
+                width=290,
+                window_size=64,
+                overlap=32,
+                batch_size=3,
+                stitching=stitching,
+            )
+            assert stats == {"n_windows": 81, "stitching": stitching}
+            with rasterio.open(path) as src:
+                assert (src.height, src.width) == (300, 290)
+                out[stitching] = src.read(1)
+        seams, other = self._change_rates(out["crop"], 32, 32)
+        # crop: the iso-line jumps at every seam (a straight north-south class change)
+        assert seams.min() > 10 * other.max()
+        seams, other = self._change_rates(out["blend"], 32, 32)
+        assert seams.max() <= other.max()
+        assert set(np.unique(out["blend"])) == {1, 2}
+
+    def test_crop_reproduces_geoai_dinov3_segment_geotiff(self, tmp_path, monkeypatch):
+        """``window_stitching="crop"`` gives geoai's output (agribound 1.0.1) on the same input."""
+        mod = pytest.importorskip("geoai.dinov3_finetune")
+        from agribound.engines.dinov3 import segment_raster
+
+        model = _window_model()
+        monkeypatch.setattr(
+            mod.DINOv3Segmenter, "load_from_checkpoint", staticmethod(lambda *a, **k: model)
+        )
+        rgb = _ramp_input(tmp_path / "rgb.tif")
+        ckpt = tmp_path / "m.ckpt"
+        ckpt.write_bytes(b"x")
+        mod.dinov3_segment_geotiff(
+            rgb,
+            str(tmp_path / "geoai.tif"),
+            str(ckpt),
+            window_size=64,
+            overlap=32,
+            batch_size=3,
+            device="cpu",
+            quiet=True,
+        )
+        segment_raster(
+            model,
+            rgb,
+            tmp_path / "crop.tif",
+            height=300,
+            width=290,
+            window_size=64,
+            overlap=32,
+            stitching="crop",
+        )
+        with rasterio.open(tmp_path / "geoai.tif") as a, rasterio.open(tmp_path / "crop.tif") as b:
+            np.testing.assert_array_equal(a.read(1)[:300, :290], b.read(1))
+
+    def test_input_must_be_covered_by_whole_windows(self, tmp_path):
+        from agribound.engines.dinov3 import segment_raster
+
+        rgb = _write(tmp_path / "rgb.tif", np.zeros((3, 100, 96), np.float32))
+        sizes = {"height": 90, "width": 90}
+        with pytest.raises(ValueError, match="not covered exactly"):
+            segment_raster(
+                _window_model(), rgb, tmp_path / "o.tif", window_size=64, overlap=32, **sizes
+            )
+        with pytest.raises(ValueError, match="window_stitching"):
+            segment_raster(
+                _window_model(),
+                rgb,
+                tmp_path / "o.tif",
+                window_size=32,
+                overlap=0,
+                stitching="mean",
+                **sizes,
+            )
+
+
+class TestDINOv3Model:
+    def test_normalisation_is_part_of_forward(self, fake_backbone):
+        import torch
+
+        from agribound.engines.dinov3 import dinov3_segmenter_class
+
+        cls = dinov3_segmenter_class()
+        mean, std = [0.43, 0.411, 0.296], [0.213, 0.156, 0.143]
+        common = {"model_name": "dinov3_vitl16", "num_classes": 3, "decoder_features": 8}
+        model = cls(
+            input_mean=mean, input_std=std, boundary_erosion=8, chip_size=128, **common
+        ).eval()
+        plain = cls(**common).eval()
+        x = torch.rand(2, 3, 32, 32)
+        with torch.no_grad():
+            assert model(x).shape == (2, 3, 32, 32)
+            plain(x)
+        expected = (x - torch.tensor(mean)[None, :, None, None]) / torch.tensor(std)[
+            None, :, None, None
+        ]
+        torch.testing.assert_close(fake_backbone[0], expected)
+        torch.testing.assert_close(fake_backbone[1], x)  # without statistics: unchanged
+        # The statistics are hyper-parameters, not weights: the state dict is geoai's.
+        assert model.hparams["input_mean"] == mean and model.hparams["boundary_erosion"] == 8
+        assert model.hparams["chip_size"] == 128
+        assert set(model.state_dict()) == set(plain.state_dict())
+        with pytest.raises(ValueError, match="both"):
+            cls(input_mean=mean, **common)
+
+    def test_validation_iou_counts(self):
+        torch = pytest.importorskip("torch")
+        from agribound.engines.dinov3 import class_overlap_counts, iou_from_counts
+
+        target = torch.tensor([[0, 0, 1, 1], [1, 1, 255, 255]])
+        pred = torch.tensor([[0, 1, 1, 1], [1, 0, 2, 0]])
+        counts = class_overlap_counts(pred, target, 3, 255)
+        # class 0: inter 1, union 3; class 1: inter 3, union 5; class 2 only on ignored pixels
+        assert counts.tolist() == [[1, 3, 0], [3, 5, 0]]
+        ious = iou_from_counts(counts)
+        assert ious[:2] == [pytest.approx(1 / 3), pytest.approx(3 / 5)] and np.isnan(ious[2])
+
 
 class TestDINOv3Engine:
     @pytest.fixture
-    def ckpt(self, tmp_path):
+    def fake_segmenter(self, monkeypatch):
+        """Replace the model class: loading returns a fake model that predicts from band 1.
+
+        Interior (class 1) where the first input band exceeds 0.5, else boundary (2).
+        Records the loads and the inputs.
+        """
         torch = pytest.importorskip("torch")
+        pytest.importorskip("geoai.dinov3_finetune")
+        from agribound.engines import dinov3
 
-        path = tmp_path / "dinov3.ckpt"
-        torch.save(
-            {
-                "hyper_parameters": {
-                    "model_name": "dinov3_vitl16",
-                    "num_classes": 3,
-                    "use_lora": True,
-                    "freeze_backbone": True,
-                    "lora_rank": 4,
-                }
-            },
-            path,
-        )
-        _data.write_training_meta(path, {"boundary_erosion": 1, "trainable_params": {"total": 7}})
-        return path
+        calls = {"loads": [], "inputs": []}
 
-    @pytest.fixture
-    def fake_segment(self, monkeypatch):
-        mod = pytest.importorskip("geoai.dinov3_finetune")
-        calls = {}
+        class FakeModel(torch.nn.Module):
+            def forward(self, x):
+                calls["inputs"].append(x.detach().clone())
+                logits = torch.zeros(x.shape[0], 3, x.shape[2], x.shape[3])
+                logits[:, 1] = torch.where(x[:, 0] > 0.5, 5.0, -5.0)
+                logits[:, 2] = 1.0
+                return logits
 
-        def fake(input_path, output_path, checkpoint_path, **kwargs):
-            with rasterio.open(input_path) as src:
-                calls["input"] = src.read()
-                profile = src.profile.copy()
-            calls.update(kwargs, checkpoint_path=checkpoint_path)
-            pred = np.zeros(calls["input"].shape[1:], dtype=np.uint8)
-            pred[:] = 2
-            pred[30:60, 30:60] = 1  # a 30 x 30 px interior
-            pred[0:4, 0:4] = 1  # inside the nodata corner
-            profile.update(count=1, dtype="uint8")
-            with rasterio.open(output_path, "w", **profile) as dst:
-                dst.write(pred, 1)
+        class FakeSegmenter:
+            @staticmethod
+            def load_from_checkpoint(path, map_location=None, **kwargs):
+                calls["loads"].append({"path": path, "map_location": map_location, **kwargs})
+                return FakeModel()
 
-        monkeypatch.setattr(mod, "dinov3_segment_geotiff", fake)
+        monkeypatch.setattr(dinov3, "dinov3_segmenter_class", lambda: FakeSegmenter)
         return calls
 
-    def test_input_hparams_masking_and_dilation(self, tmp_path, s2_raster, ckpt, fake_segment):
+    @pytest.fixture
+    def block_raster(self, tmp_path):
+        """S2-like raster, 96 x 96 px: a bright 30 x 30 px block in red and a NaN corner."""
+        data = np.full((12, 96, 96), 500.0, dtype=np.float32)
+        data[3, 30:60, 30:60] = 2500.0
+        data[:, :8, :8] = np.nan
+        return _write(tmp_path / "s2.tif", data, nodata=float("nan")), data
+
+    @staticmethod
+    def _ckpt(path, **hparams):
+        import torch
+
+        torch.save(
+            {"hyper_parameters": {"model_name": "dinov3_vitl16", "num_classes": 3, **hparams}},
+            path,
+        )
+        return path
+
+    def test_stitching_masking_dilation_and_normalisation_record(
+        self, tmp_path, block_raster, fake_segmenter
+    ):
         from agribound.engines.dinov3 import DINOv3Engine
 
-        raster, data = s2_raster
+        raster, data = block_raster
+        mean, std = [0.43, 0.411, 0.296], [0.213, 0.156, 0.143]
+        ckpt = self._ckpt(
+            tmp_path / "dinov3.ckpt", input_mean=mean, input_std=std, boundary_erosion=1
+        )
         cfg = _s2_config(
             tmp_path,
             "dinov3",
             min_field_area_m2=0,
-            engine_params={"checkpoint_path": str(ckpt), "dinov3_model": "large"},
+            engine_params={"checkpoint_path": str(ckpt), "window_size": 64},
         )
         gdf = DINOv3Engine().delineate(raster, cfg)
-        inp = fake_segment["input"]
-        assert inp.dtype == np.float32 and inp.max() <= 1.0
+        # the model gets the stretched [0, 1] input (it normalises it itself) in whole windows
+        assert all(x.shape[-2:] == (64, 64) for x in fake_segmenter["inputs"])
         lows, highs = _data.scene_stretch_bounds(raster, [4, 3, 2])
         expected = _data.apply_stretch(data[[3, 2, 1]], lows, highs).astype(np.float32) / 255
-        np.testing.assert_allclose(inp, expected)
-        assert fake_segment["model_name"] == "dinov3_vitl16" and fake_segment["num_classes"] == 3
-        # no training chip size recorded: geoai's 512 px window, capped at the 96 px
-        # raster, so no padding is needed
-        assert fake_segment["window_size"] == 96 and fake_segment["overlap"] == 48
-        # the nodata corner prediction was removed; the 30 x 30 px interior was grown
-        # by the training boundary_erosion (1 px, city-block) into the boundary class:
-        # 32 x 32 px minus the 4 corner pixels
+        first = fake_segmenter["inputs"][0][0].numpy()
+        np.testing.assert_allclose(first, expected[:, :64, :64])
+        (load,) = fake_segmenter["loads"]
+        assert load["map_location"] == "cpu" and load["weights_path"] is None
+        # one interior region grown by the checkpoint's boundary width (1 px, city block):
+        # 32 x 32 px minus the 4 corner pixels; the nodata corner (boundary) is removed
         assert len(gdf) == 1
         assert gdf.geometry.iloc[0].area == pytest.approx((32 * 32 - 4) * 10.0**2)
+        (seg,) = [
+            p
+            for p in Path(cfg.get_working_dir()).glob("dinov3_segmentation_*.tif")
+            if "_fields_" not in p.name
+        ]
+        with rasterio.open(seg) as src:
+            pred = src.read(1)
+        assert (pred[:8, :8] == 0).all() and (pred[8:, 8:] > 0).all()
         meta = gdf.attrs["engine_meta"]
-        assert meta["window_capped"] is True and meta["input_padding"] is None
-        assert meta["use_lora"] is True and meta["dilate_interior_px"] == 1
-        assert meta["trainable_params"] == {"total": 7}
+        assert meta["input_normalization"] == {"mean": mean, "std": std}
+        assert meta["window_stitching"] == "blend" and meta["dilate_interior_px"] == 1
+        # 96 px, 64 px windows every 32 px: the input is extended to 96 px, 2 x 2 windows
+        assert meta["window_size"] == 64 and meta["overlap"] == 32 and meta["n_windows"] == 4
         assert meta["device"] == "cpu" and "cache_reused" not in meta
         json.dumps(meta)
-        # A second run reuses the cached segmentation and reports the device
-        # that produced it, not the current one.
-        fake_segment.clear()
+        # A second run reuses the cached segmentation and reports the device that made it.
+        fake_segmenter["loads"].clear()
         again = DINOv3Engine().delineate(raster, cfg.merged(device="mps"))
-        assert fake_segment == {}
+        assert fake_segmenter["loads"] == []
         assert again.attrs["engine_meta"]["device"] == "cpu"
         assert again.attrs["engine_meta"]["cache_reused"] is True
+        # The stitching is part of the cache key.
+        crop = DINOv3Engine().delineate(
+            raster,
+            cfg.merged(engine_params={**cfg.engine_params, "window_stitching": "crop"}),
+        )
+        assert len(fake_segmenter["loads"]) == 1
+        assert crop.attrs["engine_meta"]["window_stitching"] == "crop"
+        with pytest.raises(ValueError, match="window_stitching"):
+            DINOv3Engine().delineate(
+                raster,
+                cfg.merged(engine_params={**cfg.engine_params, "window_stitching": "mean"}),
+            )
+
+    def test_window_from_the_checkpoint_without_its_metadata_file(
+        self, tmp_path, block_raster, fake_segmenter
+    ):
+        """A checkpoint moved without <checkpoint>.agribound.json keeps its 64 px window."""
+        from agribound.engines.dinov3 import DINOv3Engine
+
+        raster, _ = block_raster
+        ckpt = self._ckpt(tmp_path / "moved.ckpt", chip_size=64, boundary_erosion=4)
+        assert not _data.training_meta_path(ckpt).exists()
+        cfg = _s2_config(tmp_path, "dinov3", engine_params={"checkpoint_path": str(ckpt)})
+        meta = DINOv3Engine().delineate(raster, cfg).attrs["engine_meta"]
+        assert meta["window_source"] == "training_chip_size" and meta["window_size"] == 64
+        assert meta["training_chip_size"] == 64 and meta["dilate_interior_px"] == 4
+        # The metadata file, when present, is read first.
+        _data.write_training_meta(ckpt, {"chip_size": 32})
+        other = cfg.merged(cache_dir=str(tmp_path / "other"))
+        meta = DINOv3Engine().delineate(raster, other).attrs["engine_meta"]
+        assert meta["window_size"] == 32
+
+    def test_checkpoint_without_statistics_gets_none(self, tmp_path, block_raster, fake_segmenter):
+        """Checkpoints of agribound 1.0.1 (geoai's class) record no normalisation."""
+        from agribound.engines.dinov3 import DINOv3Engine
+
+        raster, _ = block_raster
+        ckpt = self._ckpt(tmp_path / "old.ckpt")
+        _data.write_training_meta(ckpt, {"boundary_erosion": 2, "chip_size": 64})
+        cfg = _s2_config(tmp_path, "dinov3", engine_params={"checkpoint_path": str(ckpt)})
+        meta = DINOv3Engine().delineate(raster, cfg).attrs["engine_meta"]
+        assert meta["input_normalization"] is None and meta["dilate_interior_px"] == 2
+        assert meta["window_source"] == "training_chip_size" and meta["window_size"] == 64
 
     def _ckpt_with_weights(self, tmp_path, model_name, weights_path):
-        import torch
-
-        path = tmp_path / f"{model_name}.ckpt"
-        torch.save(
-            {
-                "hyper_parameters": {
-                    "model_name": model_name,
-                    "num_classes": 3,
-                    "weights_path": weights_path,
-                }
-            },
-            path,
+        return self._ckpt(
+            tmp_path / f"{model_name}.ckpt", model_name=model_name, weights_path=weights_path
         )
-        return path
 
     def test_checkpoint_weights_path_is_what_geoai_uses(
-        self, tmp_path, s2_raster, fake_segment, caplog
+        self, tmp_path, block_raster, fake_segmenter, caplog
     ):
         from agribound.engines.dinov3 import DINOv3Engine
 
-        raster, _ = s2_raster
+        raster, _ = block_raster
         init = tmp_path / "vitl16_init.pth"
         init.write_bytes(b"w")
         ckpt = self._ckpt_with_weights(tmp_path, "dinov3_vitl16", str(init))
@@ -657,13 +961,13 @@ class TestDINOv3Engine:
             gdf = DINOv3Engine().delineate(raster, cfg)
         # the user's weights_path is not what geoai loads for a .ckpt: warned, not passed
         assert "is not used for inference" in caplog.text
-        assert fake_segment["weights_path"] == str(init)
+        assert fake_segmenter["loads"][0]["weights_path"] == str(init)
         assert gdf.attrs["engine_meta"]["weights"] == str(init)
 
-    def test_missing_checkpoint_weights(self, tmp_path, s2_raster, fake_segment, caplog):
+    def test_missing_checkpoint_weights(self, tmp_path, block_raster, fake_segmenter, caplog):
         from agribound.engines.dinov3 import DINOv3Engine
 
-        raster, _ = s2_raster
+        raster, _ = block_raster
         missing = str(tmp_path / "gone.pth")
         # ViT-L/16: geoai initialises from SAT-493M, the checkpoint then replaces
         # every weight -> warning only
@@ -672,71 +976,26 @@ class TestDINOv3Engine:
         with caplog.at_level(logging.WARNING, logger="agribound.engines.dinov3"):
             DINOv3Engine().delineate(raster, cfg)
         assert "do not exist here" in caplog.text
-        assert fake_segment["weights_path"] is None
+        assert fake_segmenter["loads"][0]["weights_path"] is None
         # another backbone: the SAT-493M ViT-L/16 weights do not fit -> error
-        fake_segment.clear()
+        fake_segmenter["loads"].clear()
         ckpt_b = self._ckpt_with_weights(tmp_path, "dinov3_vitb16", missing)
         with pytest.raises(FileNotFoundError, match="do not fit dinov3_vitb16"):
             DINOv3Engine().delineate(
                 raster,
                 _s2_config(tmp_path, "dinov3", engine_params={"checkpoint_path": str(ckpt_b)}),
             )
-        assert fake_segment == {}
+        assert fake_segmenter["loads"] == []
 
-    def test_real_geoai_windows_are_never_zero_padded(self, tmp_path, monkeypatch):
-        """geoai's own sliding window, fed the padded input, only sees image content."""
-        torch = pytest.importorskip("torch")
-
-        mod = pytest.importorskip("geoai.dinov3_finetune")
+    def test_windows_are_never_zero_padded(self, tmp_path, fake_segmenter):
+        """The input is mirror-padded so that every window is whole and holds image content."""
         from agribound.engines.dinov3 import DINOv3Engine
 
-        class FakeSegmenter(torch.nn.Module):
-            patch_size = 16
-
-            def __init__(self):
-                super().__init__()
-                self.windows = []
-
-            def forward(self, x):
-                self.windows.append(x.detach().cpu().numpy().copy())
-                logits = torch.zeros(x.shape[0], 3, x.shape[2], x.shape[3])
-                logits[:, 1] = 1.0  # field interior everywhere
-                return logits
-
-        fake = FakeSegmenter()
-        monkeypatch.setattr(
-            mod.DINOv3Segmenter, "load_from_checkpoint", staticmethod(lambda *a, **k: fake)
-        )
         rng = np.random.default_rng(4)
         data = rng.uniform(300, 3000, (12, 150, 90)).astype(np.float32)  # no nodata
         raster = _write(tmp_path / "s2.tif", data, nodata=float("nan"))
-        ckpt = tmp_path / "dinov3.ckpt"
-        torch.save({"hyper_parameters": {"model_name": "dinov3_vitl16", "num_classes": 3}}, ckpt)
+        ckpt = self._ckpt(tmp_path / "dinov3.ckpt")
         _data.write_training_meta(ckpt, {"chip_size": 64, "boundary_erosion": 2})
-
-        def zero_edges(batches):
-            # windows whose last row or last column is 0 in every band (zero padding)
-            return sum(
-                bool((w[:, -1, :] == 0).all() or (w[:, :, -1] == 0).all())
-                for batch in batches
-                for w in batch
-            )
-
-        # geoai on the unpadded RGB input: its partial last windows are zero-padded
-        rgb = tmp_path / "rgb.tif"
-        _data.write_rgb_input(raster, rgb, [4, 3, 2], unit_float=True)
-        mod.dinov3_segment_geotiff(
-            str(rgb),
-            str(tmp_path / "raw.tif"),
-            str(ckpt),
-            window_size=64,
-            overlap=32,
-            device="cpu",
-            quiet=True,
-        )
-        assert zero_edges(fake.windows) > 0
-        fake.windows.clear()
-
         cfg = _s2_config(tmp_path, "dinov3", engine_params={"checkpoint_path": str(ckpt)})
         gdf = DINOv3Engine().delineate(raster, cfg)
         meta = gdf.attrs["engine_meta"]
@@ -744,8 +1003,14 @@ class TestDINOv3Engine:
         assert meta["window_size"] == 64 and meta["overlap"] == 32
         assert meta["window_source"] == "training_chip_size"
         assert meta["input_padded_to"] == [160, 96] and meta["input_padding"] == "reflect"
-        assert fake.windows and zero_edges(fake.windows) == 0
-        assert all(w.shape[-2:] == (64, 64) for w in fake.windows)
+        windows = fake_segmenter["inputs"]
+        assert windows and all(w.shape[-2:] == (64, 64) for w in windows)
+        # no window has a last row or column that is 0 in every band (zero padding)
+        assert not any(
+            bool((w[:, -1, :] == 0).all() or (w[:, :, -1] == 0).all())
+            for batch in windows
+            for w in batch
+        )
         # the prediction is cropped back to the raster grid
         (seg,) = [
             p
@@ -754,7 +1019,6 @@ class TestDINOv3Engine:
         ]
         with rasterio.open(seg) as src, rasterio.open(raster) as ref:
             assert (src.height, src.width) == (150, 90) and src.transform == ref.transform
-        assert len(gdf) == 1 and gdf.geometry.iloc[0].area == pytest.approx(150 * 90 * 100.0)
 
     def test_plan_dinov3_windows(self):
         from agribound.engines.dinov3 import plan_dinov3_windows
@@ -780,10 +1044,10 @@ class TestDINOv3Engine:
         with pytest.raises(ValueError, match="overlap must be in"):
             plan_dinov3_windows(600, 700, window_size=256, overlap=256)
 
-    def test_requires_ckpt_file(self, tmp_path, s2_raster, fake_segment):
+    def test_requires_ckpt_file(self, tmp_path, block_raster, fake_segmenter):
         from agribound.engines.dinov3 import DINOv3Engine
 
-        raster, _ = s2_raster
+        raster, _ = block_raster
         with pytest.raises(RuntimeError, match="fine-tuned checkpoint"):
             DINOv3Engine().delineate(raster, _s2_config(tmp_path, "dinov3"))
         pth = tmp_path / "state.pth"
@@ -792,57 +1056,235 @@ class TestDINOv3Engine:
             DINOv3Engine().delineate(
                 raster, _s2_config(tmp_path, "dinov3", engine_params={"checkpoint_path": str(pth)})
             )
+        assert fake_segmenter["loads"] == []
 
 
 class TestFinetuneDINOv3:
-    def _fake_model(self, best_path, attached=True):
+    def test_class_weights(self, tmp_path):
+        from agribound.engines.finetune._dinov3 import (
+            DEFAULT_CLASS_WEIGHT_CAP,
+            class_pixel_counts,
+            class_weights_from_counts,
+            resolve_class_weights,
+        )
+
+        # N / (K n_c): 1000 / (3 * [900, 90, 10]); the average weight per pixel is 1
+        uncapped = class_weights_from_counts([900, 90, 10], cap=None)
+        np.testing.assert_allclose(uncapped, [1000 / 2700, 1000 / 270, 1000 / 30])
+        assert np.dot(uncapped, [900, 90, 10]) / 1000 == pytest.approx(1.0)
+        assert DEFAULT_CLASS_WEIGHT_CAP == 10
+        assert class_weights_from_counts([900, 90, 10])[2] == 10.0  # capped
+        # a class without pixels counts as one pixel (then capped)
+        assert class_weights_from_counts([50, 50, 0], cap=None)[2] == pytest.approx(100 / 3)
+        with pytest.raises(ValueError, match="at least 1"):
+            class_weights_from_counts([1, 1, 1], cap=0.5)
+        with pytest.raises(ValueError, match="no labelled pixels"):
+            class_weights_from_counts([0, 0, 0])
+
+        masks = []
+        for k, mask in enumerate(
+            (np.array([[0, 0, 1, 255]], np.uint8), np.array([[1, 1, 2, 255]], np.uint8))
+        ):
+            masks.append(_write(tmp_path / f"m{k}.tif", mask[np.newaxis]))
+        assert class_pixel_counts([Path(m) for m in masks]).tolist() == [2, 3, 1]
+        weights, info = resolve_class_weights({}, [Path(m) for m in masks])
+        assert weights == class_weights_from_counts([2, 3, 1])
+        assert info["class_weight_rule"] == "inverse_frequency"
+        assert info["class_pixel_counts"] == [2, 3, 1] and info["class_weight_cap"] == 10
+        no_cap, _ = resolve_class_weights({"class_weight_cap": None}, [Path(m) for m in masks])
+        assert no_cap == class_weights_from_counts([2, 3, 1], cap=None)
+        assert resolve_class_weights({"class_weights": None}, []) == (
+            None,
+            {"class_weights": None, "class_weight_rule": "none"},
+        )
+        assert resolve_class_weights({"class_weights": "none"}, [])[0] is None
+        given, info = resolve_class_weights({"class_weights": [1, 2, 3]}, [])
+        assert given == [1.0, 2.0, 3.0] and info["class_weight_rule"] == "given"
+        for bad in ([1, 2], [0, 0, 0], [1, -1, 1], "balanced", [1, 2, float("nan")]):
+            with pytest.raises(ValueError, match="class_weights"):
+                resolve_class_weights({"class_weights": bad}, [])
+        for cap in (0.5, "10", True):
+            with pytest.raises(ValueError, match="class_weight_cap"):
+                resolve_class_weights({"class_weight_cap": cap}, [Path(m) for m in masks])
+
+    def test_monitor(self):
+        from agribound.engines.finetune._dinov3 import resolve_monitor
+
+        assert resolve_monitor() == ("val_miou", "max")
+        assert resolve_monitor("val_loss") == ("val_loss", "min")
+        with pytest.raises(ValueError, match="monitor"):
+            resolve_monitor("val_iou")
+
+    @pytest.mark.parametrize("monitor", ["val_miou", "val_loss"])
+    def test_training_recipe(self, s2_chips, fake_backbone, monitor):
+        """A real Lightning run with a tiny backbone: weights, checkpoint metric, records."""
+        import csv
+
         import torch
 
-        model = types.SimpleNamespace()
-        model.backbone = torch.nn.Linear(4, 4)
-        model.decoder = torch.nn.Linear(4, 2)
-        for p in model.backbone.parameters():
-            p.requires_grad = False
+        mod = pytest.importorskip("geoai.dinov3_finetune")
+        from agribound.engines.dinov3 import dinov3_segmenter_class
+        from agribound.engines.finetune import _dinov3
 
-        def parameters():
-            yield from model.backbone.parameters()
-            yield from model.decoder.parameters()
+        params = {"decoder_features": 8, "trainer_kwargs": {"enable_progress_bar": False}}
+        if monitor != "val_miou":
+            params["monitor"] = monitor
+        cfg, td, _ = s2_chips("dinov3", **params)
+        cfg = cfg.merged(fine_tune_epochs=3, n_workers=0)
+        best = Path(_dinov3._finetune_dinov3(td, cfg))
+        assert monitor in best.name
+        # only the best checkpoint is written (no last.ckpt)
+        assert [p.name for p in best.parent.glob("*.ckpt")] == [best.name]
 
-        model.parameters = parameters
-        if attached:
-            cb = types.SimpleNamespace(best_model_path=str(best_path), best_model_score=0.25)
-            model.trainer = types.SimpleNamespace(checkpoint_callback=cb)
-        return model
+        meta = _data.read_training_meta(best)
+        masks = _data.split_files(td, "train", "masks")
+        counts = _dinov3.class_pixel_counts(masks)
+        assert meta["class_weights"] == _dinov3.class_weights_from_counts(counts)
+        assert meta["class_pixel_counts"] == counts.tolist()
+        assert meta["recipe_version"] == _dinov3.RECIPE_VERSION == 2
+        assert meta["monitor"] == monitor
+        assert meta["input_normalization"]["name"] == "sat493m"
+        # DINOv3 chips have a 4 px boundary band by default; the checkpoint records it
+        assert meta["boundary_erosion"] == _data.read_chip_meta(td)["boundary_erosion"] == 4
 
-    def test_uses_prepared_split_and_best_checkpoint(self, monkeypatch, s2_chips):
+        # The best epoch by the monitored metric, read from Lightning's CSV log.
+        (log,) = best.parent.glob("lightning_logs/*/metrics.csv")
+        rows = [r for r in csv.DictReader(log.open()) if r.get(monitor)]
+        values = [float(r[monitor]) for r in rows]
+        assert {"val_iou_background", "val_iou_interior", "val_iou_boundary"} <= set(rows[0])
+        expected = values.index(max(values) if monitor == "val_miou" else min(values))
+        assert meta["best_epoch"] == int(rows[expected]["epoch"])
+        assert meta["best_model_score"] == pytest.approx(values[expected])
+
+        hparams = _data.read_checkpoint_hparams(best)
+        assert hparams["input_mean"] == [0.43, 0.411, 0.296]
+        assert hparams["boundary_erosion"] == 4
+        assert hparams["chip_size"] == meta["chip_size"] == _data.read_chip_meta(td)["chip_size"]
+        # 10 m chips are cut from the raster itself: no processing grid is recorded.
+        assert hparams["processing_gsd_m"] is None and "processing_gsd_m" not in meta
+        torch.testing.assert_close(
+            hparams["class_weights"], torch.tensor(meta["class_weights"], dtype=torch.float32)
+        )
+        model = dinov3_segmenter_class().load_from_checkpoint(str(best), map_location="cpu")
+        assert model.normalizes_input
+        torch.testing.assert_close(model.loss_fn.weight, hparams["class_weights"])
+        # geoai's own class still loads the checkpoint (strictly), without the normalisation
+        plain = mod.DINOv3Segmenter.load_from_checkpoint(str(best), map_location="cpu")
+        assert not hasattr(plain, "normalizes_input")
+
+    def test_version_1_settings_train_as_geoai_did(self, s2_chips, fake_backbone):
+        """With the 1.0.1 settings the loop trains exactly as geoai's train_dinov3_segmentation."""
+        import torch
+
         mod = pytest.importorskip("geoai.dinov3_finetune")
         from agribound.engines.finetune import _dinov3
 
-        cfg, td, _ = s2_chips("dinov3", use_lora=True, lora_rank=8)
-        seen = {}
+        kwargs = {"enable_progress_bar": False, "enable_model_summary": False}
+        old = {"class_weights": None, "monitor": "val_loss", "input_normalization": "none"}
+        cfg, td, _ = s2_chips(
+            "dinov3", boundary_erosion=2, decoder_features=8, trainer_kwargs=kwargs, **old
+        )
+        cfg = cfg.merged(fine_tune_epochs=2, n_workers=0)
+        torch.manual_seed(0)
+        ours = Path(_dinov3._finetune_dinov3(td, cfg))
+        files = {
+            split: [str(p) for p in _data.split_files(td, split, kind)]
+            for split, kind in (("train", "images"), ("val", "images"))
+        }
+        masks = {
+            split: [str(p) for p in _data.split_files(td, split, "masks")]
+            for split in ("train", "val")
+        }
+        torch.manual_seed(0)
+        model = mod.train_dinov3_segmentation(
+            train_dataset=mod.DINOv3SegmentationDataset(files["train"], masks["train"]),
+            val_dataset=mod.DINOv3SegmentationDataset(files["val"], masks["val"]),
+            model_name="dinov3_vitl16",
+            num_classes=3,
+            decoder_features=8,
+            output_dir=str(td.parent / "geoai_run"),
+            batch_size=4,
+            num_epochs=2,
+            num_workers=0,
+            freeze_backbone=False,
+            accelerator="cpu",
+            devices=1,
+            save_top_k=1,
+            **kwargs,
+        )
+        theirs = Path(model.trainer.checkpoint_callback.best_model_path)
+        assert ours.name.split("_val_loss")[0] == theirs.name.split("_val_loss")[0]
+        a = torch.load(ours, map_location="cpu", weights_only=False)["state_dict"]
+        b = torch.load(theirs, map_location="cpu", weights_only=False)["state_dict"]
+        assert a.keys() == b.keys()
+        for key in a:
+            torch.testing.assert_close(a[key], b[key], rtol=0, atol=0)
 
-        def fake_train(**kwargs):
-            seen.update(kwargs)
-            models = Path(kwargs["output_dir"]) / "models"
-            models.mkdir(parents=True, exist_ok=True)
-            (models / "last.ckpt").write_bytes(b"last")
-            best = models / "dinov3_seg_epoch=00_val_loss=0.2500.ckpt"
-            best.write_bytes(b"best")
-            return self._fake_model(best)
+    def test_coarse_raster_trains_and_infers_on_the_10m_grid(self, tmp_path, fake_backbone):
+        """A 30 m raster: chips from the 10 m copy, the grid recorded, inference on that grid.
 
-        monkeypatch.setattr(mod, "train_dinov3_segmentation", fake_train)
-        best = Path(_dinov3._finetune_dinov3(td, cfg))
-        assert best.name.startswith("dinov3_seg_epoch=00")
-        # geoai's unused last.ckpt (3.7 GB for ViT-L) is deleted; the best one is kept.
-        assert not (best.parent / "last.ckpt").exists() and best.read_bytes() == b"best"
-        assert seen["use_lora"] is True and seen["freeze_backbone"] is True
-        assert seen["lora_rank"] == 8 and seen["devices"] == 1 and seen["ignore_index"] == 255
-        assert len(seen["val_dataset"]) == len(_data.split_files(td, "val", "images"))
-        assert len(seen["train_dataset"]) == len(_data.split_files(td, "train", "images"))
+        The checkpoint records the grid in ``<checkpoint>.agribound.json`` and in its
+        hyper-parameters, so a checkpoint moved without that file reads the grid too.
+        """
+        import shutil
+
+        pytest.importorskip("geoai.dinov3_finetune")
+        from agribound.engines.dinov3 import DINOv3Engine
+        from agribound.engines.finetune import fine_tune
+
+        rng = np.random.default_rng(3)
+        data = rng.uniform(300, 600, (6, 50, 50)).astype(np.float32)
+        data[:, 8:40, 8:40] += 2000.0
+        raster = _write(tmp_path / "landsat30.tif", data, res=30.0, nodata=float("nan"))
+        fields = [
+            box(X0 + 300, Y0 - 700, X0 + 700, Y0 - 300),
+            box(X0 + 700, Y0 - 700, X0 + 1100, Y0 - 300),
+            box(X0 + 300, Y0 - 1150, X0 + 1100, Y0 - 750),
+        ]
+        ref = tmp_path / "ref.gpkg"
+        gpd.GeoDataFrame(geometry=fields, crs=UTM).to_file(ref)
+        params = {
+            "chip_size": 64,
+            "min_label_fraction": 0.0,
+            "decoder_features": 8,
+            "trainer_kwargs": {"enable_progress_bar": False, "enable_model_summary": False},
+        }
+        cfg = _s2_config(
+            tmp_path,
+            "dinov3",
+            source="landsat",
+            reference_boundaries=str(ref),
+            fine_tune_split="random",
+            fine_tune_epochs=2,
+            n_workers=0,
+            min_field_area_m2=0,
+            engine_params=params,
+        )
+        best = Path(fine_tune(raster, cfg))
         meta = _data.read_training_meta(best)
-        assert meta["trainable_params"]["backbone"] == 0
-        assert meta["trainable_params"]["decoder"] == 10
-        assert meta["best_model_score"] == 0.25
+        assert meta["processing_gsd_m"] == 10.0
+        assert meta["processing"]["scale"] == 3.0 and meta["processing"]["size_px"] == [150, 150]
+        assert _data.read_checkpoint_hparams(best)["processing_gsd_m"] == 10.0
+        run = cfg.merged(engine_params={**params, "checkpoint_path": str(best)})
+        processing = DINOv3Engine().delineate(raster, run).attrs["engine_meta"]["processing"]
+        assert processing["gsd_m"] == 10.0 and processing["size_px"] == [150, 150]
+        # Moved and renamed without <checkpoint>.agribound.json.
+        moved = tmp_path / "elsewhere" / "landsat_dinov3.ckpt"
+        moved.parent.mkdir()
+        shutil.copy(best, moved)
+        assert _data.read_training_meta(moved) == {}
+        run = cfg.merged(engine_params={**params, "checkpoint_path": str(moved)})
+        meta_moved = DINOv3Engine().delineate(raster, run).attrs["engine_meta"]
+        assert meta_moved["processing"]["gsd_m"] == 10.0
+        assert meta_moved["window_size"] == 64  # the chip size, also a hyper-parameter
+
+    def test_misplaced_trainer_kwargs_raise(self, s2_chips):
+        pytest.importorskip("geoai.dinov3_finetune")
+        from agribound.engines.finetune import _dinov3
+
+        cfg, td, _ = s2_chips("dinov3", trainer_kwargs={"class_weights": [1, 1, 1]})
+        with pytest.raises(ValueError, match=r"engine_params\['class_weights'\]"):
+            _dinov3._finetune_dinov3(td, cfg)
 
     def test_best_checkpoint_fallback_and_errors(self, tmp_path):
         from agribound.engines.finetune._dinov3 import _best_checkpoint

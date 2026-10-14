@@ -3,7 +3,9 @@
 Functions for reading, writing and inspecting GeoTIFF files used throughout
 the Agribound pipeline, plus helpers that convert composite pixel values
 between the value scales recorded in :mod:`agribound.registry`
-(:func:`to_unit_reflectance`, :func:`to_s2_dn`, :func:`percentile_stretch_uint8`).
+(:func:`to_unit_reflectance`, :func:`to_s2_dn`, :func:`percentile_stretch_uint8`)
+and that keep class-code rasters (value scale ``"categorical"``) away from the
+code that reads imagery (:func:`raster_value_scale`, :func:`refuse_categorical`).
 """
 
 from __future__ import annotations
@@ -141,6 +143,32 @@ def read_raster(
         return data, meta
 
 
+def _copy_color_interpretation(src: Any, dst: Any) -> None:
+    """Give the new GeoTIFF *dst* the colour interpretation of *src* (before any pixel).
+
+    *dst* must be created with ``ALPHA="UNSPECIFIED"``: GDAL otherwise tags
+    band 4 of a 4-band uint8 GeoTIFF as alpha, which its warper (``WarpedVRT``,
+    ``gdalwarp``) and ``rasterio.merge`` use as transparency. Call this before
+    writing pixels: GDAL tags a band as alpha (when *src* has one) only
+    then. A single palette band keeps its colour table; a palette band
+    without one is written as grey.
+    """
+    from rasterio.enums import ColorInterp
+
+    interp = list(src.colorinterp)
+    table = None
+    if interp == [ColorInterp.palette]:
+        try:
+            table = src.colormap(1)
+        except ValueError:  # no colour table
+            table = None
+    if table is None:
+        interp = [ColorInterp.gray if c == ColorInterp.palette else c for c in interp]
+    dst.colorinterp = interp
+    if table is not None:
+        dst.write_colormap(1, table)
+
+
 def write_raster(
     path: str | Path,
     data: np.ndarray,
@@ -151,6 +179,9 @@ def write_raster(
     compress: str = "lzw",
 ) -> str:
     """Write a NumPy array as a GeoTIFF.
+
+    No band is tagged as alpha (``ALPHA=UNSPECIFIED``; GDAL's default for 4
+    uint8 bands is red, green, blue, alpha).
 
     Parameters
     ----------
@@ -200,6 +231,7 @@ def write_raster(
         blockxsize=256,
         blockysize=256,
         BIGTIFF="YES",
+        ALPHA="UNSPECIFIED",
     ) as dst:
         dst.write(data)
 
@@ -234,7 +266,8 @@ def clip_raster_to_geometry(
     -----
     Pixels outside the geometry are set to the source nodata value. Float
     rasters without a nodata value get NaN (and nodata=NaN); integer rasters
-    without one get 0, which is then indistinguishable from valid zeros.
+    without one get 0, which is then indistinguishable from valid zeros. The
+    bands keep the source's colour interpretation (no alpha band is added).
     """
     from rasterio.mask import mask as rio_mask
     from rasterio.warp import transform_geom
@@ -272,12 +305,14 @@ def clip_raster_to_geometry(
                 "transform": out_transform,
                 "compress": "lzw",
                 "BIGTIFF": "YES",
+                "ALPHA": "UNSPECIFIED",
             }
         )
         if fill is not None:
             out_meta["nodata"] = fill
 
         with rasterio.open(dst_path, "w", **out_meta) as dst:
+            _copy_color_interpretation(src, dst)
             dst.write(out_image)
 
     return str(dst_path)
@@ -365,10 +400,101 @@ def infer_value_scale(arr: np.ndarray) -> str:
     return "reflectance_x10000"
 
 
-def _scale_divisor(source: str, arr: np.ndarray, allow_unknown: bool, value_scale: str | None):
-    from agribound.registry import source_value_scale
+#: GeoTIFF tag in which agribound's builders record a raster's value scale.
+VALUE_SCALE_TAG = "AGRIBOUND_VALUE_SCALE"
 
+
+def raster_value_scale(path: str | Path) -> str | None:
+    """Return the value scale recorded in a raster's ``AGRIBOUND_VALUE_SCALE`` tag.
+
+    agribound's builders write the tag (one of
+    :data:`agribound.registry.VALUE_SCALES`); a user's GeoTIFF has it only
+    when it was written by agribound or tagged by its user.
+
+    Parameters
+    ----------
+    path : str or Path
+        Raster file.
+
+    Returns
+    -------
+    str or None
+        The tag value in lower case, or *None* when the raster has no such tag
+        or cannot be read.
+    """
+    try:
+        with rasterio.open(path) as src:
+            value = src.tags().get(VALUE_SCALE_TAG)
+    except Exception:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip().lower()
+
+
+def refuse_categorical(path: str | Path, config: Any, what: str) -> None:
+    """Raise :class:`ValueError` if *path* holds class codes and *what* reads imagery.
+
+    A raster holds class codes when its ``AGRIBOUND_VALUE_SCALE`` tag is
+    ``"categorical"`` (:func:`raster_value_scale`) or ``config.source`` is one
+    of :data:`agribound.registry.CROP_SEQUENCE_SOURCES`. The codes are nominal
+    (no distance or mean of codes is meaningful), so only the engines of
+    :data:`agribound.registry.CATEGORICAL_ENGINES` read them.
+
+    Parameters
+    ----------
+    path : str or Path
+        Input raster.
+    config : AgriboundConfig or None
+        Configuration of the run (its ``source`` is checked when present).
+    what : str
+        What would read the raster, for the message (e.g. ``"Engine 'ftw'"``).
+
+    Raises
+    ------
+    ValueError
+        If the raster holds class codes.
+    """
+    from agribound.registry import CATEGORICAL_ENGINES, CROP_SEQUENCE_SOURCES
+
+    source = getattr(config, "source", None)
+    tagged = raster_value_scale(path) == "categorical"
+    if not tagged and source not in CROP_SEQUENCE_SOURCES:
+        return
+    why = (
+        "its AGRIBOUND_VALUE_SCALE tag is 'categorical'"
+        if tagged
+        else f"source {source!r} is a stack of crop-type maps"
+    )
+    raise ValueError(
+        f"{what} cannot read {path}: it holds class codes of annual crop-type maps, not imagery "
+        f"({why}). Class codes are nominal, so only engine "
+        f"{' or '.join(repr(e) for e in CATEGORICAL_ENGINES)} reads them; its output is "
+        "crop-history zones, not field instances."
+    )
+
+
+def _scale_divisor(source: str, arr: np.ndarray, allow_unknown: bool, value_scale: str | None):
+    from agribound.registry import SAR_SOURCES, source_value_scale
+
+    if value_scale is None and source in SAR_SOURCES:
+        # sentinel1 is "uint8" too, but its values are scaled radar backscatter (dB); the
+        # open VHR SAR composites hold log-scaled amplitude (Umbra DN, Capella dB + 50).
+        what = (
+            "radar backscatter scaled from dB"
+            if source == "sentinel1"
+            else "log-scaled radar amplitude"
+        )
+        raise ValueError(
+            f"Source {source!r} (value scale {source_value_scale(source)!r}) is {what}, not "
+            "optical reflectance. Pass value_scale=... to rescale its values anyway."
+        )
     scale = value_scale or source_value_scale(source)
+    if scale == "categorical":
+        raise ValueError(
+            f"Source {source!r} (value scale 'categorical') holds class codes of crop-type maps, "
+            "not optical reflectance; codes are nominal and cannot be rescaled."
+        )
     if scale in ("dn", "unknown"):
         if not allow_unknown:
             raise ValueError(
@@ -423,8 +549,13 @@ def to_unit_reflectance(
     Raises
     ------
     ValueError
-        For embedding sources, and for ``"dn"``/``"unknown"`` sources unless
-        *allow_unknown* or *value_scale* is given.
+        For embedding sources, for class-code sources (value scale
+        ``"categorical"``: ``cdl-sequence``, ``aci-sequence``, or
+        ``value_scale="categorical"``), for SAR sources (``sentinel1``, whose
+        uint8 values are backscatter scaled from dB, and ``umbra``/``capella``,
+        whose values are log-scaled amplitude) unless *value_scale* is given,
+        and for ``"dn"``/``"unknown"`` sources unless *allow_unknown* or
+        *value_scale* is given.
     """
     divisor = _scale_divisor(source, arr, allow_unknown, value_scale)
     return (np.asarray(arr, dtype=np.float32) / np.float32(divisor)).astype(np.float32)

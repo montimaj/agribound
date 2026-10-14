@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """
-Render the agribound 1.0 workflow diagram.
+Render the agribound 1.1 workflow diagram.
 
 Usage::
 
     python tools/make_workflow_diagram.py            # writes assets/agribound_workflow_1.0.*
     python tools/make_workflow_diagram.py --out-dir /tmp/diagram --no-verify
 
-Outputs (same drawing in three formats):
+Outputs (same drawing in three formats; the file names date from 1.0):
 
 - ``agribound_workflow_1.0.png``: 5700 x 3645 px, 300 dpi, white background;
 - ``agribound_workflow_1.0.svg``: glyphs converted to paths (no font needed to view it);
@@ -26,8 +26,10 @@ The layout keeps the look of the 0.1.x workflow figure (removed from
 ``assets/`` in 1.0.0; it is in the git history): a flat vector look with
 light rounded stage cards and slate borders, numbered dark circles, engine
 chips coloured by family (task-specific segmentation, light
-blue; geospatial foundation model, light orange; embedding clustering, light
-green; multi-engine ensemble, light purple) with a legend row at the bottom,
+blue; foundation model, light orange: the geospatial DINOv3 and Prithvi and the
+general-purpose SAM 2.1; embedding clustering, light green; crop-history
+zones, light ochre; multi-engine ensemble, light purple) with a legend row at
+the bottom,
 a dashed teal band across the top for the optional agent layer, bold dark
 arrows between the stages, and the LULC dataset stack below its stage.
 
@@ -37,8 +39,9 @@ arrows between the stages, and the LULC dataset stack below its stage.
   reproducibility features are not optional, so they sit in a separate solid
   card beside the band, aligned with the stage-6 column.
 - The family colours belong to the engines: the engine chips, the field
-  shapes (one per family) and the embedding fields in the Inputs card, which
-  only the embedding engine reads. The stage numbers are all dark (grey for
+  shapes (one per family), the embedding fields in the Inputs card, which
+  only the embedding engine reads, and the crop-type maps there, which only
+  the crop-sequence engine reads. The stage numbers are all dark (grey for
   the optional stage 2) and the LULC dataset chips are neutral, so the legend
   has one reading.
 - Stage titles share one baseline, and every stage body starts the same gap
@@ -98,7 +101,9 @@ sources of truth are:
   ``large_v2`` = YOLO11x-seg; FTW default ``FTW_PRUE_EFNET_B5``, a PRUE U-Net
   with two seasonal windows; GeoAI Mask R-CNN; DINOv3 SAT-493M ViT-L/16 + DPT
   decoder; Prithvi-EO-2.0 with a UPerNet head or K-means on patch embeddings;
-  embedding K-means; ensemble intersection / union / vote);
+  embedding K-means; SAM 2.1 automatic masks from a grid of point prompts on
+  large overlapping tiles; crop-sequence zones of uniform crop history,
+  CSB-like; ensemble intersection / union / vote);
 - fine-tuning (full for all four trainers, LoRA for DINOv3 and Prithvi,
   ``fine_tune_split="block"`` with 5 km blocks by default); a checkpoint, from
   fine-tuning or ``engine_params["checkpoint_path"]``, is needed by GeoAI and
@@ -180,13 +185,16 @@ TYPE_SCALE = (DISPLAY, TITLE, NUMERAL, LABEL, BODY, CODE, CAPTION)
 
 #: Colours. Text colours reach WCAG 4.5:1 on the fill they are set on (lowest
 #: pairs: ``muted`` on the ensemble chip fill 4.6:1, ``teal`` on ``teal_fill``
-#: 4.6:1, white numerals on ``num_grey`` 4.5:1). Lines that carry meaning reach
-#: 3:1 on white (lowest: ``lulc_edge`` 3.0:1, ``dash_edge`` 3.1:1,
-#: ``teal_line`` 3.2:1, the geospatial-foundation-model edge 3.5:1).
+#: 4.6:1, white numerals on ``num_grey`` 4.5:1; ``muted`` on the crop-map chip
+#: fill 4.8:1, ``ochre_text`` on ``card_fill`` 5.2:1). Lines that carry meaning
+#: reach 3:1 on white (lowest: ``lulc_edge`` 3.0:1, ``dash_edge`` 3.1:1,
+#: ``teal_line`` 3.2:1, the foundation-model edge 3.5:1; crop-map edge
+#: 4.5:1).
 C = {
     "text": "#1b2733",
     "muted": "#5b6b7a",
     "green_text": "#357a5b",
+    "ochre_text": "#7a6528",
     "teal": "#2c776d",
     "teal_fill": "#e6f1f0",
     "teal_line": "#6b9a93",
@@ -210,6 +218,7 @@ FAMILY = {
     "task": ("#e8eef5", "#3d6c9c"),
     "gfm": ("#fbeee1", "#c07a33"),
     "embedding": ("#e6f1ea", "#3f8a67"),
+    "cropmap": ("#f3efe2", "#8a7432"),
     "ensemble": ("#efe9f4", "#6d5f9c"),
 }
 
@@ -700,7 +709,7 @@ TITLE_CY, FLOW_CY, CAP_CY = 68, 146, 202
 DEL_TOP, DEL_H = 432, 532
 ROW_CY = DEL_TOP + DEL_H / 2
 CARD_H = 318
-SIDE_H = 370
+SIDE_H = 440
 
 
 def col_rect(key: str, height: float) -> Rect:
@@ -884,15 +893,16 @@ def draw_inputs(d: Diagram) -> Rect:
     d.lines(
         r.cx,
         r.y0 + 70,
-        [("11 sources · 0.3–30 m", CAPTION_ST), ("1984–present", CAPTION_ST)],
+        [("16 sources · 0.16–30 m", CAPTION_ST), ("1984–present", CAPTION_ST)],
         19,
         within=r,
     )
     y = r.y0 + 126
     rows = [
         ("Sentinel-2 · Landsat MS/pan", BODY_DARK),
-        ("HLS · NAIP", BODY_DARK),
+        ("HLS · NAIP · Sentinel-1 SAR", BODY_DARK),
         ("USGS NAIP Plus", BODY_DARK),
+        ("Umbra · Capella SAR (AWS)", BODY_DARK),
         ("SPOT 6/7 MS · pan", BODY_DARK),
     ]
     last = d.lines(r.cx, y, rows, 25, within=r)
@@ -903,6 +913,11 @@ def draw_inputs(d: Diagram) -> Rect:
     d.line(r.cx, div_y + 22, "embedding fields", CAPTION_ST, within=r)
     # Green: only the embedding engine (embedding-clustering family) reads these.
     d.line(r.cx, div_y + 46, "AlphaEarth · TESSERA", Style(BODY, C["green_text"], 500), within=r)
+    div2_y = div_y + 70
+    d.divider(r.x0 + 40, r.x1 - 40, div2_y)
+    d.line(r.cx, div2_y + 22, "crop-type maps (codes)", CAPTION_ST, within=r)
+    # Ochre: only the crop-sequence engine (crop-history zones) reads these.
+    d.line(r.cx, div2_y + 46, "USDA CDL · AAFC ACI", Style(BODY, C["ochre_text"], 500), within=r)
     return r
 
 
@@ -1008,7 +1023,7 @@ def draw_delineation(d: Diagram) -> Rect:
     d.number(r.x0 + 25, r.y0 + 25, 3, C["num_dark"])
     d.shape_obstacle(Rect(r.x0 + 6, r.y0 + 6, r.x0 + 44, r.y0 + 44), "circle 3")
     d.line(r.x0 + 54, r.y0 + 26, "Delineation", TITLE_ST, ha="left", within=r)
-    d.line(r.cx, r.y0 + 66, "7 engines", BODY_ST, within=r)
+    d.line(r.cx, r.y0 + 66, "9 engines", BODY_ST, within=r)
     engines = [
         ("Delineate-Anything v2", "YOLO11 instance segmentation", "task"),
         ("Fields of The World", "PRUE U-Net · two seasonal windows", "task"),
@@ -1016,10 +1031,12 @@ def draw_delineation(d: Diagram) -> Rect:
         ("DINOv3", "SAT-493M ViT-L/16 + DPT decoder", "gfm"),
         ("Prithvi-EO-2.0", "UPerNet head, or K-means on embeddings", "gfm"),
         ("Embedding", "K-means on AlphaEarth / TESSERA", "embedding"),
+        ("SAM 2.1 automatic masks", "point-prompt grid on large tiles", "gfm"),
+        ("Crop-sequence zones", "CSB-like zones from CDL / ACI", "cropmap"),
         ("Ensemble", "intersection · union · vote", "ensemble"),
     ]
-    chip_h, chip_gap = 52, 10
-    y = r.y0 + 92
+    chip_h, chip_gap = 42, 6
+    y = r.y0 + 90
     for name, detail, fam in engines:
         fill, edge = FAMILY[fam]
         c = d.rbox(
@@ -1030,8 +1047,8 @@ def draw_delineation(d: Diagram) -> Rect:
             radius=10,
             name=f"chip {name}",
         )
-        d.line(c.cx, c.y0 + 18, name, BODY_HEAD, within=c)
-        d.line(c.cx, c.y0 + 36, detail, CAPTION_ST, within=c)
+        d.line(c.cx, c.y0 + 14, name, BODY_HEAD, within=c)
+        d.line(c.cx, c.y0 + 30, detail, CAPTION_ST, within=c)
         y += chip_h + chip_gap
     assert y - chip_gap + 12 <= r.y1, "engine chips overflow the delineation card"
     return r
@@ -1107,11 +1124,23 @@ def draw_field_boundaries(d: Diagram) -> Rect:
     d.ax.add_patch(
         Rectangle((cx2 - 42, cy2 - 22), 84, 44, facecolor=f, edgecolor=e, linewidth=lw, zorder=35)
     )
-    d.shape_obstacle(Rect(cx1 - 34, cy1 - 34, cx2 + 43, cy2 + 31), "field shapes")
-    d.line(r.cx, r.y0 + 262, "per-field attributes", CAPTION_ST, within=r)
+    # An L-shaped zone of uniform crop history (crop-sequence engine).
+    cy3 = r.y0 + 274
+    f, e = FAMILY["cropmap"]
+    zone = [
+        (r.cx - 62, cy3 - 26),
+        (r.cx + 62, cy3 - 26),
+        (r.cx + 62, cy3 + 4),
+        (r.cx + 6, cy3 + 4),
+        (r.cx + 6, cy3 + 26),
+        (r.cx - 62, cy3 + 26),
+    ]
+    d.ax.add_patch(Polygon(zone, closed=True, facecolor=f, edgecolor=e, linewidth=lw, zorder=35))
+    d.shape_obstacle(Rect(cx1 - 34, cy1 - 34, cx2 + 43, cy3 + 28), "field shapes")
+    d.line(r.cx, r.y0 + 332, "per-field attributes", CAPTION_ST, within=r)
     d.lines(
         r.cx,
-        r.y0 + 286,
+        r.y0 + 356,
         [
             ("metrics:area", CAPTION_MONO),
             ("metrics:perimeter", CAPTION_MONO),
@@ -1142,11 +1171,12 @@ def draw_legend(d: Diagram, y: float) -> None:
     d.line(62, y, "Engine family:", LABEL_ST, ha="left")
     items = [
         ("task", "Task-specific segmentation"),
-        ("gfm", "Geospatial foundation model"),
-        ("embedding", "Embedding clustering (label-free)"),
+        ("gfm", "Foundation model"),
+        ("embedding", "Embedding clustering"),
+        ("cropmap", "Crop-history zones"),
         ("ensemble", "Multi-engine ensemble"),
     ]
-    xs = [262, 622, 990, 1398]
+    xs = [240, 568, 902, 1170, 1414]
     for (fam, label), x in zip(items, xs, strict=True):
         fill, edge = FAMILY[fam]
         d.rbox(box(x, y - 14, 32, 28), fill=fill, edge=edge, lw=1.8, radius=6, name=f"legend {fam}")
@@ -1177,8 +1207,9 @@ def build() -> Diagram:
         1,
         ["Composite"],
         [
-            ("Earth Engine", BODY_ST),
-            ("(or USGS · TESSERA · local)", BODY_ST),
+            # The builders that run without Earth Engine (verify_facts checks the list).
+            ("Earth Engine (or USGS ·", BODY_ST),
+            ("AWS SAR · TESSERA · local)", BODY_ST),
             # Two methods: max_ndvi is an alias of greenest.
             ("median · greenest (max-NDVI)", BODY_ST),
             ("(NAIP: mosaicked)", CAPTION_ST),
@@ -1329,8 +1360,28 @@ def verify_facts() -> list[str]:
             bad.append(what)
 
     src = reg.SOURCE_REGISTRY
-    expect(len(src) == 11, f"11 sources (found {len(src)})")
+    expect(len(src) == 16, f"16 sources (found {len(src)})")
     expect(src["landsat-pan"]["resolution_m"] == 15, "Landsat PAN 15 m")
+    expect(
+        tuple(reg.SAR_SOURCES) == ("sentinel1", "umbra", "capella")
+        and src["sentinel1"]["resolution_m"] == 10
+        and not src["sentinel1"]["restricted"],
+        "Sentinel-1 SAR, 10 m, open access (the Inputs card lists it outside SPOT's caption)",
+    )
+    expect(
+        tuple(reg.VHR_SAR_SOURCES) == ("umbra", "capella")
+        and all(
+            not src[s]["requires_gee"] and not src[s]["restricted"] for s in reg.VHR_SAR_SOURCES
+        ),
+        "Umbra and Capella SAR: open data on AWS, composited locally without Earth Engine "
+        "(the Inputs card's '(AWS)')",
+    )
+    no_ee = {name for name, info in src.items() if not info["requires_gee"]}
+    expect(
+        no_ee == {"usgs-naip-plus", "tessera-embedding", "local", *reg.VHR_SAR_SOURCES},
+        "the Composite card's builders without Earth Engine: USGS (NAIP Plus), AWS SAR "
+        f"(Umbra, Capella), TESSERA and local (found {sorted(no_ee)})",
+    )
     expect(src["landsat"]["year_range"] == (1984, None), "Landsat 1984-present")
     expect(
         min(r[0] for r in (s["year_range"] for s in src.values()) if r) == 1984, "first year 1984"
@@ -1348,13 +1399,44 @@ def verify_facts() -> list[str]:
     eng = reg.ENGINE_REGISTRY
     expect(
         list(eng)
-        == ["delineate-anything", "ftw", "geoai", "dinov3", "prithvi", "embedding", "ensemble"],
-        "7 engines in diagram order",
+        == [
+            "delineate-anything",
+            "ftw",
+            "geoai",
+            "dinov3",
+            "prithvi",
+            "embedding",
+            "sam-auto",
+            "crop-sequence",
+            "ensemble",
+        ],
+        "9 engines in diagram order",
+    )
+    expect(
+        "SAM 2.1" in eng["sam-auto"]["name"]
+        and "point prompts" in eng["sam-auto"]["approach"]
+        and "overlapping tiles" in eng["sam-auto"]["approach"]
+        and eng["sam-auto"]["label_free"]
+        and not eng["sam-auto"]["fine_tunable"],
+        "SAM 2.1 automatic masks: a point-prompt grid on large tiles, label-free, not fine-tunable",
     )
     expect(
         {k for k, v in eng.items() if set(v["supported_sources"]) & set(reg.EMBEDDING_SOURCES)}
         == {"embedding"},
         "only the embedding engine reads the embedding fields (green in the Inputs card)",
+    )
+    expect(
+        tuple(reg.CROP_SEQUENCE_SOURCES) == ("cdl-sequence", "aci-sequence")
+        and src["cdl-sequence"]["collection"] == "USDA/NASS/CDL"
+        and src["aci-sequence"]["collection"] == "AAFC/ACI"
+        and all(src[s]["value_scale"] == "categorical" for s in reg.CROP_SEQUENCE_SOURCES),
+        "crop-type maps: USDA CDL and AAFC ACI class codes (the Inputs card)",
+    )
+    expect(
+        {k for k, v in eng.items() if set(v["supported_sources"]) & set(reg.CROP_SEQUENCE_SOURCES)}
+        == {"crop-sequence"}
+        and "CSB-like" in eng["crop-sequence"]["approach"],
+        "only the crop-sequence engine reads the crop-type maps (ochre in the Inputs card)",
     )
     expect(
         {k for k, v in eng.items() if v["fine_tunable"]}

@@ -148,3 +148,137 @@ class TestDownloadFile:
             client._download_file("https://example.com/x.tif", tmp_path / "tile.tif")
         assert calls == [5, 5, 5]
         assert not list(tmp_path.iterdir())
+
+
+class TestRetries:
+    """Transient failures are retried with a capped exponential backoff (no network)."""
+
+    @staticmethod
+    def _opener(monkeypatch, replies):
+        """Patch urlopen to play *replies* in turn: bytes (a body) or an exception."""
+        import io
+
+        import agribound.clients.usgs_naip_plus as mod
+
+        class _Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.close()
+
+        calls, sleeps = [], []
+
+        def fake_urlopen(url, timeout=None):
+            calls.append(url)
+            reply = replies[len(calls) - 1]
+            if isinstance(reply, BaseException):
+                raise reply
+            return _Response(reply)
+
+        monkeypatch.setattr(mod, "urlopen", fake_urlopen)
+        monkeypatch.setattr(mod.time, "sleep", sleeps.append)
+        monkeypatch.setattr(mod.random, "uniform", lambda a, b: b)  # the largest jitter
+        return mod, calls, sleeps
+
+    @staticmethod
+    def _http_error(code):
+        from urllib.error import HTTPError
+
+        return HTTPError("https://example.com/ImageServer", code, f"HTTP {code}", {}, None)
+
+    def test_gateway_errors_and_timeouts_are_retried(self, monkeypatch, caplog):
+        import logging
+        from urllib.error import URLError
+
+        replies = [
+            self._http_error(502),
+            self._http_error(504),
+            URLError(TimeoutError("timed out")),
+            TimeoutError("The read operation timed out"),
+            self._http_error(429),
+            b'{"ok": 1}',
+        ]
+        mod, calls, sleeps = self._opener(monkeypatch, replies)
+        client = USGSNAIPPlusClient("https://example.com/ImageServer")
+        assert client.retries == mod.DEFAULT_RETRIES == 5
+        with caplog.at_level(logging.WARNING, logger=mod.__name__):
+            assert client._request_json("", {"f": "json"}) == {"ok": 1}
+        assert len(calls) == 6
+        # 4, 8, 16, 32 and (capped) 60 s, each with its jitter (here the largest, 25 %)
+        assert sleeps == [5.0, 10.0, 20.0, 40.0, 75.0]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 5
+        assert "HTTP 502" in warnings[0].getMessage() and "[1/5]" in warnings[0].getMessage()
+
+    def test_persistent_server_error_fails_after_the_last_retry(self, monkeypatch):
+        import pytest
+
+        mod, calls, sleeps = self._opener(monkeypatch, [self._http_error(503)] * 6)
+        client = USGSNAIPPlusClient("https://example.com/ImageServer")
+        with pytest.raises(mod.USGSImageServerError, match="Failed request") as info:
+            client._request_json("/query", {"f": "json"})
+        assert len(calls) == 6 and len(sleeps) == 5
+        assert max(sleeps) <= mod.RETRY_MAX_WAIT_S * (1 + mod.RETRY_JITTER)
+        assert info.value.__cause__.code == 503
+
+    def test_client_errors_are_not_retried(self, monkeypatch, tmp_path):
+        import pytest
+
+        for code in (400, 403, 404):
+            mod, calls, sleeps = self._opener(monkeypatch, [self._http_error(code)])
+            client = USGSNAIPPlusClient("https://example.com/ImageServer")
+            with pytest.raises(mod.USGSImageServerError, match="Failed request"):
+                client._request_json("/query", {"f": "json"})
+            assert len(calls) == 1 and sleeps == []
+        mod, calls, sleeps = self._opener(monkeypatch, [self._http_error(404)])
+        with pytest.raises(mod.USGSImageServerError, match="Failed download"):
+            client._download_file("https://example.com/x.tif", tmp_path / "x.tif")
+        assert len(calls) == 1 and sleeps == [] and not list(tmp_path.iterdir())
+
+    def test_local_file_system_errors_are_not_retried(self, monkeypatch, tmp_path):
+        import errno
+
+        import pytest
+
+        local = [
+            PermissionError(errno.EACCES, "Permission denied"),
+            OSError(errno.ENOSPC, "No space left on device"),
+            OSError(errno.EROFS, "Read-only file system"),
+        ]
+        for exc in local:
+            mod, calls, sleeps = self._opener(monkeypatch, [exc])
+            client = USGSNAIPPlusClient("https://example.com/ImageServer")
+            with pytest.raises(mod.USGSImageServerError, match="Failed download"):
+                client._download_file("https://example.com/x.tif", tmp_path / "x.tif")
+            assert len(calls) == 1 and sleeps == [], exc
+        assert mod._transient(ConnectionResetError(errno.ECONNRESET, "reset"))
+        assert mod._transient(TimeoutError("timed out"))
+
+    def test_arcgis_error_payloads(self, monkeypatch):
+        import pytest
+
+        busy = b'{"error": {"code": 500, "message": "Error exporting image", "details": []}}'
+        mod, calls, sleeps = self._opener(monkeypatch, [busy, b'{"href": "x"}'])
+        client = USGSNAIPPlusClient("https://example.com/ImageServer")
+        assert client._request_json("/exportImage", {}) == {"href": "x"}
+        assert len(calls) == 2 and len(sleeps) == 1
+        bad = b'{"error": {"code": 400, "message": "Invalid parameters", "details": []}}'
+        mod, calls, sleeps = self._opener(monkeypatch, [bad])
+        with pytest.raises(mod.USGSImageServerError, match=r"\[400\] Invalid parameters"):
+            client._request_json("/exportImage", {})
+        assert len(calls) == 1 and sleeps == []
+
+    def test_download_retries_a_bad_gateway(self, monkeypatch, tmp_path):
+        mod, calls, sleeps = self._opener(monkeypatch, [self._http_error(502), b"TIFFDATA"])
+        client = USGSNAIPPlusClient("https://example.com/ImageServer", retries=1)
+        out = tmp_path / "tile.tif"
+        client._download_file("https://example.com/x.tif", out)
+        assert out.read_bytes() == b"TIFFDATA" and len(calls) == 2 and sleeps == [5.0]
+        assert not (tmp_path / "tile.tif.part").exists()
+
+    def test_retry_wait(self, monkeypatch):
+        import agribound.clients.usgs_naip_plus as mod
+
+        monkeypatch.setattr(mod.random, "uniform", lambda a, b: a)  # no jitter
+        assert [mod._retry_wait(n) for n in range(1, 8)] == [4, 8, 16, 32, 60, 60, 60]

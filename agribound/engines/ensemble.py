@@ -73,11 +73,13 @@ ENSEMBLE_KEYS: frozenset[str] = frozenset(
         "isolate_member_caches",
     }
 )
-#: engine_params read by the pipeline or the SAM stage for the ensemble output.
+#: engine_params read by the pipeline or the SAM stage for the ensemble output
+#: (``pivots``: the opt-in centre-pivot post-process, :mod:`agribound.postprocess.pivots`).
 PIPELINE_KEYS: frozenset[str] = frozenset(
     {
         "smooth_iterations",
         "regularize",
+        "pivots",
         "sam_refine",
         "sam_model",
         "sam_batch_size",

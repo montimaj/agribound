@@ -2,8 +2,10 @@
 
 Earth Engine is used for:
 
-- the imagery composites of `landsat`, `landsat-pan`, `sentinel2`, `hls`, `naip`, `spot` and
-  `spot-pan`;
+- the imagery composites of `landsat`, `landsat-pan`, `sentinel2`, `hls`, `naip`, `spot`,
+  `spot-pan` and `sentinel1`;
+- the crop-type map stacks of `cdl-sequence` and `aci-sequence` (one request
+  for the list of maps and one download);
 - `google-embedding` with the default `google_embedding_backend="gee"`;
 - the **LULC crop filter**, which is on by default and reads its datasets
   from Earth Engine for every source, including `local`, `usgs-naip-plus` and
@@ -39,7 +41,8 @@ filter needs Earth Engine (it does not look at the study area).
     ```
 
 For the GEE imagery sources (`landsat`, `landsat-pan`, `sentinel2`, `hls`,
-`naip`, `spot`, `spot-pan`) the project is resolved when the configuration is
+`naip`, `spot`, `spot-pan`, `sentinel1`) and the crop-type map stacks
+(`cdl-sequence`, `aci-sequence`) the project is resolved when the configuration is
 created, from `gee_project` (`--gee-project`), then the `GEE_PROJECT`
 environment variable, then `gcloud config get-value project`, then the
 `project_id` of the credentials file: `gee_service_account_key`

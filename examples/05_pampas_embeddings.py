@@ -31,8 +31,10 @@ existing output made with the same settings is loaded instead of
 recomputed (a 1.0.0 output, whose clusters 1.0.1 no longer reproduces,
 raises ``FileExistsError``); ``--overwrite`` recomputes it.
 
-Estimated runtime (not measured for 1.0): ~5-15 minutes for the default box
-(download-bound, CPU).
+Runtime: 3.9 minutes (232 s) for the default box in the development run of
+agribound 1.1 (2026-10-09, Apple M2 Max, CPU clustering): the Google Satellite
+Embedding run 128 s and the TESSERA run 94 s, reading the embeddings
+included.
 
 Prerequisites:
     pip install "agribound[gee,tessera]"
@@ -59,7 +61,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"geedim\..*")
 warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"geedim\..*")
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

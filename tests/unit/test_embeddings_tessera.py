@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 import math
+import re
+import threading
+from pathlib import Path
 
 import numpy as np
 import pyproj
@@ -298,6 +301,279 @@ class TestCaching:
         path = builder.build(_config(tmp_path))
         assert builder.last_metadata["AGRIBOUND_SOURCE"] == "tessera-embedding"
         assert path.endswith(".tif")
+
+
+def _stamps(monkeypatch, factory, fingerprint=None, error=None):
+    """Make tessera_stamp.store_stamp return *fingerprint* (or raise *error*); record its calls.
+
+    Without *fingerprint*, the stamp's fingerprint follows the store, box and year
+    (conftest ``fake_tessera_fingerprint``).
+    """
+    from agribound.composites import tessera_stamp
+
+    calls = []
+
+    def store_stamp(store_url, bbox, year, *, client=None, **kwargs):
+        calls.append((store_url, tuple(bbox), year, kwargs))
+        if error is not None:
+            raise tessera_stamp.StoreCheckError(error)
+        if fingerprint is None:
+            return factory(store_url, bbox, year)
+        return factory(store_url, bbox, year, fingerprint=fingerprint)
+
+    monkeypatch.setattr(tessera_stamp, "store_stamp", store_stamp)
+    return calls
+
+
+class TestStoreStamp:
+    """The cached raster against the store's state (agribound.composites.tessera_stamp)."""
+
+    def test_raster_records_the_store_stamp_and_the_box_read(
+        self, tmp_path, fake_zarr, monkeypatch, tessera_stamp_factory
+    ):
+        calls = _stamps(monkeypatch, tessera_stamp_factory, fingerprint="a" * 64)
+        path, tags = local.build_tessera_embedding(_config(tmp_path))
+        ((store_url, bbox, year, kwargs),) = calls
+        assert store_url.endswith("/zarr/v1.1") and year == 2024
+        assert kwargs == {"fresh": True}  # right before the read: not from the memo
+        with rasterio.open(path) as src:
+            written = src.tags()
+        for key in (
+            "TESSERA_STORE_FINGERPRINT",
+            "TESSERA_STORE_LAST_MODIFIED",
+            "TESSERA_STORE_OBJECTS",
+        ):
+            assert written[key] == str(tags[key])
+        assert written["TESSERA_STORE_FINGERPRINT"] == "a" * 64
+        assert written["TESSERA_STORE_LAST_MODIFIED"] == "2026-10-07T12:40:56Z"
+        assert local.parse_read_bbox(written["TESSERA_READ_BBOX"]) == bbox
+        # The box read is the union of the zone reads.
+        (store,) = fake_zarr.instances
+        assert min(b[0] for b, _ in store.calls) == bbox[0]
+        assert max(b[2] for b, _ in store.calls) == pytest.approx(bbox[2])
+
+    def test_unchanged_store_reuses_the_raster(
+        self, tmp_path, fake_zarr, caplog, tessera_fingerprint
+    ):
+        cfg = _config(tmp_path)
+        p1, _ = local.build_tessera_embedding(cfg)
+        mtime = Path(p1).stat().st_mtime_ns
+        with caplog.at_level(logging.INFO, logger="agribound.composites.local"):
+            p2, tags = local.build_tessera_embedding(cfg)
+        assert p2 == p1 and Path(p2).stat().st_mtime_ns == mtime
+        assert len(fake_zarr.instances) == 1
+        assert any("store unchanged" in r.getMessage() for r in caplog.records)
+        box = local.parse_read_bbox(tags["TESSERA_READ_BBOX"])
+        assert tags["TESSERA_STORE_FINGERPRINT"] == tessera_fingerprint(
+            tags["TESSERA_STORE"], box, 2024
+        )
+
+    def test_file_name_is_unchanged(self, tmp_path, fake_zarr):
+        """The builder's raster keeps the name of agribound <= 1.0.1 (pinned value)."""
+        cfg = _config(tmp_path)
+        path, _ = local.build_tessera_embedding(cfg)
+        assert Path(path).name == "tessera_embedding_17b297ff7774.tif"
+        assert Path(path) == local.tessera_raster_path(cfg)
+        v1, _ = local.build_tessera_embedding(cfg.merged(tessera_version="v1"))
+        assert Path(v1).name == "tessera_embedding_1f93db9cac42.tif"
+
+    def test_check_uses_the_box_in_the_raster_tags(
+        self, tmp_path, fake_zarr, monkeypatch, tessera_stamp_factory
+    ):
+        """The stamp is checked for the box the raster was read for (TESSERA_READ_BBOX)."""
+        cfg = _config(tmp_path)
+        path, tags = local.build_tessera_embedding(cfg)
+        box = local.parse_read_bbox(tags["TESSERA_READ_BBOX"])
+        other = (box[0] + 0.001, box[1], box[2] + 0.001, box[3])
+        with rasterio.open(path, "r+") as dst:
+            dst.update_tags(TESSERA_READ_BBOX=local.format_read_bbox(other))
+        calls = _stamps(monkeypatch, tessera_stamp_factory)
+        local.build_tessera_embedding(cfg)
+        assert calls[0][1] == other  # the check: the recorded box, not the config's
+        assert len(fake_zarr.instances) == 2  # its stamp differs from the one recorded: read
+        with rasterio.open(path) as src:
+            assert local.parse_read_bbox(src.tags()["TESSERA_READ_BBOX"]) == box
+
+    def test_changed_store_reads_the_raster_again(
+        self, tmp_path, fake_zarr, monkeypatch, tessera_stamp_factory, caplog
+    ):
+        cfg = _config(tmp_path)
+        p1, _ = local.build_tessera_embedding(cfg)
+        _stamps(monkeypatch, tessera_stamp_factory, fingerprint="f" * 64)
+        with caplog.at_level(logging.INFO, logger="agribound.composites.local"):
+            p2, tags = local.build_tessera_embedding(cfg)
+        assert p2 == p1 and len(fake_zarr.instances) == 2  # same file, read again
+        assert tags["TESSERA_STORE_FINGERPRINT"] == "f" * 64
+        with rasterio.open(p2) as src:
+            assert src.tags()["TESSERA_STORE_FINGERPRINT"] == "f" * 64
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+        assert any("again" in m and "have changed since it was read" in m for m in messages)
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert not list(Path(p2).parent.glob("*.part"))
+        local.build_tessera_embedding(cfg)  # now current
+        assert len(fake_zarr.instances) == 2
+
+    def test_raster_without_stamp_is_read_again_once(self, tmp_path, fake_zarr, caplog):
+        cfg = _config(tmp_path)
+        path, _ = local.build_tessera_embedding(cfg)
+        with rasterio.open(path, "r+") as dst:  # as cached before the stamp existed
+            dst.update_tags(TESSERA_STORE_FINGERPRINT="", TESSERA_READ_BBOX="")
+        with caplog.at_level(logging.INFO, logger="agribound.composites.local"):
+            local.build_tessera_embedding(cfg)
+        assert len(fake_zarr.instances) == 2
+        assert any("no record of the store's state" in r.getMessage() for r in caplog.records)
+        local.build_tessera_embedding(cfg)
+        assert len(fake_zarr.instances) == 2
+
+    def test_unreadable_cached_file_is_read_again(self, tmp_path, fake_zarr):
+        cfg = _config(tmp_path)
+        path, _ = local.build_tessera_embedding(cfg)
+        Path(path).write_bytes(b"not a GeoTIFF")
+        path2, tags = local.build_tessera_embedding(cfg)
+        assert path2 == path and len(fake_zarr.instances) == 2
+        with rasterio.open(path2) as src:
+            assert src.count == N_BANDS
+
+    def test_offline_reuses_the_cached_raster_with_a_warning(
+        self, tmp_path, fake_zarr, monkeypatch, tessera_stamp_factory, caplog, tessera_fingerprint
+    ):
+        cfg = _config(tmp_path)
+        path, _ = local.build_tessera_embedding(cfg)
+        _stamps(monkeypatch, tessera_stamp_factory, error="GET ... failed: gaierror")
+        with caplog.at_level(logging.WARNING):
+            path2, tags = local.build_tessera_embedding(cfg)
+        assert path2 == path and len(fake_zarr.instances) == 1
+        (warning,) = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert "Could not check whether the TESSERA store has changed" in warning
+        assert "gaierror" in warning and "no longer has" in warning and path in warning
+        box = local.parse_read_bbox(tags["TESSERA_READ_BBOX"])
+        assert tags["TESSERA_STORE_FINGERPRINT"] == tessera_fingerprint(  # as cached
+            tags["TESSERA_STORE"], box, 2024
+        )
+
+    def test_offline_build_has_no_stamp(
+        self, tmp_path, fake_zarr, monkeypatch, tessera_stamp_factory, caplog
+    ):
+        _stamps(monkeypatch, tessera_stamp_factory, error="check turned off")
+        with caplog.at_level(logging.WARNING):
+            path, tags = local.build_tessera_embedding(_config(tmp_path))
+        assert "TESSERA_STORE_FINGERPRINT" not in tags and "TESSERA_READ_BBOX" in tags
+        assert any("Could not record the state" in r.getMessage() for r in caplog.records)
+        # Once the store can be checked, the raster without a stamp is read again.
+        _stamps(monkeypatch, tessera_stamp_factory)
+        local.build_tessera_embedding(_config(tmp_path))
+        assert len(fake_zarr.instances) == 2
+
+    def test_geotessera_cache_is_checked_before_the_read(
+        self, tmp_path, fake_zarr, monkeypatch, tessera_fingerprint
+    ):
+        from agribound.composites import tessera_stamp
+
+        refreshed, recorded = [], []
+        monkeypatch.setattr(
+            tessera_stamp,
+            "refresh_local_cache",
+            lambda cache_dir, stamp, client=None: (
+                refreshed.append((cache_dir, stamp)) or {"k": "e"}
+            ),
+        )
+        monkeypatch.setattr(
+            tessera_stamp,
+            "record_local_cache",
+            lambda cache_dir, store_url, current: recorded.append((cache_dir, store_url, current)),
+        )
+        cache = str(tmp_path / "emb")
+        local.build_tessera_embedding(_config(tmp_path, embedding_cache_dir=cache))
+        (store,) = fake_zarr.instances
+        ((cache_dir, stamp),) = refreshed
+        assert cache_dir == cache
+        assert stamp.fingerprint == tessera_fingerprint(stamp.store_url, stamp.bbox, 2024)
+        assert recorded == [(cache, stamp.store_url, {"k": "e"})]
+        # Read through agribound's store, which keeps only metadata and coordinates on
+        # disk, in geotessera's cache directory (not through GeoTesseraZarr's cache_dir).
+        assert store.cache_dir is None
+        assert type(store.url).__name__ == "MetadataCacheStore"
+        root = tessera_stamp.local_cache_root(cache, stamp.store_url)
+        assert Path(str(store.url._cache.root)) == root
+
+    @pytest.mark.parametrize("failure", ["refresh", "stamp"])
+    def test_geotessera_cache_is_bypassed_when_it_cannot_be_checked(
+        self, tmp_path, fake_zarr, monkeypatch, tessera_stamp_factory, failure
+    ):
+        from agribound.composites import tessera_stamp
+
+        def refresh(cache_dir, stamp, client=None):
+            raise tessera_stamp.StoreCheckError("HEAD failed")
+
+        monkeypatch.setattr(tessera_stamp, "refresh_local_cache", refresh)
+        if failure == "stamp":
+            _stamps(monkeypatch, tessera_stamp_factory, error="no network")
+        local.build_tessera_embedding(_config(tmp_path, embedding_cache_dir=str(tmp_path / "e")))
+        (store,) = fake_zarr.instances
+        assert store.cache_dir is None
+        assert isinstance(store.url, str) and store.url.endswith("/zarr/v1.1")  # no cache
+
+
+class TestRasterWrite:
+    """write_embedding_geotiff: each writer has a temporary file of its own."""
+
+    class Grid:
+        crs = "EPSG:32620"
+        width = height = 64
+        transform = Affine(10.0, 0.0, 700000.0, 0.0, -10.0, -3700000.0)
+
+    def _data(self, value):
+        return np.full((4, 64, 64), value, dtype=np.float32)
+
+    def test_temporary_names_are_unique(self, tmp_path, monkeypatch):
+        import os
+
+        path = tmp_path / "tessera_embedding_x.tif"
+        other_writer = path.with_name(path.name + ".999.0123456789abcdef.part")
+        other_writer.write_bytes(b"another process's write in progress")
+        renamed = []
+        real_replace = os.replace
+
+        def replace(src, dst):
+            renamed.append(Path(src).name)
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(local.os, "replace", replace)
+        bands = [f"T{i:03d}" for i in range(4)]
+        local.write_embedding_geotiff(path, self._data(1.0), self.Grid(), bands, {"V": 1})
+        local.write_embedding_geotiff(path, self._data(2.0), self.Grid(), bands, {"V": 2})
+        pattern = re.compile(rf"{re.escape(path.name)}\.{os.getpid()}\.[0-9a-f]{{32}}\.part")
+        assert len(renamed) == 2 and renamed[0] != renamed[1]
+        assert all(pattern.fullmatch(name) for name in renamed)
+        assert other_writer.read_bytes() == b"another process's write in progress"
+        with rasterio.open(path) as src:
+            assert src.tags()["V"] == "2" and float(src.read(1)[0, 0]) == 2.0
+
+    def test_concurrent_writers_leave_a_complete_file(self, tmp_path):
+        path = tmp_path / "tessera_embedding_y.tif"
+        bands = [f"T{i:03d}" for i in range(4)]
+        for _ in range(3):
+            barrier = threading.Barrier(2)
+            errors = []
+
+            def write(value, barrier=barrier, errors=errors):
+                try:
+                    data = self._data(value)
+                    barrier.wait()
+                    local.write_embedding_geotiff(path, data, self.Grid(), bands, {"V": value})
+                except BaseException as exc:  # reported below
+                    errors.append(exc)
+
+            threads = [threading.Thread(target=write, args=(v,)) for v in (1.0, 2.0)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            assert errors == []
+            with rasterio.open(path) as src:
+                value = float(src.tags()["V"])
+                assert np.all(src.read() == value)
+        assert not list(tmp_path.glob("*.part"))
 
 
 class FakeRegistry:

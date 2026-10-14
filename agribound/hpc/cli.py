@@ -518,7 +518,10 @@ def status_cmd(
     """Show per-tile progress.
 
     States: done, failed, pending, stale (output from another configuration or
-    from a release whose results for it differ),
+    from a release whose results for it differ; for TESSERA also a staged
+    raster or output read from store objects that have changed since, which
+    needs network access to check; for HLS also an output made before HLS
+    recipe 2 at the MGRS tiles at 180 degrees),
     no-data (the source has no data for the tile: water, or outside its
     coverage; final, merged as empty) and error (unreadable tile configuration).
     """
@@ -815,7 +818,7 @@ def gee_project_cmd(
     ways to provide a project when a run uses Earth Engine and none is found.
     """
     from agribound.auth import project_from_credentials, resolve_project
-    from agribound.registry import SOURCE_REGISTRY
+    from agribound.registry import CROP_SEQUENCE_SOURCES, SOURCE_REGISTRY
 
     uses: list[str] = []
     if config_file:
@@ -844,7 +847,7 @@ def gee_project_cmd(
         service_account_key = config.gee_service_account_key
         if not config.requires_gee():
             return
-        if config.is_gee_source():
+        if config.is_gee_source() or config.source in CROP_SEQUENCE_SOURCES:
             uses.append(f"source {config.source}")
         elif config.source == "google-embedding":
             uses.append("google-embedding with the gee backend")

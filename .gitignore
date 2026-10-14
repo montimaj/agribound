@@ -225,3 +225,13 @@ Namoi*
 # examples/run_namoi_delineation.sh). The Namoi region preset is distributed:
 !examples/regions/namoi_catchment_au.yaml
 !examples/regions/run_namoi_catchment_au.sh
+NM*.zip
+NV*.zip
+# Extracted copies of the DRI/NMOSE field boundaries (V18) in NM_Field_Boundaries.zip; the
+# New Mexico region presets read examples/NM_Field_Boundaries/ (local data, never commit):
+NM_Field_Boundaries/
+Master_NM_Field_Boundaries_V18.*
+# Extracted copies of the DRI field boundaries (Nevada) in NV_Field_Boundaries.zip, which
+# example 24 reads in place (restricted: internal use, not for public distribution):
+NV_Field_Boundaries/
+nevada_agricultural_field_boundaries_*

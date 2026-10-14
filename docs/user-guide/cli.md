@@ -10,7 +10,8 @@ agribound [--version] [-v/--verbose] COMMAND [ARGS]...
 | Command | Purpose |
 |---|---|
 | `delineate` | Run the full pipeline. |
-| `composite` | Run only stage A (composite or embedding download, optional LULC raster) and print the raster path. |
+| `composite` | Run only stage A (composite or embedding download, optional LULC raster and date layers) and print the raster path. |
+| `scenes` | Rank the acquisitions of a composite's date window by the share of the study area each shows clear (one Earth Engine request, or one per month when the whole window is too large for one). |
 | `prefetch` | Download an engine's weights (and the SAM weights with `--sam-refine`) for offline use. |
 | `evaluate` | Evaluate predicted polygons against reference polygons. |
 | `list-sources`, `list-engines` | Print the registries. |
@@ -47,8 +48,9 @@ Options (all map to [configuration fields](configuration.md)):
 |---|---|
 | Run | `--study-area`, `--source`, `--year`, `--engine`, `-o/--output`, `--output-format`, `--config`, `--dry-run`, `--engine-param KEY=VALUE` (repeatable; VALUE parsed as JSON, else kept as a string; merged into the YAML's `engine_params`) |
 | Earth Engine | `--gee-project`, `--gee-service-account-key`, `--gee-high-volume/--no-gee-high-volume`, `--gee-max-requests`, `--gee-workload-tag`, `--export-method`, `--gcs-bucket` |
-| Compositing | `--composite-method`, `--date-range START END`, `--cloud-cover-max`, `--s2-cloud-mask`, `--naip-resolution`, `--landsat-pan-missions` (`auto`, or a comma-separated list such as `LC08,LC09`), `--export-crs`, `--tile-size` |
+| Compositing | `--composite-method`, `--date-range START END`, `--cloud-cover-max`, `--s2-cloud-mask`, `--naip-resolution`, `--landsat-pan-missions` (`auto`, or a comma-separated list such as `LC08,LC09`), `--crop-sequence-years` (`cdl-sequence` and `aci-sequence`: annual maps ending in `--year`; default 8), `--export-crs`, `--tile-size` |
 | Inputs | `--local-tif`, `--usgs-state`, `--tessera-version`, `--embedding-cache-dir` |
+| Umbra and Capella SAR | `--vhr-sar-collect-ids` (comma-separated), `--vhr-sar-max-collects`, `--vhr-sar-polarization` (`auto`, `HH`, `VV`), `--vhr-sar-resolution`, `--vhr-sar-coregister` (`auto`, `optical`, `sar`, `none`), `--vhr-sar-coregister-base`, `--vhr-sar-bands` (`median`, `median+dates`), `--vhr-sar-calibration` (`any`, `full`), `--vhr-sar-max-download-gb`, `--vhr-sar-cache-dir` (see [Open VHR SAR](satellite-sources.md#open-vhr-sar-umbra-capella)) |
 | Selection and post-processing | `--aoi-selection`, `--min-area` (m²), `--simplify` (metres; 0 disables) |
 | LULC filter | `--lulc-filter/--no-lulc-filter`, `--lulc-threshold`, `--lulc-dataset`, `--lulc-mode`, `--lulc-on-error`, `--lulc-tree-crops/--no-lulc-tree-crops` |
 | SAM | `--sam-refine/--no-sam-refine`, `--sam-backend`, `--sam-model` |
@@ -61,7 +63,7 @@ Configuration fields without a flag (for example `google_embedding_backend`,
 are set in the YAML.
 
 The `sam3` and `sam3-hf` choices of `--sam-backend` (also offered by
-`prefetch`) are untested in 1.0.1: they have not been run end to end, and a
+`prefetch`) are untested in 1.1.0: they have not been run end to end, and a
 WARNING is logged when one is loaded for refinement. See
 [SAM refinement](sam-refinement.md#sam-3-is-untested).
 
@@ -78,6 +80,49 @@ node with internet access and delineate on another node.
 agribound composite --config run.yaml --lulc-mode raster
 agribound delineate --config run.yaml --lulc-mode raster
 ```
+
+`--date-layers` also downloads the composite's date layers: a separate uint16
+GeoTIFF on the composite's grid with the number of valid observations of each
+pixel and the first and last observation date (days since 1970-01-01),
+cached as `<source>_date_layers_<key>.tif` and printed after the composite's
+path. It applies to the Earth Engine sources `sentinel2`, `landsat`,
+`landsat-pan`, `hls`, `spot` and `spot-pan` with `--export-method local`
+(others are refused before anything is downloaded) and costs one more
+download. Only `composite` has the flag. See
+[Dates in a composite](satellite-sources.md#dates-in-a-composite).
+
+## scenes
+
+```bash
+agribound scenes --config run.yaml --cloud-cover-max 80 --s2-cloud-mask cloud_score_plus
+agribound scenes --config run.yaml --top 0 --json > scenes.json
+agribound composite --config run.yaml --date-range 2020-08-04 2020-08-04
+```
+
+Lists the acquisitions (the images of one UTC date) of the composite's date
+window over the study area that pass `--cloud-cover-max`, ranked by the share
+of the study area each shows clear under the composite's pixel mask
+(Sentinel-2 ties: higher mean Cloud Score+ `cs_cdf`; `spot` and `spot-pan`:
+the share their scenes cover), with one Earth Engine request, or one per
+month when Earth Engine runs out of memory or time on the whole window (the
+rows are the same). It takes the stage-A options of `composite` (the same
+`--config` works) and these:
+
+| Option | Meaning |
+|---|---|
+| `--top` (10) | Rows to print; 0 prints all. |
+| `--json` | Print the survey's facts (window, mask, ranking rule, scale) and rows as JSON instead of a table. |
+| `--csv FILE` | Also write every ranked row to a CSV file (image IDs joined with `;`). |
+| `--scale-m` | Reduction scale in metres (default 60 m, coarser where the region reduced over holds more than 250,000 pixels: the study area, or the export grid's outline for a study area of more than 5,000 vertices). |
+
+The table gives each acquisition's rank, date, label (satellite, date and
+relative orbit or WRS path), number of images, scene cloud cover, footprint
+share and clear share, and for Sentinel-2 the Cloud Score+ and SCL clear
+shares, the mean `cs_cdf` and the mean aerosol optical thickness. Its last
+line is the one-day `--date-range` that builds the composite of rank 1 alone.
+`--dry-run` prints the configuration. See
+[Dates in a composite](satellite-sources.md#dates-in-a-composite) for what a
+single date did and did not do as input for Delineate-Anything.
 
 ## prefetch
 
@@ -111,9 +156,14 @@ agribound evaluate -p fields.gpkg -r reference.gpkg --iou-threshold 0.5 \
 | `--boundary-tolerance-m` | Enables boundary precision/recall/F1 and coverage within tolerance. |
 | `--boundary-sample-spacing-m` (1 m) | Boundary sample spacing for Hausdorff/mean distances; `none` selects the faster length-dependent spacing. |
 | `--equal-area-crs` | CRS for areas and IoU (default EPSG:6933). |
+| `--baselines` | Also score the [chance baselines](evaluation.md#chance-baselines) with the same rules, under `baselines`: a blind square grid whose cells have the predictions' median area, over the predictions' bounding box (the mean of 36 offset grids). The study area, the shifted reference and the other options are available from Python (`evaluate(..., baselines={...})`). |
 | `-o/--output` | Write the metrics as JSON (default: print). |
 
-See [Evaluation](evaluation.md) for the metric definitions.
+See [Evaluation](evaluation.md) for the metric definitions. Leaving the
+predictions on excluded ground out of the score (`evaluate(..., ignore=...)`,
+used by example 24's irrigated-only score; see
+[Ignoring predictions on excluded ground](evaluation.md#ignoring-predictions-on-excluded-ground))
+has no flag: call it from Python.
 
 ## query-ftw
 

@@ -26,17 +26,19 @@ median has no seams.
 Delineation runs without the LULC crop filter, and the filter (Dynamic World
 of the same year, the mean ``crops`` probability >= 0.3) is applied afterwards
 as a separate step, and both layers are written. The filtered layer can miss
-fields: on 2026-09-29 it kept 82 to 95 % of the polygons in five of the areas,
-but only 47 of the 320 in western Bahia, where it dropped most centre pivots.
+fields: in the development run of agribound 1.1 (2026-10-09) it kept 82 to
+95 % of the polygons in five of the areas, but only 46 of the 310 in western
+Bahia, where it dropped most centre pivots (47 of 320 on 2026-09-29).
 Nothing here is evaluated against reference boundaries: the table compares
 polygon counts and areas only.
 
 SPOT 6/7 (AIRBUS/SPOT6_7) is restricted to select Earth Engine users. Without
 access every run fails and the script says so.
 
-Estimated runtime: all six areas took 6.1 minutes on an Apple M2 Max (MPS),
-downloads and the crop-filter step included, on 2026-09-29 (a fresh run with
-agribound 1.0.1).
+Runtime: all six areas took 6.2 minutes (372 s) on an Apple M2 Max (MPS),
+downloads and the crop-filter step included, in the development run of
+agribound 1.1 (2026-10-09), as in a fresh run with agribound 1.0.1
+(2026-09-29).
 
 Prerequisites:
     pip install "agribound[gee,delineate-anything]"
@@ -64,7 +66,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"geedim\..*")
 warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"geedim\..*")
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

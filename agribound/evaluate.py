@@ -19,9 +19,17 @@ functions here report, for a prediction layer and a reference layer:
   resampling reference fields.
 
 :func:`evaluate` returns the summary dictionary, :func:`evaluate_frame` the
-per-reference-field table the summary is built from, and
+per-reference-field table the summary is built from,
 :func:`pixels_per_field` the number of pixels a field spans at a given ground
-sample distance.
+sample distance, :func:`chance_baselines` the same metrics for layers that
+use no image (a blind square grid and a shifted copy of the reference), and
+:func:`paired_bootstrap` the differences between two prediction layers scored
+against one reference, with intervals from resamples of reference fields or
+of square spatial blocks shared by both layers.
+:func:`evaluate`, :func:`evaluate_frame`, :func:`chance_baselines` and
+:func:`paired_bootstrap` can leave out of the score the predictions that lie
+on ground excluded from it, such as reference fields left out of the
+reference (``ignore``).
 
 References
 ----------
@@ -44,8 +52,8 @@ from __future__ import annotations
 import inspect
 import logging
 import math
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import geopandas as gpd
@@ -54,18 +62,23 @@ import pandas as pd
 import pyproj
 import shapely
 
-from agribound.io.crs import get_equal_area_crs
+from agribound.io.crs import get_equal_area_crs, get_utm_crs
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "BLIND_GRID_MAX_CELLS",
+    "BLIND_GRID_OFFSET_STEPS",
     "BOUNDARY_MAX_SAMPLES",
     "BOUNDARY_SAMPLE_SPACING_M",
     "BOOTSTRAP_CONFIDENCE_LEVEL",
     "MATCHING_METHODS",
+    "chance_baselines",
     "evaluate",
     "evaluate_frame",
+    "paired_bootstrap",
     "pixels_per_field",
+    "proj_network_enabled",
 ]
 
 #: Supported values of the ``matching`` argument.
@@ -84,6 +97,15 @@ BOUNDARY_MAX_SAMPLES: int = 1000
 
 #: Confidence level of the percentile bootstrap intervals.
 BOOTSTRAP_CONFIDENCE_LEVEL: float = 0.95
+
+#: Default ``offset_steps`` of :func:`chance_baselines`: the blind grid is
+#: shifted by k/6 of a cell along each axis (k = 0, ..., 5), so 36 grids are
+#: scored and averaged.
+BLIND_GRID_OFFSET_STEPS: int = 6
+
+#: Most cells one blind grid of :func:`chance_baselines` may have (before it is
+#: clipped); a larger grid raises ValueError.
+BLIND_GRID_MAX_CELLS: int = 1_000_000
 
 # Relative tolerance used when comparing IoU with the threshold, so that an
 # IoU equal to the threshold in exact arithmetic is not lost to rounding.
@@ -204,6 +226,82 @@ _COUNT_KEYS: tuple[str, ...] = (
     "count_fp",
     "count_fn",
 )
+# paired_bootstrap(): the metrics whose differences it reports (boundary F1 only
+# with a tolerance), and the counts it copies from each layer's metrics (those
+# present: per stratum there is no count_fp_unassigned, and count_predicted_ignored
+# comes with ignore).
+_PAIRED_METRICS: tuple[str, ...] = ("f1", "precision", "recall")
+_PAIRED_METRICS_TOLERANCE: tuple[str, ...] = ("boundary_f1",)
+_PAIRED_COUNT_KEYS: tuple[str, ...] = (
+    "count_reference",
+    "count_predicted",
+    "count_tp",
+    "count_fp",
+    "count_fn",
+    "count_fp_unassigned",
+    "count_predicted_ignored",
+)
+
+# chance_baselines(): the options evaluate(baselines={...}) passes on, and the
+# scoring rules it takes from evaluate()'s own arguments instead.
+_BASELINE_OPTIONS: tuple[str, ...] = (
+    "study_area",
+    "footprint",
+    "offset_steps",
+    "cell_side_m",
+    "min_area_m2",
+    "shift_m",
+)
+_BASELINE_RULES: tuple[str, ...] = (
+    "iou_threshold",
+    "matching",
+    "boundary_tolerance_m",
+    "equal_area_crs",
+    "boundary_sample_spacing_m",
+    "ignore",
+)
+# Metrics reported for each baseline layer (for the blind grid, means over the
+# grids), and those added with a boundary tolerance.
+_BASELINE_KEYS: tuple[str, ...] = (
+    "precision",
+    "recall",
+    "f1",
+    "iou_mean",
+    "best_iou_mean",
+    "area_weighted_precision",
+    "area_weighted_recall",
+    "area_weighted_f1",
+    "oversegmentation_mean",
+    "undersegmentation_mean",
+    "count_predicted",
+    "count_tp",
+    "count_fp",
+    "count_fn",
+    "count_fp_unassigned",
+    "predicted_area_ha",
+)
+_BASELINE_KEYS_TOLERANCE: tuple[str, ...] = (
+    "boundary_precision",
+    "boundary_recall",
+    "boundary_f1",
+    "coverage_within_tolerance",
+    "coverage_within_tolerance_area",
+)
+# A piece of a baseline polygon is kept when its area is at least min_area_m2
+# up to this relative tolerance.
+_BASELINE_AREA_RTOL = 1e-9
+# A piece with the area of the polygon it was cut from, up to this relative
+# tolerance (floating-point noise of the clip), counts as the whole polygon.
+_BASELINE_WHOLE_RTOL = 1e-6
+# Precision grid (m) of the union of the predictions that footprint=True cuts
+# the cells to. Reprojected neighbours that shared an edge leave cracks under
+# 0.1 mm wide along that edge in their union; a cut along a crack splits a cell
+# and adds the crack to its boundary. In the crop-sequence pilot's Montana
+# square (crop-history zones reprojected from EPSG:5070 to UTM) the union had
+# 169 km of boundary, 178 holes under 1 m² among them; a 1 mm grid shortened it
+# to 130 km and changed its area by under 1 m². On the Virginia square, a 1 cm
+# grid moved the union's area by 7-13 m² and left more small holes.
+_BASELINE_FOOTPRINT_GRID_M = 1e-3
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +322,8 @@ def evaluate(
     boundary_tolerance_m: float | None = None,
     equal_area_crs: Any = None,
     boundary_sample_spacing_m: float | None = BOUNDARY_SAMPLE_SPACING_M,
+    baselines: bool | Mapping[str, Any] = False,
+    ignore: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
 ) -> dict[str, Any]:
     """Compute object-level accuracy metrics of predicted field polygons.
 
@@ -305,6 +405,42 @@ def evaluate(
         50,603 NMOSE fields took 33 s instead of 56 s. But its error bound
         grows with field size, which biases comparisons of boundary distances
         between size classes. Run time grows with the number of samples.
+    baselines : bool or mapping, optional
+        Also score the image-blind layers of :func:`chance_baselines` (a
+        blind square grid and, optionally, a shifted copy of the reference)
+        with this call's ``iou_threshold``, ``matching``,
+        ``boundary_tolerance_m``, ``equal_area_crs``,
+        ``boundary_sample_spacing_m`` and ``ignore`` (no bootstrap, strata
+        or size classes) and report them under ``baselines``. ``True`` uses
+        the defaults of :func:`chance_baselines`; a mapping passes its other options
+        (``study_area``, ``footprint``, ``offset_steps``, ``cell_side_m``,
+        ``min_area_m2``, ``shift_m``). Default False: nothing is added and
+        the other keys are unchanged. The options, the study area's CRS and
+        polygons included, are checked before the evaluation. When the
+        evaluated layers give no baselines (no evaluated prediction, and no
+        ``cell_side_m`` or no ``study_area``; or ``shift_m`` without evaluated
+        reference polygons), a WARNING is logged and ``baselines`` is
+        ``{"skipped": <reason>}``; the other keys are returned as usual.
+    ignore : geopandas.GeoDataFrame or geopandas.GeoSeries, optional
+        Polygons of ground left out of the score, typically reference fields
+        that are not in *reference* (for example the fields not irrigated in
+        the year of the imagery, when *reference* holds the irrigated ones).
+        A prediction whose representative point lies in an ignore polygon or
+        on its boundary is removed before matching: it is neither a true nor
+        a false positive, and no score counts it (``count_predicted_ignored``
+        does, and ``count_predicted_repaired`` too when it was repaired; see
+        Returns). The representative point is
+        :func:`shapely.point_on_surface` of the evaluated (repaired)
+        prediction in its own CRS, the point
+        :meth:`geopandas.GeoSeries.representative_point` gives for the
+        repaired polygon; it is tested in the CRS of *ignore*. A prediction
+        is removed whatever else it overlaps, a field of *reference*
+        included, so *ignore* should not overlap *reference*. Every other
+        prediction is scored as without *ignore*: one on ground that is in
+        neither layer is still a false positive. Must have a CRS unless it
+        contains no geometries; its geometries are repaired and filtered as
+        the evaluated layers are. Default None: no prediction is removed and
+        the keys are those returned without it.
 
     Returns
     -------
@@ -380,6 +516,18 @@ def evaluate(
           ``count_predicted_repaired``: evaluated geometries that were invalid
           and were repaired with ``shapely.make_valid(method="structure")``.
 
+        Added after 1.0.1:
+
+        - ``proj_network``: PROJ's network setting when the metrics were
+          computed (:func:`proj_network_enabled`). Reprojections between
+          datums, for example of a NAD83 reference to the UTM zones and the
+          equal-area CRS, use the downloadable grids only with it on, and
+          only if their transformation was built with it on: geopandas
+          keeps the transformation of each pair of CRSs for the life of the
+          process, so ``True`` does not show that the grids were used when
+          the setting was changed after the process had reprojected
+          between the same CRSs.
+
         With ``boundary_tolerance_m``:
 
         - ``boundary_tolerance_m``.
@@ -417,6 +565,19 @@ def evaluate(
         ``per_stratum``/``per_size_class`` entry also gains ``ci`` (and
         ``ci_n_undefined`` when a metric was undefined in some resamples).
 
+        With ``baselines``: ``baselines``, the dictionary
+        :func:`chance_baselines` returns for the same layers and rules, or
+        ``{"skipped": <reason>}`` when those layers give none.
+
+        With ``ignore``: ``count_predicted_ignored``, the evaluated
+        predictions removed because their representative point lies in an
+        ignore polygon. They are in neither ``count_predicted``, which then
+        counts the scored predictions, nor ``count_predicted_dropped``.
+        ``count_predicted_dropped`` and ``count_predicted_repaired`` describe
+        the layer passed, as without ``ignore``: a prediction that was
+        repaired is counted in ``count_predicted_repaired`` whether it was
+        scored or removed.
+
         Conventions for empty denominators: the rates (keys ending in
         ``precision``, ``recall`` or ``f1``, ``iou_mean`` and the coverage
         keys) and the 0.1.x keys ``over_segmentation``, ``under_segmentation``
@@ -429,7 +590,7 @@ def evaluate(
         If an input is not a GeoDataFrame/GeoSeries.
     ValueError
         If an input that contains geometries has no CRS, or an argument is out
-        of range.
+        of range (with ``baselines``, see also :func:`chance_baselines`).
     ImportError
         If a layer contains invalid geometries and the installed shapely does
         not provide ``make_valid(method="structure")`` (shapely >= 2.1 built
@@ -540,7 +701,12 @@ def evaluate(
         equal_area_crs=equal_area_crs,
         boundary_sample_spacing_m=boundary_sample_spacing_m,
     )
-    run = _run(predicted, reference, params, strata=strata, size_bins=size_bins)
+    # Checked before the evaluation, the study area's CRS and polygons included.
+    baseline_options = _baseline_request(baselines, params.ea_crs)
+    ignore_layer = _prepare_ignore(ignore, params.ea_crs)
+    run = _run(
+        predicted, reference, params, strata=strata, size_bins=size_bins, ignore=ignore_layer
+    )
     metrics = _summarise(run)
     if params.bootstrap > 0:
         _add_bootstrap(metrics, run)
@@ -559,6 +725,25 @@ def evaluate(
         metrics["count_fp"],
         metrics["count_fn"],
     )
+    if run.pred.n_ignored is not None:
+        logger.info(
+            "%d of %d evaluated predictions have their representative point in an ignore "
+            "polygon and were not scored",
+            run.pred.n_ignored,
+            run.pred.n + run.pred.n_ignored,
+        )
+    if baseline_options is not None:
+        problem = _baseline_problem(run.pred, run.ref, baseline_options)
+        if problem is None:
+            # The layers as evaluated above, scored with the same rules.
+            metrics["baselines"] = _chance_baselines(
+                run.pred, run.ref, replace(params, bootstrap=0), baseline_options, ignore_layer
+            )
+        else:
+            # The metrics above stand; a loop over sites keeps them where, for
+            # example, an engine found no field.
+            logger.warning("Chance baselines not scored: %s", problem)
+            metrics["baselines"] = {"skipped": problem}
     return metrics
 
 
@@ -573,6 +758,7 @@ def evaluate_frame(
     boundary_tolerance_m: float | None = None,
     size_bins: str | Sequence[float] | np.ndarray | None = None,
     boundary_sample_spacing_m: float | None = BOUNDARY_SAMPLE_SPACING_M,
+    ignore: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
 ) -> pd.DataFrame:
     """Return the per-reference-field evaluation table.
 
@@ -592,6 +778,10 @@ def evaluate_frame(
         See :func:`evaluate` (hectares); adds a ``size_class`` column.
     boundary_sample_spacing_m : float or None
         See :func:`evaluate` (default 1 m).
+    ignore : geopandas.GeoDataFrame or geopandas.GeoSeries, optional
+        See :func:`evaluate`. The predictions it removes are not in the
+        table: the prediction columns and counts refer to the scored
+        predictions.
 
     Returns
     -------
@@ -629,7 +819,8 @@ def evaluate_frame(
 
         ``DataFrame.attrs`` records ``iou_threshold``, ``matching``,
         ``equal_area_crs``, ``boundary_tolerance_m`` and
-        ``boundary_sample_spacing_m``.
+        ``boundary_sample_spacing_m``, and with *ignore* also
+        ``count_predicted_ignored``.
     """
     params = _Params.from_args(
         iou_threshold=iou_threshold,
@@ -640,7 +831,10 @@ def evaluate_frame(
         equal_area_crs=equal_area_crs,
         boundary_sample_spacing_m=boundary_sample_spacing_m,
     )
-    run = _run(predicted, reference, params, strata=strata, size_bins=size_bins)
+    ignore_layer = _prepare_ignore(ignore, params.ea_crs)
+    run = _run(
+        predicted, reference, params, strata=strata, size_bins=size_bins, ignore=ignore_layer
+    )
     return _frame(run)
 
 
@@ -692,6 +886,383 @@ def pixels_per_field(
     values = np.full(layer.n_input, np.nan)
     values[layer.keep] = layer.area / (gsd * gsd)
     return pd.Series(values, index=layer.index, name="pixels_per_field")
+
+
+def chance_baselines(
+    predicted: gpd.GeoDataFrame | gpd.GeoSeries,
+    reference: gpd.GeoDataFrame | gpd.GeoSeries,
+    iou_threshold: float = 0.5,
+    *,
+    matching: str = "one_to_one",
+    boundary_tolerance_m: float | None = None,
+    equal_area_crs: Any = None,
+    boundary_sample_spacing_m: float | None = BOUNDARY_SAMPLE_SPACING_M,
+    study_area: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
+    footprint: bool = False,
+    offset_steps: int = BLIND_GRID_OFFSET_STEPS,
+    cell_side_m: float | None = None,
+    min_area_m2: float | None = None,
+    shift_m: float | str | None = None,
+    ignore: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
+) -> dict[str, Any]:
+    """Score layers that use no image with the rules of :func:`evaluate`.
+
+    The layers are scored against *reference* as :func:`evaluate` scores
+    predictions (the same code, matching, IoU threshold, areas and boundary
+    tolerance), without bootstrap, strata or size classes:
+
+    - **Blind grid.** Square cells of side √A, A the median area of the
+      evaluated predictions in *equal_area_crs* (or of side *cell_side_m*),
+      laid out in the WGS 84 / UTM zone of the centre of the extent (so a
+      cell's true area differs from A by the UTM scale error, within about
+      0.2 %), anchored at the lower-left corner of the extent's bounding box
+      and clipped to the extent: the union of *study_area*, or without it the
+      bounding box of the predictions. The grid is shifted by ``k / offset_steps`` of a cell
+      along each axis (k = 0, ..., ``offset_steps - 1``); each of the
+      ``offset_steps²`` grids (36 by default) is scored, and the summary is
+      their mean. With *footprint*, the cells are also cut to the union of
+      the predictions (snapped to a 1 mm grid, which closes the cracks that
+      reprojection leaves between neighbouring polygons), so the grid
+      covers only the ground the predictions cover.
+    - **Shifted reference** (with *shift_m*). Each reference polygon moved
+      *shift_m* metres east and north, in the same UTM zone, and clipped to
+      the same extent; it stays one feature, as in the reference.
+
+    Clipping and cutting leave pieces: single polygons of a cell, and the
+    part of a shifted polygon inside the extent. A piece smaller than the
+    cell or polygon it was cut from is dropped when its area is below
+    *min_area_m2*; whole cells and whole shifted polygons are kept. By
+    default *min_area_m2* is the area of the smallest evaluated prediction,
+    so no piece is smaller than every prediction (for predictions filtered
+    at a minimum area, as the pipeline does with ``min_field_area_m2``,
+    about that minimum).
+
+    In two pilots on small-field sites, boundary F at loose tolerances gave
+    image-blind grids about the scores of real outputs; the evaluation guide
+    gives the numbers (section "Chance baselines").
+
+    Parameters
+    ----------
+    predicted, reference : geopandas.GeoDataFrame or geopandas.GeoSeries
+        As in :func:`evaluate`. The predictions set the grid's cell size and,
+        without *study_area*, its extent; they are not scored themselves.
+    iou_threshold, matching, boundary_tolerance_m, equal_area_crs, boundary_sample_spacing_m
+        The scoring rules; see :func:`evaluate`.
+    study_area : geopandas.GeoDataFrame or geopandas.GeoSeries, optional
+        Polygons whose union the grid covers. Must have a CRS. Default: the
+        bounding box of the evaluated predictions.
+    footprint : bool
+        Cut the grid cells to the union of the evaluated predictions (default
+        False).
+    offset_steps : int
+        Grid offsets per axis (>= 1; default ``BLIND_GRID_OFFSET_STEPS``, 6,
+        which scores 36 grids).
+    cell_side_m : float, optional
+        Cell side in metres in the grid's UTM zone. Default: the square root
+        of the median area of the evaluated predictions.
+    min_area_m2 : float, optional
+        Smallest piece of a clipped or cut cell or shifted polygon that is
+        kept, in m² in *equal_area_crs*. Default: the area of the smallest
+        evaluated prediction (0 without predictions); 0 keeps every piece
+        with a positive area.
+    shift_m : float or "auto", optional
+        Also score the reference shifted by this many metres east and north
+        (it needs reference polygons).
+        ``"auto"``: half the median width of the reference polygons, the width
+        being the shorter side of a polygon's minimum rotated rectangle
+        (``shapely.minimum_rotated_rectangle``, on its vertices reprojected to
+        the grid's UTM zone). A shape with two minimum rectangles of equal
+        area, such as some triangles, gets one of them. Default None: no
+        shifted reference.
+    ignore : geopandas.GeoDataFrame or geopandas.GeoSeries, optional
+        Ground left out of the score, as in :func:`evaluate`. The predictions
+        whose representative point lies in an ignore polygon are left out
+        before the grid is sized and placed, and so are the cells and
+        shifted polygons whose representative point lies in one before they
+        are scored. Each layer's metrics then include
+        ``count_predicted_ignored`` (for the blind grid, the mean over the
+        grids). :func:`evaluate` with ``baselines`` passes its own *ignore*.
+        Default None: nothing is left out.
+
+    Returns
+    -------
+    dict[str, Any]
+        - ``iou_threshold``, ``matching``, ``boundary_tolerance_m``,
+          ``equal_area_crs``: the scoring rules.
+        - ``grid_crs``: the UTM CRS of the grid and the shift (e.g.
+          ``"EPSG:32630"``); ``extent``: ``"study_area"`` or
+          ``"predictions_bbox"``; ``min_area_m2``: the threshold used.
+        - ``blind_grid``: ``cell_side_m``, ``median_predicted_area_ha`` (NaN
+          without predictions), ``footprint``, ``offset_steps``, ``n_grids``;
+          the means over the grids of ``precision``, ``recall``, ``f1``,
+          ``iou_mean``, ``best_iou_mean``, the area-weighted metrics,
+          ``oversegmentation_mean``, ``undersegmentation_mean``, the counts
+          (``count_predicted``, ``count_tp``, ``count_fp``, ``count_fn``,
+          ``count_fp_unassigned``; means, so not always integers) and
+          ``predicted_area_ha``, plus, with *boundary_tolerance_m*,
+          ``boundary_precision``, ``boundary_recall``, ``boundary_f1`` and
+          the coverage keys; ``f1_min`` and ``f1_max`` over the grids (and
+          ``boundary_f1_min``, ``boundary_f1_max``); ``grids``, one dict per
+          grid with ``offset_x_m``, ``offset_y_m`` and its metrics. The keys
+          mean what they mean in :func:`evaluate`.
+        - ``shifted_reference`` (with *shift_m*): ``shift_m`` (the shift used)
+          and the same metrics.
+
+    Raises
+    ------
+    TypeError
+        If *predicted*, *reference* or *study_area* is not a
+        GeoDataFrame/GeoSeries.
+    ValueError
+        If an argument is out of range; if there is no evaluated prediction
+        and no *cell_side_m* (the grid cannot be sized) or no *study_area*
+        (it cannot be placed); if *study_area* has no CRS or no polygon; for
+        *shift_m* (a distance or ``"auto"``) without evaluated reference
+        polygons; or if a grid would have more than ``BLIND_GRID_MAX_CELLS``
+        cells. :func:`evaluate` with ``baselines`` reports the cases of
+        missing predictions or reference polygons as ``{"skipped": <reason>}``
+        instead.
+
+    Notes
+    -----
+    The grids are deterministic: the same inputs give the same cells and
+    scores. Each grid is one evaluation, so the run time is about
+    ``offset_steps²`` times that of :func:`evaluate` (without bootstrap) on a
+    layer of the grid's size.
+
+    Examples
+    --------
+    >>> from agribound.evaluate import chance_baselines, evaluate
+    >>> metrics = evaluate(predicted_gdf, reference_gdf, boundary_tolerance_m=20.0)
+    >>> blind = chance_baselines(
+    ...     predicted_gdf, reference_gdf, boundary_tolerance_m=20.0, shift_m="auto"
+    ... )
+    >>> print(metrics["f1"], blind["blind_grid"]["f1"], blind["shifted_reference"]["f1"])
+    """
+    params = _Params.from_args(
+        iou_threshold=iou_threshold,
+        matching=matching,
+        bootstrap=0,
+        bootstrap_seed=0,
+        boundary_tolerance_m=boundary_tolerance_m,
+        equal_area_crs=equal_area_crs,
+        boundary_sample_spacing_m=boundary_sample_spacing_m,
+    )
+    options = _BaselineOptions.from_args(
+        study_area=study_area,
+        footprint=footprint,
+        offset_steps=offset_steps,
+        cell_side_m=cell_side_m,
+        min_area_m2=min_area_m2,
+        shift_m=shift_m,
+    ).with_study_layer(params.ea_crs)
+    ignore_layer = _prepare_ignore(ignore, params.ea_crs)
+    ref = _prepare_layer(reference, "reference", params.ea_crs)
+    pred = _prepare_layer(predicted, "predicted", params.ea_crs)
+    if ignore_layer is not None:
+        pred = _drop_ignored(pred, ignore_layer)
+    return _chance_baselines(pred, ref, params, options, ignore_layer)
+
+
+def paired_bootstrap(
+    predicted_a: gpd.GeoDataFrame | gpd.GeoSeries,
+    predicted_b: gpd.GeoDataFrame | gpd.GeoSeries,
+    reference: gpd.GeoDataFrame | gpd.GeoSeries,
+    iou_threshold: float = 0.5,
+    *,
+    matching: str = "one_to_one",
+    strata: str | pd.Series | Sequence[Any] | np.ndarray | None = None,
+    n_resamples: int = 2000,
+    seed: int = 42,
+    block_size_m: float | None = None,
+    block_crs: Any = None,
+    boundary_tolerance_m: float | None = None,
+    equal_area_crs: Any = None,
+    ignore: gpd.GeoDataFrame | gpd.GeoSeries | None = None,
+) -> dict[str, Any]:
+    """Compare two prediction layers against one reference with a paired bootstrap.
+
+    Both layers are scored against *reference* as :func:`evaluate` scores a
+    layer, with the same rules, and the differences A − B of their F1,
+    precision and recall (and boundary F1 with *boundary_tolerance_m*) are
+    reported with percentile bootstrap intervals. Every resample scores both
+    layers on the same draw, of reference fields or (with *block_size_m*) of
+    square spatial blocks, so the variation that comes from which fields are
+    drawn, which the two layers share, cancels in the difference.
+
+    Parameters
+    ----------
+    predicted_a, predicted_b : geopandas.GeoDataFrame or geopandas.GeoSeries
+        The two prediction layers, as *predicted* in :func:`evaluate`. The
+        differences are the metrics of A minus those of B.
+    reference : geopandas.GeoDataFrame or geopandas.GeoSeries
+        Reference field polygons, as in :func:`evaluate`.
+    iou_threshold, matching, boundary_tolerance_m, equal_area_crs
+        The scoring rules; see :func:`evaluate`. Boundary F1 is reported
+        only with *boundary_tolerance_m*.
+    strata : str, pandas.Series or array-like, optional
+        Reference strata, as in :func:`evaluate`; the differences are also
+        reported per stratum (``per_stratum``). When reference fields are
+        resampled, each stratum (and the set of fields with a missing
+        stratum) is resampled separately at its own size, as in
+        :func:`evaluate`. When blocks are resampled, the strata only group
+        the reported metrics: a block can hold fields of several strata.
+    n_resamples : int
+        Number of bootstrap resamples, at least 1 (default 2,000).
+    seed : int
+        Seed (a non-negative integer) of the resamples (default 42).
+    block_size_m : float, optional
+        Side in metres of square blocks to resample instead of reference
+        fields, for example 1000 (see Notes). Default None: reference fields
+        are resampled, as by :func:`evaluate`.
+    block_crs : CRS-like, optional
+        Projected CRS with axes in metres in which the blocks are laid out,
+        with edges at multiples of *block_size_m* (only with *block_size_m*).
+        Default: the WGS 84 / UTM zone of the centre of the bounding box of
+        the evaluated polygons of the three layers in *equal_area_crs*. Pass
+        the CRS a study square was laid out in to align the blocks with it.
+    ignore : geopandas.GeoDataFrame or geopandas.GeoSeries, optional
+        Ground left out of the score, as in :func:`evaluate`, for both
+        layers: their predictions whose representative point lies in an
+        ignore polygon are neither scored nor resampled.
+
+    Returns
+    -------
+    dict[str, Any]
+        - ``iou_threshold``, ``matching``, ``boundary_tolerance_m``,
+          ``equal_area_crs``, ``proj_network``: the scoring rules and PROJ's
+          network setting, as in :func:`evaluate`.
+        - ``n_resamples``, ``seed``, ``confidence_level``
+          (``BOOTSTRAP_CONFIDENCE_LEVEL``), ``method`` (``"percentile"``) and
+          ``resampling`` (for example ``"reference fields with replacement"``
+          or ``"1000 m blocks with replacement"``); ``block_size_m``,
+          ``block_crs`` (for example ``"EPSG:32611"``) and ``n_blocks`` (the
+          blocks resampled), all None without blocks.
+        - ``difference``: ``f1``, ``precision`` and ``recall`` (and
+          ``boundary_f1``) of A minus those of B, from the values
+          :func:`evaluate` returns for each layer.
+        - ``ci``: the interval ``[lower, upper]`` of each difference.
+          ``n_undefined``: for each difference that is undefined in some
+          resamples (a rate of A or B with a zero denominator), how many.
+        - ``a``, ``b``: each layer's ``f1``, ``precision``, ``recall`` (and
+          ``boundary_f1``), ``count_reference``, ``count_predicted``,
+          ``count_tp``, ``count_fp``, ``count_fn``, ``count_fp_unassigned``
+          and, with *ignore*, ``count_predicted_ignored``, as :func:`evaluate`
+          returns them, with ``ci`` and ``n_undefined`` of the layer's own
+          metrics over the same resamples.
+        - With *strata*: ``strata_column``, ``count_reference_no_stratum`` and
+          ``per_stratum``, keyed as in :func:`evaluate`: per stratum, ``n``
+          (its reference fields) and ``difference``, ``ci``, ``n_undefined``,
+          ``a`` and ``b`` as above (without ``count_fp_unassigned``). A
+          prediction counts in the stratum of its home reference field, as in
+          :func:`evaluate`.
+
+    Raises
+    ------
+    TypeError
+        If an input layer is not a GeoDataFrame/GeoSeries.
+    ValueError
+        If a layer that contains geometries has no CRS; if an argument is out
+        of range; if *block_crs* is given without *block_size_m* or is not a
+        projected CRS with axes in metres; or if a representative point has
+        no finite coordinates in *block_crs*.
+    ImportError
+        If a layer contains invalid geometries and shapely is too old to
+        repair them (see :func:`evaluate`).
+
+    Notes
+    -----
+    **Resamples.** Each resample draws units with replacement, as many as
+    there are units, with the generator of its own child seed of
+    ``numpy.random.SeedSequence(seed)``, so the resamples do not depend on
+    how they are batched. Both layers are scored on every resample. The
+    intervals are percentile intervals at ``BOOTSTRAP_CONFIDENCE_LEVEL``
+    (95 %) over the resamples in which the metric (for a difference, the
+    metric of both layers) is defined.
+
+    **Reference fields** (the default). The units are the evaluated
+    reference fields, drawn within strata as in :func:`evaluate`. A field
+    brings its own results under each layer and the predictions of each
+    layer whose home it is (its matched field, else the field it overlaps
+    most). Predictions that overlap no reference field are kept unchanged
+    in every resample. These are the resamples of ``evaluate(...,
+    bootstrap=n_resamples, bootstrap_seed=seed)``: the intervals under ``a``
+    and ``b`` are those :func:`evaluate` reports for the same arguments.
+
+    **Blocks** (*block_size_m*). The plane of *block_crs* is cut into the
+    squares ``[i s, (i + 1) s) × [j s, (j + 1) s)``, ``s`` being
+    *block_size_m*, and the units are the squares that hold the
+    representative point of at least one evaluated reference field or
+    prediction of either layer, ordered by row from the south, then from the
+    west. The point is :func:`shapely.point_on_surface` of the evaluated
+    (repaired) polygon in its own CRS, projected to *block_crs*, as for
+    ``ignore``. A block brings the reference fields in it, with their results
+    under each layer, and each layer's predictions in it, matched or not, so
+    false positives on ground that no reference field covers are resampled
+    with their block. A true positive counts with its reference field, and
+    the rates are computed from the resampled sums as :func:`evaluate`
+    computes them (precision = TP / (TP + FP), FP being the unmatched
+    predictions; boundary precision from each prediction's own boundary),
+    so a matched prediction acts on precision, recall and F1 only through
+    its reference field.
+
+    **What the intervals cover.** The variation of the scores over reference
+    fields, or blocks, like those evaluated, for the two layers as they
+    are. With reference fields resampled, the predictions that overlap no
+    reference field are constants, so where many of them lie on ground the
+    reference does not map, the intervals are too narrow; blocks resample
+    them. Neighbouring fields often share errors (one image, one farm
+    layout), which fields resampled one by one ignore; blocks keep
+    neighbours together. Blocks smaller than the distance over which errors
+    are correlated still give intervals that are too narrow, and few blocks
+    (a 5 km square holds at most 25 of 1 km) give rough ones. Neither scheme
+    is a design-based estimate for a probability sample of fields (Stehman
+    & Foody, 2019).
+
+    Examples
+    --------
+    >>> from agribound.evaluate import paired_bootstrap
+    >>> out = paired_bootstrap(
+    ...     fields_a, fields_b, reference_gdf, block_size_m=1000.0, boundary_tolerance_m=10.0
+    ... )
+    >>> lower, upper = out["ci"]["f1"]
+    >>> print(f"F1 A - B: {out['difference']['f1']:+.3f} ({lower:+.3f} to {upper:+.3f})")
+    """
+    # Cheap checks first: the layers' types and CRSs, then the arguments.
+    for layer, name in (
+        (predicted_a, "predicted_a"),
+        (predicted_b, "predicted_b"),
+        (reference, "reference"),
+    ):
+        _as_geoseries(layer, name)
+    n_boot = _non_negative_int(n_resamples, "n_resamples")
+    if n_boot < 1:
+        raise ValueError(f"n_resamples must be at least 1, got {n_resamples!r}")
+    seed = _non_negative_int(seed, "seed")
+    side = None if block_size_m is None else _positive_float(block_size_m, "block_size_m")
+    if block_crs is not None and side is None:
+        raise ValueError("block_crs sets the CRS of the blocks; pass block_size_m with it")
+    grid_crs = None
+    if block_crs is not None:
+        grid_crs = _metric_crs(block_crs, "block_crs", "block sides in metres")
+    params = _Params.from_args(
+        iou_threshold=iou_threshold,
+        matching=matching,
+        bootstrap=n_boot,
+        bootstrap_seed=seed,
+        boundary_tolerance_m=boundary_tolerance_m,
+        equal_area_crs=equal_area_crs,
+        # No boundary distance is reported, so the fastest sampling will do.
+        boundary_sample_spacing_m=None,
+    )
+    ignore_layer = _prepare_ignore(ignore, params.ea_crs)
+    ref = _prepare_layer(reference, "reference", params.ea_crs)
+    groups = _resolve_strata(strata, reference, ref)
+    runs = [
+        _run(predicted, ref, params, strata=groups, size_bins=None, ignore=ignore_layer)
+        for predicted in (predicted_a, predicted_b)
+    ]
+    return _paired_bootstrap(runs, groups, side, grid_crs)
 
 
 # ---------------------------------------------------------------------------
@@ -770,24 +1341,178 @@ def _positive_float(value: Any, name: str) -> float:
     return out
 
 
+def _non_negative_float(value: Any, name: str) -> float:
+    if isinstance(value, bool | np.bool_):
+        raise ValueError(f"{name} must be a non-negative number, got {value!r}")
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a non-negative number, got {value!r}") from None
+    if not math.isfinite(out) or out < 0:
+        raise ValueError(f"{name} must be a non-negative finite number, got {value!r}")
+    return out
+
+
+@dataclass(frozen=True)
+class _BaselineOptions:
+    """Validated options of :func:`chance_baselines` (other than the scoring rules)."""
+
+    study_area: gpd.GeoDataFrame | gpd.GeoSeries | None
+    footprint: bool
+    offset_steps: int
+    cell_side_m: float | None
+    min_area_m2: float | None
+    shift_m: float | str | None  # metres, "auto" or None
+    # *study_area* prepared in the equal-area CRS (with_study_layer); None without one.
+    study_layer: _Layer | None = None
+
+    def with_study_layer(self, ea_crs: pyproj.CRS) -> _BaselineOptions:
+        """These options with *study_area* prepared and checked (its CRS and polygons)."""
+        if self.study_area is None:
+            return self
+        layer = _prepare_layer(self.study_area, "study_area", ea_crs)
+        if layer.n == 0:
+            raise ValueError("study_area has no polygon with a positive area")
+        return replace(self, study_layer=layer)
+
+    @classmethod
+    def from_args(
+        cls,
+        *,
+        study_area: Any = None,
+        footprint: Any = False,
+        offset_steps: Any = BLIND_GRID_OFFSET_STEPS,
+        cell_side_m: Any = None,
+        min_area_m2: Any = None,
+        shift_m: Any = None,
+    ) -> _BaselineOptions:
+        if study_area is not None and not isinstance(study_area, gpd.GeoDataFrame | gpd.GeoSeries):
+            raise TypeError(
+                f"study_area must be a GeoDataFrame or GeoSeries, got {type(study_area).__name__}"
+            )
+        if not isinstance(footprint, bool | np.bool_):
+            raise ValueError(f"footprint must be True or False, got {footprint!r}")
+        steps = _non_negative_int(offset_steps, "offset_steps")
+        if steps < 1:
+            raise ValueError(f"offset_steps must be at least 1, got {offset_steps!r}")
+        side = None if cell_side_m is None else _positive_float(cell_side_m, "cell_side_m")
+        min_area = None if min_area_m2 is None else _non_negative_float(min_area_m2, "min_area_m2")
+        if shift_m is None or (isinstance(shift_m, str) and shift_m == "auto"):
+            shift = shift_m
+        elif isinstance(shift_m, str):
+            raise ValueError(f"shift_m must be a distance in metres or 'auto', got {shift_m!r}")
+        else:
+            shift = _positive_float(shift_m, "shift_m")
+        return cls(
+            study_area=study_area,
+            footprint=bool(footprint),
+            offset_steps=steps,
+            cell_side_m=side,
+            min_area_m2=min_area,
+            shift_m=shift,
+        )
+
+
+def _baseline_request(value: Any, ea_crs: pyproj.CRS) -> _BaselineOptions | None:
+    """The options of ``evaluate(..., baselines=value)``; None when not requested.
+
+    Every option is checked here, before the evaluation runs, the study area's
+    CRS and polygons included (it is prepared in *ea_crs*).
+    """
+    if value is None or (isinstance(value, bool | np.bool_) and not value):
+        return None
+    if isinstance(value, bool | np.bool_):
+        return _BaselineOptions.from_args()
+    if not isinstance(value, Mapping):
+        raise ValueError(
+            "baselines must be True, False or a mapping of chance_baselines() options, got "
+            f"{type(value).__name__}"
+        )
+    rules = sorted(str(key) for key in value if key in _BASELINE_RULES)
+    if rules:
+        raise ValueError(
+            f"baselines are scored with evaluate()'s own {', '.join(rules)}; set "
+            f"{'it' if len(rules) == 1 else 'them'} on evaluate(), not in baselines"
+        )
+    unknown = sorted(str(key) for key in value if key not in _BASELINE_OPTIONS)
+    if unknown:
+        raise ValueError(
+            f"unknown baselines option(s) {', '.join(unknown)} (expected some of "
+            f"{', '.join(_BASELINE_OPTIONS)})"
+        )
+    return _BaselineOptions.from_args(**value).with_study_layer(ea_crs)
+
+
+def _baseline_problem(pred: _Layer, ref: _Layer, options: _BaselineOptions) -> str | None:
+    """Why the evaluated layers give no chance baselines with *options*; None when they do.
+
+    Without evaluated predictions, the blind grid needs ``cell_side_m`` (its
+    size) and ``study_area`` (its extent); a shifted reference needs reference
+    polygons.
+    """
+    if pred.n == 0 and options.cell_side_m is None:
+        more = " and study_area" if options.study_layer is None else ""
+        return (
+            "chance_baselines() sizes the blind grid by the median area of the predictions, "
+            f"and no predicted polygon was evaluated; pass cell_side_m{more}"
+        )
+    if pred.n == 0 and options.study_layer is None:
+        return (
+            "chance_baselines() lays the blind grid over the bounding box of the predictions, "
+            "and no predicted polygon was evaluated; pass study_area"
+        )
+    if ref.n == 0 and options.shift_m == "auto":
+        return "shift_m='auto' needs reference polygons to measure their width"
+    if ref.n == 0 and options.shift_m is not None:
+        return "shift_m needs reference polygons to shift, and no reference polygon was evaluated"
+    return None
+
+
 def _resolve_equal_area_crs(value: Any) -> pyproj.CRS:
     if value is None:
         return get_equal_area_crs()
+    return _metric_crs(value, "equal_area_crs", "areas in metres")
+
+
+def _metric_crs(value: Any, name: str, purpose: str) -> pyproj.CRS:
+    """*value* as a projected CRS with axes in metres; ValueError naming the argument *name*."""
     try:
         crs = pyproj.CRS.from_user_input(value)
     except pyproj.exceptions.CRSError as exc:
-        raise ValueError(f"equal_area_crs {value!r} is not a valid CRS: {exc}") from None
+        raise ValueError(f"{name} {value!r} is not a valid CRS: {exc}") from None
     if not crs.is_projected:
-        raise ValueError(
-            f"equal_area_crs must be a projected CRS (areas in metres), got {crs.to_string()}"
-        )
+        raise ValueError(f"{name} must be a projected CRS ({purpose}), got {crs.to_string()}")
     units = [(axis.unit_name, axis.unit_conversion_factor) for axis in crs.axis_info]
     if not units or any(factor != 1.0 for _, factor in units):
         raise ValueError(
-            f"equal_area_crs must have axes in metres, got {crs.to_string()} with axis units "
-            f"{[name for name, _ in units]}"
+            f"{name} must have axes in metres, got {crs.to_string()} with axis units "
+            f"{[unit for unit, _ in units]}"
         )
     return crs
+
+
+def proj_network_enabled() -> bool:
+    """Whether PROJ may download transformation grids (``pyproj.network.is_network_enabled()``).
+
+    PROJ reads ``PROJ_NETWORK=ON`` from the environment when it starts;
+    ``pyproj.network.set_network_enabled`` changes the setting later. A
+    reprojection between datums, such as NAD83 (EPSG:26913) to WGS 84, uses
+    the downloadable grids only with network access, so its result, and the
+    scores of a reference in such a CRS, can differ slightly without it.
+
+    The value is the setting at the time of the call, not a record of what a
+    reprojection used. A transformation keeps the pipeline it was built
+    with, and geopandas (``GeoSeries.to_crs``, which :func:`evaluate` uses)
+    keeps one per pair of CRSs for the life of the process: after
+    ``set_network_enabled(True)``, a pair already reprojected in the process
+    is still reprojected without the grids (seen with pyproj 3.7.2, PROJ
+    9.7.1 and geopandas 1.1.4: a NAD83 point in Lea County moved 0 m, and
+    0.376 m with a new transformation). Set ``PROJ_NETWORK=ON`` before the
+    process starts, or enable the network before the first reprojection.
+    """
+    import pyproj.network
+
+    return bool(pyproj.network.is_network_enabled())
 
 
 def _crs_label(crs: pyproj.CRS) -> str:
@@ -864,6 +1589,8 @@ class _Layer:
     n_input: int
     n_dropped: int
     n_repaired: int
+    # Polygons removed because they lie in an ignore polygon (_drop_ignored); None without one.
+    n_ignored: int | None = None
     epsg: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     lon: np.ndarray = field(default_factory=lambda: np.zeros(0))
     lat: np.ndarray = field(default_factory=lambda: np.zeros(0))
@@ -1027,6 +1754,43 @@ def _prepare_layer(obj: Any, name: str, ea_crs: pyproj.CRS) -> _Layer:
         n_input=n_input,
         n_dropped=n_dropped,
         n_repaired=n_repaired,
+    )
+
+
+def _prepare_ignore(ignore: Any, ea_crs: pyproj.CRS) -> _Layer | None:
+    """The ``ignore`` polygons, checked and repaired like an evaluated layer; None without them."""
+    if ignore is None:
+        return None
+    return _prepare_layer(ignore, "ignore", ea_crs)
+
+
+def _drop_ignored(pred: _Layer, ignore: _Layer) -> _Layer:
+    """*pred* without the polygons whose representative point lies in an *ignore* polygon.
+
+    The point is ``shapely.point_on_surface`` of the evaluated (repaired) polygon in its
+    own CRS, which is what ``GeoSeries.representative_point`` gives. It is reprojected to
+    the CRS of *ignore* and lies in a polygon when it is inside it or on its boundary, so
+    a point on an edge shared by two ignore polygons is in both. The result holds the
+    number removed in ``n_ignored``; its centroids and zones are not set yet.
+    """
+    hit = np.zeros(pred.n, dtype=bool)
+    if pred.n and ignore.n:
+        points = _to_crs(shapely.point_on_surface(pred.src), pred.crs, ignore.crs)
+        inside, _ = shapely.STRtree(ignore.src).query(points, predicate="intersects")
+        hit[inside] = True
+    kept = ~hit
+    return _Layer(
+        name=pred.name,
+        index=pred.index,
+        keep=pred.keep[kept],
+        src=pred.src[kept],
+        crs=pred.crs,
+        ea=pred.ea[kept],
+        area=pred.area[kept],
+        n_input=pred.n_input,
+        n_dropped=pred.n_dropped,
+        n_repaired=pred.n_repaired,
+        n_ignored=int(hit.sum()),
     )
 
 
@@ -1482,6 +2246,8 @@ class _Groups:
 def _resolve_strata(strata: Any, reference: Any, ref: _Layer) -> _Groups | None:
     if strata is None:
         return None
+    if isinstance(strata, _Groups):  # resolved already (paired_bootstrap scores two layers)
+        return strata
     if isinstance(strata, str):
         if not isinstance(reference, gpd.GeoDataFrame) or strata not in reference.columns:
             columns = list(reference.columns) if isinstance(reference, gpd.GeoDataFrame) else []
@@ -1613,6 +2379,8 @@ class _Run:
     within_tol: np.ndarray | None
     Q: np.ndarray  # (n_ref, len(_QUANTITIES))
     unassigned: np.ndarray  # (len(_QUANTITIES),) sums of predictions without a home
+    # Per prediction, the quantities of predictions (columns of Q summed by home).
+    pred_values: dict[str, np.ndarray]
     strata: _Groups | None
     size: _Groups | None
 
@@ -1624,10 +2392,19 @@ def _run(
     *,
     strata: Any,
     size_bins: Any,
+    ignore: _Layer | None = None,
 ) -> _Run:
     ea_crs = params.ea_crs
-    ref = _prepare_layer(reference, "reference", ea_crs)
+    # A reference already prepared in ea_crs (chance_baselines scores many layers
+    # against one reference) is used as it is.
+    if isinstance(reference, _Layer):
+        ref = reference
+    else:
+        ref = _prepare_layer(reference, "reference", ea_crs)
     pred = _prepare_layer(predicted, "predicted", ea_crs)
+    if ignore is not None:
+        # Removed before anything else is computed: nothing below sees them.
+        pred = _drop_ignored(pred, ignore)
     strata_groups = _resolve_strata(strata, reference, ref)
     size_groups = _resolve_size_bins(size_bins, ref.area)
     n_ref, n_pred = ref.n, pred.n
@@ -1761,6 +2538,7 @@ def _run(
         within_tol=within_tol,
         Q=q,
         unassigned=unassigned,
+        pred_values=pred_values,
         strata=strata_groups,
         size=size_groups,
     )
@@ -1896,6 +2674,7 @@ def _summarise(run: _Run) -> dict[str, Any]:
     metrics["matching"] = params.matching
     metrics["equal_area_crs"] = _crs_label(params.ea_crs)
     metrics["distance_crs"] = "WGS 84 / UTM zone of each polygon's centroid"
+    metrics["proj_network"] = proj_network_enabled()
     metrics["boundary_sample_spacing_m"] = params.spacing
     matched_spacing = run.spacing[np.isfinite(run.spacing)]
     metrics["boundary_sample_spacing_max_m"] = (
@@ -1912,6 +2691,8 @@ def _summarise(run: _Run) -> dict[str, Any]:
     metrics["count_predicted_dropped"] = run.pred.n_dropped
     metrics["count_reference_repaired"] = run.ref.n_repaired
     metrics["count_predicted_repaired"] = run.pred.n_repaired
+    if run.pred.n_ignored is not None:
+        metrics["count_predicted_ignored"] = run.pred.n_ignored
     if params.tolerance is not None:
         metrics["boundary_tolerance_m"] = params.tolerance
     if run.strata is not None:
@@ -1958,6 +2739,28 @@ def _percentile_ci(values: np.ndarray) -> tuple[list[float], int]:
     return [float(lo), float(hi)], n_undefined
 
 
+def _pools(codes: np.ndarray) -> list[np.ndarray]:
+    """Resampling pools: the positions of each value of *codes*, in increasing order of value."""
+    return [np.flatnonzero(codes == c) for c in np.unique(codes)]
+
+
+def _resample_weights(
+    children: Sequence[np.random.SeedSequence], pools: Sequence[np.ndarray], n: int
+) -> np.ndarray:
+    """How often each of *n* units is drawn: one row per resample, one child seed each.
+
+    A resample draws, with ``numpy.random.default_rng(child)``, from each pool in
+    turn as many units as it holds, with replacement.
+    """
+    weights = np.zeros((len(children), n))
+    for b, child in enumerate(children):
+        rng = np.random.default_rng(child)
+        for pool in pools:
+            draw = rng.integers(0, len(pool), size=len(pool))
+            weights[b, pool] = np.bincount(draw, minlength=len(pool))
+    return weights
+
+
 def _add_bootstrap(metrics: dict[str, Any], run: _Run) -> None:
     params = run.params
     n_boot = params.bootstrap
@@ -1985,7 +2788,7 @@ def _add_bootstrap(metrics: dict[str, Any], run: _Run) -> None:
 
     # One resampling pool per stratum (missing strata form their own pool).
     pool_codes = run.strata.codes if run.strata is not None else np.zeros(n, dtype=np.int64)
-    pools = [np.flatnonzero(pool_codes == c) for c in np.unique(pool_codes)]
+    pools = _pools(pool_codes)
 
     targets: list[tuple[str, str | None, np.ndarray | None]] = [("overall", None, None)]
     if run.strata is not None:
@@ -2004,12 +2807,7 @@ def _add_bootstrap(metrics: dict[str, Any], run: _Run) -> None:
     chunk = max(1, min(n_boot, _BOOTSTRAP_CHUNK_CELLS // n))
     for c0 in range(0, n_boot, chunk):
         c1 = min(n_boot, c0 + chunk)
-        weights = np.zeros((c1 - c0, n))
-        for b in range(c0, c1):
-            rng = np.random.default_rng(children[b])
-            for pool in pools:
-                draw = rng.integers(0, len(pool), size=len(pool))
-                weights[b - c0, pool] = np.bincount(draw, minlength=len(pool))
+        weights = _resample_weights(children[c0:c1], pools, n)
         for kind, key, idx in targets:
             sums = weights @ run.Q + run.unassigned if idx is None else weights[:, idx] @ run.Q[idx]
             values = _metrics_from_sums(sums, tolerance, empty_rate=np.nan)
@@ -2031,6 +2829,534 @@ def _add_bootstrap(metrics: dict[str, Any], run: _Run) -> None:
             metrics[kind][key]["ci"] = ci
             if undefined:
                 metrics[kind][key]["ci_n_undefined"] = undefined
+
+
+# ---------------------------------------------------------------------------
+# Paired bootstrap
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Resampled:
+    """Quantity sums of one layer and one group, per resampling unit."""
+
+    unit_sums: np.ndarray  # (units, len(_QUANTITIES))
+    idx: np.ndarray | None = None  # the units of the group (None: every unit)
+    fixed: np.ndarray | None = None  # sums added to every resample
+
+    def sums(self, weights: np.ndarray) -> np.ndarray:
+        """Sums of each resample; *weights* holds one row of unit counts per resample.
+
+        The products are those of :func:`_add_bootstrap`, so a layer's resampled
+        sums of reference fields equal those :func:`evaluate` computes.
+        """
+        if self.idx is None:
+            out = weights @ self.unit_sums
+        else:
+            out = weights[:, self.idx] @ self.unit_sums[self.idx]
+        return out if self.fixed is None else out + self.fixed
+
+
+def _default_block_crs(layers: Sequence[_Layer], ea_crs: pyproj.CRS) -> pyproj.CRS | None:
+    """WGS 84 / UTM CRS at the centre of the bounding box of *layers* (None if all are empty)."""
+    geoms = np.concatenate([layer.ea for layer in layers])
+    if len(geoms) == 0:
+        return None
+    x0, y0, x1, y1 = shapely.total_bounds(geoms)
+    return _utm_crs_at(shapely.Point((x0 + x1) / 2.0, (y0 + y1) / 2.0), ea_crs)
+
+
+def _assign_blocks(
+    layers: Sequence[_Layer], labels: Sequence[str], crs: pyproj.CRS | None, side: float
+) -> tuple[list[np.ndarray], int]:
+    """The block of every polygon of each of *layers*, and the number of blocks.
+
+    The blocks are the squares ``[i side, (i + 1) side) x [j side, (j + 1) side)``
+    of *crs* that hold the representative point of a polygon (as for ignore,
+    ``shapely.point_on_surface`` of the evaluated polygon in its own CRS),
+    numbered by row (j) from the south, then by column (i) from the west.
+    *labels* name the layers in errors.
+    """
+    cells = []
+    for layer, label in zip(layers, labels, strict=True):
+        if layer.n == 0:
+            cells.append(np.zeros((0, 2)))
+            continue
+        points = _to_crs(shapely.point_on_surface(layer.src), layer.crs, crs)
+        xy = shapely.get_coordinates(points)
+        finite = np.all(np.isfinite(xy), axis=1)
+        if len(xy) != layer.n or not finite.all():
+            raise ValueError(
+                f"block_crs {_crs_label(crs)} gives no finite coordinates for the "
+                f"representative points of {layer.n - int(finite.sum())} of the "
+                f"{layer.n} {label} polygons; pass a block_crs that covers the layers"
+            )
+        cells.append(np.column_stack([np.floor(xy[:, 1] / side), np.floor(xy[:, 0] / side)]))
+    stacked = np.concatenate(cells)
+    if len(stacked) == 0:
+        return [np.zeros(0, dtype=np.int64) for _ in layers], 0
+    keys, inverse = np.unique(stacked, axis=0, return_inverse=True)
+    inverse = inverse.reshape(-1).astype(np.int64)
+    ends = np.cumsum([len(c) for c in cells])
+    return [inverse[e - len(c) : e] for c, e in zip(cells, ends, strict=True)], len(keys)
+
+
+def _block_sums(
+    run: _Run,
+    ref_block: np.ndarray,
+    pred_block: np.ndarray,
+    n_blocks: int,
+    ref_rows: np.ndarray | None = None,
+    pred_rows: np.ndarray | None = None,
+) -> np.ndarray:
+    """Per block, the quantity sums of the reference fields and predictions of *run* in it.
+
+    A reference field brings its own quantities (the columns of ``run.Q`` that are not
+    quantities of predictions) to its block, and a prediction its quantities
+    (``run.pred_values``) to its own block. *ref_rows* and *pred_rows* select the
+    fields and predictions (default: all).
+    """
+    ref_rows = np.arange(run.ref.n) if ref_rows is None else ref_rows
+    pred_rows = np.arange(run.pred.n) if pred_rows is None else pred_rows
+    sums = np.zeros((n_blocks, len(_QUANTITIES)))
+    pred_columns = {_QI[name] for name in run.pred_values}
+    for k in range(len(_QUANTITIES)):
+        if k not in pred_columns:
+            sums[:, k] = np.bincount(
+                ref_block[ref_rows], weights=run.Q[ref_rows, k], minlength=n_blocks
+            )
+    for name, values in run.pred_values.items():
+        sums[:, _QI[name]] = np.bincount(
+            pred_block[pred_rows], weights=values[pred_rows], minlength=n_blocks
+        )
+    return sums
+
+
+def _paired_entry(
+    points: Sequence[dict[str, Any]],
+    replicates: Sequence[dict[str, np.ndarray]],
+    names: Sequence[str],
+) -> dict[str, Any]:
+    """Differences A - B with their intervals, and each layer's metrics with theirs."""
+    (point_a, point_b), (rep_a, rep_b) = points, replicates
+    ci: dict[str, list[float]] = {}
+    undefined: dict[str, int] = {}
+    for name in names:
+        ci[name], n_undef = _percentile_ci(rep_a[name] - rep_b[name])
+        if n_undef:
+            undefined[name] = n_undef
+    out: dict[str, Any] = {
+        "difference": {name: point_a[name] - point_b[name] for name in names},
+        "ci": ci,
+        "n_undefined": undefined,
+    }
+    for side, point, reps in (("a", point_a, rep_a), ("b", point_b, rep_b)):
+        layer_ci: dict[str, list[float]] = {}
+        layer_undefined: dict[str, int] = {}
+        for name in names:
+            layer_ci[name], n_undef = _percentile_ci(reps[name])
+            if n_undef:
+                layer_undefined[name] = n_undef
+        out[side] = {
+            **{name: point[name] for name in names},
+            **{key: point[key] for key in _PAIRED_COUNT_KEYS if key in point},
+            "ci": layer_ci,
+            "n_undefined": layer_undefined,
+        }
+    return out
+
+
+def _paired_bootstrap(
+    runs: Sequence[_Run],
+    groups: _Groups | None,
+    side: float | None,
+    grid_crs: pyproj.CRS | None,
+) -> dict[str, Any]:
+    """:func:`paired_bootstrap` of two runs against one prepared reference.
+
+    *side* is the block side (None: reference fields are resampled) and *grid_crs*
+    the CRS of the blocks (None: the default of :func:`_default_block_crs`).
+    """
+    params, ref = runs[0].params, runs[0].ref
+    n_boot = params.bootstrap
+    names = _PAIRED_METRICS + (_PAIRED_METRICS_TOLERANCE if params.tolerance is not None else ())
+    summaries = [_summarise(run) for run in runs]
+    # None: all reference fields; then the strata keys (strings).
+    keys: list[str | None] = [None] + (list(groups.keys) if groups is not None else [])
+    members = (
+        {key: _members(groups, code) for code, key in enumerate(groups.keys)}
+        if groups is not None
+        else {}
+    )
+
+    targets: dict[str | None, list[_Resampled]] = {}
+    if side is None:
+        n_units = ref.n
+        codes = groups.codes if groups is not None else np.zeros(n_units, dtype=np.int64)
+        pools = _pools(codes)
+        for key in keys:
+            targets[key] = [
+                _Resampled(run.Q, None, run.unassigned)
+                if key is None
+                else _Resampled(run.Q, members[key])
+                for run in runs
+            ]
+        resampling = "reference fields with replacement"
+        if groups is not None:
+            resampling += " within strata"
+    else:
+        layers = [ref] + [run.pred for run in runs]
+        if grid_crs is None:
+            grid_crs = _default_block_crs(layers, params.ea_crs)
+        (ref_block, *pred_blocks), n_units = _assign_blocks(
+            layers, ("reference", "predicted_a", "predicted_b"), grid_crs, side
+        )
+        pools = [np.arange(n_units)]
+        for key in keys:
+            targets[key] = []
+            for run, pred_block in zip(runs, pred_blocks, strict=True):
+                if key is None:
+                    sums = _block_sums(run, ref_block, pred_block, n_units)
+                else:
+                    # The stratum's fields, and the predictions whose home is one of them.
+                    homes = np.flatnonzero(np.isin(run.pred_home, members[key]))
+                    sums = _block_sums(run, ref_block, pred_block, n_units, members[key], homes)
+                targets[key].append(_Resampled(sums))
+        resampling = f"{side:g} m blocks with replacement"
+
+    replicates = {
+        key: [{name: np.full(n_boot, np.nan) for name in names} for _ in runs] for key in keys
+    }
+    if n_units == 0:
+        logger.warning(
+            "No %s to resample; paired bootstrap intervals are not computed",
+            "reference fields" if side is None else "blocks",
+        )
+    else:
+        children = np.random.SeedSequence(params.bootstrap_seed).spawn(n_boot)
+        chunk = max(1, min(n_boot, _BOOTSTRAP_CHUNK_CELLS // n_units))
+        for c0 in range(0, n_boot, chunk):
+            c1 = min(n_boot, c0 + chunk)
+            weights = _resample_weights(children[c0:c1], pools, n_units)
+            for key, resampled in targets.items():
+                for layer_target, store in zip(resampled, replicates[key], strict=True):
+                    values = _metrics_from_sums(
+                        layer_target.sums(weights), params.tolerance is not None, empty_rate=np.nan
+                    )
+                    for name in names:
+                        store[name][c0:c1] = values[name]
+
+    out: dict[str, Any] = {
+        "iou_threshold": params.iou_threshold,
+        "matching": params.matching,
+        "boundary_tolerance_m": params.tolerance,
+        "equal_area_crs": _crs_label(params.ea_crs),
+        "proj_network": summaries[0]["proj_network"],
+        "n_resamples": n_boot,
+        "seed": params.bootstrap_seed,
+        "confidence_level": BOOTSTRAP_CONFIDENCE_LEVEL,
+        "method": "percentile",
+        "resampling": resampling,
+        "block_size_m": side,
+        "block_crs": _crs_label(grid_crs) if side is not None and grid_crs is not None else None,
+        "n_blocks": n_units if side is not None else None,
+        **_paired_entry(summaries, replicates[None], names),
+    }
+    if groups is not None:
+        out["strata_column"] = groups.name
+        out["count_reference_no_stratum"] = groups.n_missing
+        out["per_stratum"] = {
+            key: {
+                "n": len(members[key]),
+                **_paired_entry(
+                    [summary["per_stratum"][key] for summary in summaries], replicates[key], names
+                ),
+            }
+            for key in groups.keys
+        }
+    lower, upper = out["ci"]["f1"]
+    logger.info(
+        "Paired bootstrap (%s, IoU>=%.2f; %d resamples of %s): F1 A=%.3f B=%.3f, "
+        "A-B=%+.3f (%g %% interval %+.3f to %+.3f)",
+        params.matching,
+        params.iou_threshold,
+        n_boot,
+        "reference fields" if side is None else f"{n_units} blocks of {side:g} m",
+        out["a"]["f1"],
+        out["b"]["f1"],
+        out["difference"]["f1"],
+        100.0 * BOOTSTRAP_CONFIDENCE_LEVEL,
+        lower,
+        upper,
+    )
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Chance baselines
+# ---------------------------------------------------------------------------
+
+
+def _to_metric_crs(geoms: np.ndarray, src_crs: Any, dst_crs: Any) -> np.ndarray:
+    """*geoms* in *dst_crs*, edges split into <= 50 m pieces first (as in _prepare_layer)."""
+    if len(geoms) == 0:
+        return np.asarray(geoms, dtype=object)
+    step = _densify_step(pyproj.CRS.from_user_input(src_crs))
+    dense = shapely.segmentize(geoms, step) if step is not None else geoms
+    return _to_crs(dense, src_crs, dst_crs)
+
+
+def _utm_crs_at(point: Any, ea_crs: pyproj.CRS) -> pyproj.CRS:
+    """WGS 84 / UTM CRS of *point* (a shapely Point in *ea_crs*)."""
+    transformer = pyproj.Transformer.from_crs(ea_crs, "EPSG:4326", always_xy=True)
+    lon, lat = transformer.transform(float(shapely.get_x(point)), float(shapely.get_y(point)))
+    return get_utm_crs(lon, lat)
+
+
+def _baseline_extent(
+    pred: _Layer, aoi: _Layer | None, ea_crs: pyproj.CRS
+) -> tuple[pyproj.CRS, Any, str]:
+    """(grid CRS, extent polygon in it, extent label) of :func:`chance_baselines`.
+
+    *aoi* is the prepared study area (``_BaselineOptions.study_layer``); without
+    it, *pred* must hold a polygon (:func:`_baseline_problem`).
+    """
+    if aoi is not None:
+        grid_crs = _utm_crs_at(shapely.centroid(shapely.union_all(aoi.ea)), ea_crs)
+        extent = shapely.union_all(_to_metric_crs(aoi.src, aoi.crs, grid_crs))
+        return grid_crs, extent, "study_area"
+    x0, y0, x1, y1 = shapely.total_bounds(pred.ea)
+    grid_crs = _utm_crs_at(shapely.Point((x0 + x1) / 2.0, (y0 + y1) / 2.0), ea_crs)
+    bounds = shapely.total_bounds(_to_metric_crs(pred.src, pred.crs, grid_crs))
+    return grid_crs, shapely.box(*bounds), "predictions_bbox"
+
+
+def _grid_cells(
+    x0: float, y0: float, side: float, fx: float, fy: float, nx: int, ny: int
+) -> np.ndarray:
+    """*nx* x *ny* square cells of *side*, edges at ``x0 + (fx + k) * side`` (k >= -1)."""
+    xe = x0 + (fx + np.arange(-1, nx)) * side
+    ye = y0 + (fy + np.arange(-1, ny)) * side
+    xmin, ymin = np.meshgrid(xe[:-1], ye[:-1])
+    xmax, ymax = np.meshgrid(xe[1:], ye[1:])
+    return shapely.box(xmin.ravel(), ymin.ravel(), xmax.ravel(), ymax.ravel())
+
+
+def _polygon_parts(geoms: np.ndarray, source: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Single polygons with a positive area of *geoms*, and the *source* entry of each."""
+    parts, index = shapely.get_parts(geoms, return_index=True)
+    keep = shapely.get_type_id(parts) == _POLYGON
+    keep[keep] = shapely.area(parts[keep]) > 0
+    return parts[keep], source[index[keep]]
+
+
+def _clip_to(geoms: np.ndarray, mask: Any) -> tuple[np.ndarray, np.ndarray]:
+    """The parts of *geoms* inside *mask*, in order, and the position of each one's geometry."""
+    if len(geoms) == 0:
+        return np.zeros(0, dtype=object), np.zeros(0, dtype=np.int64)
+    out = np.array(geoms, dtype=object, copy=True)
+    inside = shapely.contains_properly(mask, out)
+    edge = ~inside & shapely.intersects(mask, out)
+    out[edge] = shapely.intersection(out[edge], mask)
+    meets = np.flatnonzero(inside | edge)
+    return _polygon_parts(out[meets], meets)
+
+
+def _cut_to(
+    geoms: np.ndarray, pieces: np.ndarray, tree: shapely.STRtree
+) -> tuple[np.ndarray, np.ndarray]:
+    """``geoms ∩ union(pieces)`` for disjoint *pieces* (indexed by *tree*), as in _clip_to.
+
+    The parts are ordered by geometry, then by piece. Intersecting each
+    geometry with the pieces it meets gives the same polygons as intersecting
+    it with their union, and is much faster than the latter.
+    """
+    if len(geoms) == 0 or len(pieces) == 0:
+        return np.zeros(0, dtype=object), np.zeros(0, dtype=np.int64)
+    gi, pj = tree.query(geoms, predicate="intersects")
+    order = np.lexsort((pj, gi))
+    gi, pj = gi[order].astype(np.int64), pj[order].astype(np.int64)
+    return _polygon_parts(shapely.intersection(geoms[gi], pieces[pj]), gi)
+
+
+def _drop_small(
+    parts: np.ndarray,
+    whole: np.ndarray,
+    crs: pyproj.CRS,
+    ea_crs: pyproj.CRS,
+    min_area_m2: float,
+) -> np.ndarray:
+    """*parts* (in *crs*) without the pieces smaller than *min_area_m2*.
+
+    *whole* holds the area in *crs* of the polygon each part was cut from. A
+    part with that area (a whole cell or polygon) is kept; any other part is
+    kept when its area in *ea_crs*, computed as evaluate() computes it, is at
+    least *min_area_m2*. Whole polygons are not compared with the minimum:
+    the UTM scale factor makes the areas in *ea_crs* of equal cells differ
+    along the grid, so with predictions of one size, whose median is their
+    minimum, cells as large as the smallest prediction would be dropped at
+    random.
+    """
+    if len(parts) == 0 or min_area_m2 <= 0:
+        return parts
+    is_whole = shapely.area(parts) >= whole * (1.0 - _BASELINE_WHOLE_RTOL)
+    area = np.full(len(parts), np.inf)
+    area[~is_whole] = shapely.area(_to_metric_crs(parts[~is_whole], crs, ea_crs))
+    return parts[area >= min_area_m2 * (1.0 - _BASELINE_AREA_RTOL)]
+
+
+def _median_width(geoms: np.ndarray) -> float:
+    """Median of the shorter sides of the polygons' minimum rotated rectangles."""
+    widths = []
+    with np.errstate(divide="ignore", invalid="ignore"):  # GEOS on axis-aligned rectangles
+        rects = shapely.minimum_rotated_rectangle(geoms)
+    for rect in rects:
+        if shapely.get_type_id(rect) != _POLYGON:  # a degenerate polygon
+            continue
+        xy = shapely.get_coordinates(rect)[:4]
+        widths.append(float(np.hypot(*(np.roll(xy, -1, axis=0) - xy).T).min()))
+    return float(np.median(widths)) if widths else float("nan")
+
+
+def _mean_finite(values: list[float]) -> float:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    return float(finite.mean()) if len(finite) else float("nan")
+
+
+def _score_baseline(
+    parts: np.ndarray,
+    crs: pyproj.CRS,
+    ref: _Layer,
+    params: _Params,
+    keys: Sequence[str],
+    ignore: _Layer | None = None,
+) -> dict[str, Any]:
+    """Metrics *keys* of the polygons *parts* (in *crs*) against the prepared reference."""
+    layer = gpd.GeoSeries(list(parts), crs=crs)
+    metrics = _summarise(_run(layer, ref, params, strata=None, size_bins=None, ignore=ignore))
+    return {key: metrics[key] for key in keys}
+
+
+def _chance_baselines(
+    pred: _Layer,
+    ref: _Layer,
+    params: _Params,
+    options: _BaselineOptions,
+    ignore: _Layer | None = None,
+) -> dict[str, Any]:
+    """:func:`chance_baselines` on prepared layers (*params* without bootstrap).
+
+    *options* carry the prepared study area (``with_study_layer``). With *ignore*
+    (prepared), *pred* holds the predictions left after it, and the baseline layers
+    are scored with it.
+    """
+    problem = _baseline_problem(pred, ref, options)
+    if problem is not None:
+        raise ValueError(problem)
+    ea_crs = params.ea_crs
+    median_area = float(np.median(pred.area)) if pred.n else float("nan")
+    side = options.cell_side_m if options.cell_side_m is not None else math.sqrt(median_area)
+    if options.min_area_m2 is not None:
+        min_area = options.min_area_m2
+    else:
+        min_area = float(pred.area.min()) if pred.n else 0.0
+    grid_crs, extent, extent_label = _baseline_extent(pred, options.study_layer, ea_crs)
+    x0, y0, x1, y1 = shapely.bounds(extent)
+    nx = math.ceil((x1 - x0) / side) + 1
+    ny = math.ceil((y1 - y0) / side) + 1
+    if nx * ny > BLIND_GRID_MAX_CELLS:
+        raise ValueError(
+            f"a blind grid of {side:.1f} m cells over the extent ({extent_label}, "
+            f"{(x1 - x0) / 1000:.1f} km x {(y1 - y0) / 1000:.1f} km) would have {nx * ny:,} cells, "
+            f"more than BLIND_GRID_MAX_CELLS ({BLIND_GRID_MAX_CELLS:,}); pass a smaller "
+            "study_area or a larger cell_side_m"
+        )
+    shapely.prepare(extent)
+    pieces = tree = None
+    if options.footprint:
+        # The union of the predictions, as disjoint single polygons.
+        union = shapely.union_all(
+            _to_metric_crs(pred.src, pred.crs, grid_crs), grid_size=_BASELINE_FOOTPRINT_GRID_M
+        )
+        pieces = shapely.get_parts(union)
+        pieces = pieces[shapely.get_type_id(pieces) == _POLYGON]
+        tree = shapely.STRtree(pieces)
+    keys = _BASELINE_KEYS + (_BASELINE_KEYS_TOLERANCE if params.tolerance is not None else ())
+    if ignore is not None:
+        keys += ("count_predicted_ignored",)
+
+    steps = options.offset_steps
+    grids: list[dict[str, Any]] = []
+    for i in range(steps):
+        for j in range(steps):
+            fx, fy = i / steps, j / steps
+            parts, _ = _clip_to(_grid_cells(x0, y0, side, fx, fy, nx, ny), extent)
+            if tree is not None:
+                parts, _ = _cut_to(parts, pieces, tree)
+            # Every cell has the area side² in the grid CRS.
+            parts = _drop_small(parts, np.full(len(parts), side * side), grid_crs, ea_crs, min_area)
+            scores = _score_baseline(parts, grid_crs, ref, params, keys, ignore)
+            grids.append({"offset_x_m": fx * side, "offset_y_m": fy * side, **scores})
+
+    blind: dict[str, Any] = {
+        "cell_side_m": side,
+        "median_predicted_area_ha": median_area / 1e4,
+        "footprint": options.footprint,
+        "offset_steps": steps,
+        "n_grids": len(grids),
+    }
+    for key in keys:
+        blind[key] = _mean_finite([g[key] for g in grids])
+    for key in ("f1", "boundary_f1"):
+        if key in keys:
+            values = np.array([g[key] for g in grids], dtype=float)
+            blind[f"{key}_min"] = float(values.min())
+            blind[f"{key}_max"] = float(values.max())
+    blind["grids"] = grids
+    out: dict[str, Any] = {
+        "iou_threshold": params.iou_threshold,
+        "matching": params.matching,
+        "boundary_tolerance_m": params.tolerance,
+        "equal_area_crs": _crs_label(ea_crs),
+        "grid_crs": _crs_label(grid_crs),
+        "extent": extent_label,
+        "min_area_m2": min_area,
+        "blind_grid": blind,
+    }
+
+    summary = f"F1 {blind['f1']:.3f}"
+    if options.shift_m is not None:
+        ref_grid = _to_metric_crs(ref.src, ref.crs, grid_crs)
+        if options.shift_m == "auto":
+            # On the polygons' own vertices: the extra vertices of the split edges can
+            # change which of two equal-area rectangles a triangle gets.
+            shift = _median_width(_to_crs(ref.src, ref.crs, grid_crs)) / 2.0
+        else:
+            shift = float(options.shift_m)
+        moved = shapely.transform(ref_grid, lambda xy: xy + shift)
+        # One feature per reference polygon, as in the reference (not split into parts).
+        clipped = _polygonal(shapely.intersection(moved, extent))
+        with np.errstate(invalid="ignore"):
+            keep = shapely.area(clipped) > 0  # None (nothing polygonal left) has NaN area
+        parts = _drop_small(clipped[keep], shapely.area(moved[keep]), grid_crs, ea_crs, min_area)
+        out["shifted_reference"] = {
+            "shift_m": shift,
+            **_score_baseline(parts, grid_crs, ref, params, keys, ignore),
+        }
+        summary += f"; reference shifted by {shift:.1f} m: F1 {out['shifted_reference']['f1']:.3f}"
+    logger.info(
+        "Chance baselines (%s, IoU>=%.2f): blind grid of %.1f m cells over the %s%s, mean of "
+        "%d offsets: %s",
+        params.matching,
+        params.iou_threshold,
+        side,
+        "study area" if extent_label == "study_area" else "predictions' bounding box",
+        ", cut to the predictions" if options.footprint else "",
+        len(grids),
+        summary,
+    )
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -2088,4 +3414,6 @@ def _frame(run: _Run) -> pd.DataFrame:
             "boundary_sample_spacing_m": run.params.spacing,
         }
     )
+    if run.pred.n_ignored is not None:
+        frame.attrs["count_predicted_ignored"] = run.pred.n_ignored
     return frame

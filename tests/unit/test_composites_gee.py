@@ -7,7 +7,10 @@ values, not just call sequences.
 
 from __future__ import annotations
 
+import json
+import os
 import sys
+import time
 import types
 import warnings
 
@@ -15,7 +18,8 @@ import numpy as np
 import pytest
 import rasterio
 from rasterio.transform import Affine
-from shapely.geometry import box
+from shapely.affinity import translate
+from shapely.geometry import box, shape
 
 from agribound.composites import gee
 from agribound.config import AgriboundConfig
@@ -67,6 +71,25 @@ class FakeImage:
 
     def max(self, v):
         return self._map(lambda a: np.maximum(a, v))
+
+    def subtract(self, other):
+        """Single-band image minus a single-band image (the first band's name; masks ANDed)."""
+        (b,) = other.bands.values()
+        (bm,) = other.masks.values()
+        return FakeImage(
+            {k: v - b for k, v in self.bands.items()},
+            {k: m & bm for k, m in self.masks.items()},
+            self.props,
+        )
+
+    def unitScale(self, low, high):  # noqa: N802 - ee API name
+        return self._map(lambda a: (a - low) / (high - low))
+
+    def clamp(self, low, high):
+        return self._map(lambda a: np.clip(a, low, high))
+
+    def round(self):
+        return self._map(lambda a: np.floor(a + 0.5))  # halves up (inputs here are >= 0)
 
     def bitwiseAnd(self, v):  # noqa: N802 - ee API name
         return self._map(lambda a: (a.astype(np.int64) & int(v)).astype(np.float64))
@@ -402,6 +425,30 @@ class TestAssembleTiles:
         assert arr[1, 0, 0] == 0 and arr[1, 3, 3] == 3
         assert not (tmp_path / "out.tif.part").exists()
 
+    def test_four_band_uint8_composite_does_not_tag_nir_as_alpha(self, tmp_path):
+        """NAIP composites (R, G, B, N uint8) were written with band 4 tagged alpha.
+
+        GDAL tags the 4th band of a 4-band uint8 GeoTIFF as alpha by default; GDAL's
+        warper and rio-tiler then treat NIR as transparency.
+        """
+        from rasterio.enums import ColorInterp
+
+        grid = gee.ExportGrid("EPSG:32611", Affine(10, 0, 0, 0, -10, 40), 4, 4)
+        data = np.arange(64, dtype=np.uint8).reshape(4, 4, 4) + 1
+        data[3, :, :2] = 0  # NIR 0 next to valid R, G, B
+        tile = _write(tmp_path / "t.tif", data, grid.transform, nodata=0)
+        out = gee.assemble_tiles(
+            [(tile, (0, 0, 4, 4))],
+            tmp_path / "naip.tif",
+            grid,
+            dtype="uint8",
+            band_names=["R", "G", "B", "N"],
+        )
+        with rasterio.open(out) as src:
+            assert ColorInterp.alpha not in src.colorinterp
+            assert src.descriptions == ("R", "G", "B", "N")
+            assert (src.read() == data).all()
+
     def test_shape_mismatch_raises(self, tmp_path):
         grid = gee.ExportGrid("EPSG:32611", Affine(10, 0, 0, 0, -10, 40), 4, 4)
         bad = _write(tmp_path / "bad.tif", np.zeros((1, 3, 3), np.float32), grid.transform)
@@ -513,15 +560,30 @@ def stub_builder(monkeypatch):
 
     monkeypatch.setitem(gee._COLLECTION_BUILDERS, "sentinel2", fake_spec)
 
-    def fake_summary(col, context="", count_property=None):
+    def fake_summary(
+        col, context="", count_property=None, *, image_list=False, cloud_property=None
+    ):
         calls["count_property"] = count_property
+        calls["counted"] = col
+        calls["summary_context"] = context
+        calls["image_list"] = image_list
+        calls["cloud_property"] = cloud_property
         return calls["summary"]
 
     monkeypatch.setattr(gee, "collection_summary", fake_summary)
     monkeypatch.setattr(gee, "available_years", lambda col, context="": calls["years"])
 
     def fake_export(image, out_path, *, grid, dtype, band_names, tags=None, **kwargs):
-        calls["export"].append({"path": str(out_path), "grid": grid, "tags": tags})
+        calls["export"].append(
+            {
+                "path": str(out_path),
+                "grid": grid,
+                "tags": tags,
+                "dtype": dtype,
+                "band_names": list(band_names),
+                "image": image,
+            }
+        )
         data = np.ones((len(band_names), grid.height, grid.width), dtype=np.float32)
         data[:, :, : int(round(grid.width * calls["nan_fraction"]))] = np.nan
         _write(out_path, data, grid.transform, crs=grid.crs, nodata=float("nan"))
@@ -1040,16 +1102,31 @@ class Chain:
         return call
 
 
+class _OrFilter(tuple):
+    """``ee.Filter.Or(...)`` of the recording stub; ``Not()`` wraps it."""
+
+    def Not(self):  # noqa: N802 - ee API name
+        return ("not", tuple(self))
+
+
+def _fake_filter_namespace():
+    return types.SimpleNamespace(
+        lte=lambda prop, value: ("lte", prop, value),
+        eq=lambda prop, value: ("eq", prop, value),
+        listContains=lambda prop, value: ("listContains", prop, value),
+        bounds=lambda geometry: ("bounds", geometry),
+        Or=lambda *filters: _OrFilter(("or", *filters)),
+    )
+
+
 @pytest.fixture
 def recording_ee(monkeypatch):
     log = []
     module = types.ModuleType("ee")
     module.ImageCollection = lambda cid: Chain(f"IC({cid})", log)
     module.Image = lambda x: x
-    module.Filter = types.SimpleNamespace(
-        lte=lambda prop, value: ("lte", prop, value),
-        listContains=lambda prop, value: ("listContains", prop, value),
-    )
+    module.Filter = _fake_filter_namespace()
+    module.Geometry = types.SimpleNamespace(Point=lambda coords: ("point", tuple(coords)))
     monkeypatch.setitem(sys.modules, "ee", module)
     return log
 
@@ -1067,6 +1144,32 @@ def _cfg(source, year=2022, **kwargs):
         lulc_filter=False,
         **kwargs,
     )
+
+
+class FakeRegion:
+    """An ``ee.Geometry`` made from coordinates: ``toGeoJSON()`` returns them, no request."""
+
+    def __init__(self, geometry):
+        self.geometry = geometry
+
+    def toGeoJSON(self):  # noqa: N802 - ee API name
+        from shapely.geometry import mapping
+
+        return {**mapping(self.geometry), "geodesic": False}
+
+    def getInfo(self):  # noqa: N802 - ee API name
+        raise AssertionError("the region's coordinates must be read without a request")
+
+
+#: Export grid outlines (EPSG:4326, rounded to boxes) of the areas of the HLS footprint
+#: investigation (outputs/hls_antimeridian): example 23's Twifo Praso square (Ghana), example
+#: 14's Lea County box, example 03's Murray-Darling box, and two 5 km squares inside MGRS tile
+#: T01KAA (Fiji), west and east of 180 degrees.
+TWIFO_BOX = box(-1.5407, 5.5156, -1.4951, 5.5610)
+LEA_BOX = box(-103.254, 32.7468, -103.0454, 32.9532)
+MURRAY_BOX = box(149.6958, -30.3033, 149.8546, -30.1467)
+FIJI_WEST_BOX = box(179.6761, -17.6230, 179.7239, -17.5769)
+FIJI_EAST_BOX = box(-179.8740, -17.6231, -179.8259, -17.5769)
 
 
 @pytest.mark.parametrize("mission", ["LE07", "LC08", "LC09"])
@@ -1268,6 +1371,10 @@ class _SummaryCollection:
     def aggregate_histogram(self, prop):
         self.log.append(("aggregate_histogram", prop))
         return "HISTOGRAM"
+
+    def sort(self, prop):
+        self.log.append(("sort", prop))
+        return Chain("SORTED", self.log)
 
 
 @pytest.fixture
@@ -1545,12 +1652,42 @@ class TestCollectionSpecs:
         assert set(by_mission) == {"LT05", "LE07"}
 
     def test_hls_cloud_property_on_both_collections(self, recording_ee):
-        spec = gee._build_hls(_cfg("hls", cloud_cover_max=30), "REGION")
+        spec = gee._build_hls(_cfg("hls", cloud_cover_max=30), FakeRegion(TWIFO_BOX))
         for cid in (gee.HLSL30_COLLECTION, gee.HLSS30_COLLECTION):
             assert _calls(recording_ee, f"IC({cid})", "filter")[0][1] == (
                 ("lte", "CLOUD_COVERAGE", 30),
             )
         assert spec.bands == gee.HLS_BANDS and spec.resolution_m == 30.0
+
+    def test_hls_far_point_filter_on_raw_and_history_of_both_collections(self, recording_ee):
+        region = FakeRegion(TWIFO_BOX)
+        spec = gee._build_hls(_cfg("hls", cloud_cover_max=30), region)
+        p1, p2 = gee.hls_far_points(TWIFO_BOX)
+        far = ("not", ("or", ("bounds", ("point", p1)), ("bounds", ("point", p2))))
+        for cid in (gee.HLSL30_COLLECTION, gee.HLSS30_COLLECTION):
+            ic = f"IC({cid})"
+            assert _calls(recording_ee, ic, "filterBounds") == [(ic, (region,))]
+            # The cloud filter, then the far-point exclusion, on the base of raw and history.
+            assert _calls(recording_ee, ic, "filter") == [
+                (f"{ic}.filterBounds", (("lte", "CLOUD_COVERAGE", 30),)),
+                (f"{ic}.filterBounds.filter", (far,)),
+            ]
+            assert _calls(recording_ee, ic, "filterDate") == [
+                (f"{ic}.filterBounds.filter.filter", ("2022-01-01", "2023-01-01"))
+            ]
+        l30 = f"IC({gee.HLSL30_COLLECTION}).filterBounds.filter.filter"
+        s30 = f"IC({gee.HLSS30_COLLECTION}).filterBounds.filter.filter"
+        merges = {name: args[0].name for name, args in _calls(recording_ee, "IC(", "merge")}
+        assert spec.raw.name == f"{l30}.filterDate.merge"  # counted: AGRIBOUND_N_IMAGES
+        assert merges[f"{l30}.filterDate"] == f"{s30}.filterDate"
+        assert spec.history.name == f"{l30}.merge"  # the years of the no-image error
+        assert merges[l30] == s30
+        # Away from 180 degrees: no request, no image loaded by ID.
+        assert not any(attr == "getInfo" for _, attr, _, _ in recording_ee)
+        assert spec.notes["hls_recipe_version"] == gee.HLS_RECIPE_VERSION
+        assert "hlss30_images_by_id" not in spec.notes
+        assert spec.collections == [gee.HLSL30_COLLECTION, gee.HLSS30_COLLECTION]
+        assert all(isinstance(v, str | int | float) for v in spec.notes.values())  # tags
 
     def test_sentinel2_cloud_score_plus_link(self, recording_ee):
         cfg = _cfg("sentinel2", year=2023, s2_cloud_mask="cloud_score_plus")
@@ -1867,3 +2004,2032 @@ def test_gee_asset_study_area_initialises_ee_with_config(monkeypatch, tmp_path):
     assert events == []
     geom = gee.study_area_geometry_4326(cfg.merged(study_area="bbox:1,1,2,2"))
     assert events == [] and geom.equals(box(1, 1, 2, 2))
+
+
+# ---------------------------------------------------------------------------
+# Sentinel-1 (sentinel1)
+# ---------------------------------------------------------------------------
+
+#: One Sentinel-1 image in dB: VV below -30 dB (pixel 0) is an edge to mask; pixels
+#: 2-5 cover the ends and the middle of the VV and VH ranges, and values beyond them.
+S1_VV = np.array([[-35.0, -30.0, -25.0, -12.5, 0.0, 3.0]])
+S1_VH = np.array([[-40.0, -36.0, -32.0, -20.0, -8.0, -1.0]])
+
+
+def _s1_image():
+    return FakeImage(
+        {"VV": S1_VV, "VH": S1_VH, "angle": np.full(S1_VV.shape, 38.0)},
+        props={"system:time_start": 7, "system:index": "S1A_X", "platform_number": "A"},
+    )
+
+
+class TestSentinel1Image:
+    def test_constants(self):
+        assert gee.S1_COLLECTION == "COPERNICUS/S1_GRD"
+        assert gee.S1_BANDS == ["VV", "VH", "VV_VH"] == list(gee.S1_DB_RANGES)
+        assert gee.S1_DB_RANGES == {
+            "VV": (-25.0, 0.0),
+            "VH": (-32.0, -8.0),
+            "VV_VH": (0.0, 15.0),
+        }
+        assert gee.S1_EDGE_MASK_DB == -30.0
+        assert (gee.S1_INSTRUMENT_MODE, gee.S1_RESOLUTION_METERS) == ("IW", 10)
+        assert gee.S1_POLARISATIONS == ("VV", "VH")
+        assert gee.S1_ORBIT_PASSES == ("ASCENDING", "DESCENDING")
+        assert gee.S1_PLATFORMS == {"A": "S1A", "B": "S1B", "C": "S1C", "D": "S1D"}
+        for name in (
+            "prepare_sentinel1_image",
+            "sentinel1_collection",
+            "sentinel1_db_to_uint8",
+            "sentinel1_orbit_pass",
+            "sentinel1_pass_counts",
+            "sentinel1_uint8_to_db",
+        ):
+            assert name in gee.__all__
+
+    def test_edges_masked_ratio_added_and_bands_scaled(self, fake_ee):
+        out = gee.prepare_sentinel1_image(_s1_image())
+        assert list(out.bands) == ["VV", "VH", "VV_VH"]  # 'angle' is dropped
+        # VV < -30 dB is masked in every band; -30 dB itself is kept.
+        for band in out.bands:
+            assert out.masks[band].tolist() == [[False, True, True, True, True, True]], band
+        # 1 + round(254 * clamp((dB - lo) / (hi - lo), 0, 1)): clamped below and above.
+        assert out.bands["VV"].tolist() == [[1, 1, 1, 128, 255, 255]]
+        assert out.bands["VH"].tolist() == [[1, 1, 1, 128, 255, 255]]
+        # VV_VH = VV - VH (5, 6, 7, 7.5, 8, 4 dB) of this image, on 0-15 dB.
+        assert out.bands["VV_VH"].tolist() == [[86, 103, 120, 128, 136, 69]]
+        for band, db in (("VV", S1_VV), ("VH", S1_VH), ("VV_VH", S1_VV - S1_VH)):
+            np.testing.assert_array_equal(out.bands[band], gee.sentinel1_db_to_uint8(db, band))
+        assert out.props["system:time_start"] == 7 and out.props["system:index"] == "S1A_X"
+
+    def test_valid_pixels_are_1_to_255(self, fake_ee):
+        rng = np.random.default_rng(0)
+        vv = rng.uniform(-45, 10, (1, 500))
+        vh = vv - rng.uniform(-5, 25, (1, 500))
+        out = gee.prepare_sentinel1_image(FakeImage({"VV": vv, "VH": vh}))
+        for band in out.bands:
+            valid = out.bands[band][out.masks[band]]
+            assert valid.min() >= 1 and valid.max() <= 255
+            assert np.array_equal(valid, np.round(valid))
+        assert out.masks["VV"].tolist() == (vv >= -30).tolist()
+
+    def test_masked_input_stays_masked(self, fake_ee):
+        image = FakeImage(
+            {"VV": S1_VV, "VH": S1_VH},
+            masks={"VH": np.array([[True, True, False, True, True, True]])},
+        )
+        out = gee.prepare_sentinel1_image(image)
+        assert out.masks["VV"][0].tolist() == [False, True, True, True, True, True]
+        assert out.masks["VH"][0].tolist() == [False, True, False, True, True, True]
+        assert out.masks["VV_VH"][0].tolist() == [False, True, False, True, True, True]
+
+    def test_median_of_scaled_images_is_the_scaled_median(self, fake_ee):
+        """The scaling keeps the order of the values, so it commutes with an odd-sized median."""
+        rng = np.random.default_rng(1)
+        stack_vv = rng.uniform(-28, 2, (5, 1, 40))
+        stack_vh = stack_vv - rng.uniform(0, 14, (5, 1, 40))
+        images = [FakeImage({"VV": a, "VH": b}) for a, b in zip(stack_vv, stack_vh, strict=True)]
+        composite = gee.apply_composite_method(
+            FakeCollection(images).map(gee.prepare_sentinel1_image), "median", "sentinel1"
+        )
+        np.testing.assert_array_equal(
+            composite.value("VV"), gee.sentinel1_db_to_uint8(np.median(stack_vv, axis=0), "VV")
+        )
+        ratio = np.median(stack_vv - stack_vh, axis=0)  # per-image ratio, then the median
+        np.testing.assert_array_equal(
+            composite.value("VV_VH"), gee.sentinel1_db_to_uint8(ratio, "VV_VH")
+        )
+
+
+class TestSentinel1Scaling:
+    def test_round_trip_within_half_a_step(self):
+        for band, (lo, hi) in gee.S1_DB_RANGES.items():
+            db = np.linspace(lo, hi, 2001)
+            values = gee.sentinel1_db_to_uint8(db, band)
+            assert values.dtype == np.uint8
+            assert values.min() == 1 and values.max() == 255
+            back = gee.sentinel1_uint8_to_db(values, band)
+            assert np.abs(back - db).max() <= (hi - lo) / 254 / 2 + 1e-9
+            assert np.all(np.diff(values.astype(int)) >= 0)  # monotonic
+
+    def test_clamping_and_nodata(self):
+        assert gee.sentinel1_db_to_uint8([-40.0, -25.0, 0.0, 5.0], "VV").tolist() == [
+            1,
+            1,
+            255,
+            255,
+        ]
+        assert gee.sentinel1_db_to_uint8([np.nan, np.inf], "VH").tolist() == [0, 0]
+        db = gee.sentinel1_uint8_to_db(np.array([0, 1, 128, 255], dtype=np.uint8), "VH")
+        assert np.isnan(db[0])
+        assert db[1:].tolist() == [-32.0, -20.0, -8.0]
+        assert np.isnan(gee.sentinel1_uint8_to_db([np.nan], "VV")).all()
+
+    def test_ranges_from_the_composite_tag(self):
+        tag = json.dumps({"VV": [-20.0, 5.0], "VH": [-30.0, -6.0], "VV_VH": [0.0, 12.0]})
+        assert gee.sentinel1_uint8_to_db([1, 255], "VV", tag).tolist() == [-20.0, 5.0]
+        assert gee.sentinel1_uint8_to_db([1, 255], "VV_VH", json.loads(tag)).tolist() == [
+            0.0,
+            12.0,
+        ]
+
+
+@pytest.mark.parametrize(
+    ("counts", "orbit_pass"),
+    [
+        ({"ASCENDING": 12, "DESCENDING": 30}, "DESCENDING"),
+        ({"ASCENDING": 31, "DESCENDING": 30}, "ASCENDING"),
+        ({"ASCENDING": 15, "DESCENDING": 15}, "DESCENDING"),  # tie
+        ({"ASCENDING": 4}, "ASCENDING"),
+        ({"DESCENDING": 4}, "DESCENDING"),
+        ({}, "DESCENDING"),  # no acquisitions: the no-data error follows
+    ],
+)
+def test_sentinel1_orbit_pass(counts, orbit_pass):
+    assert gee.sentinel1_orbit_pass(counts) == orbit_pass
+
+
+class _SliceCollection:
+    """GRD slices as property dicts, with Earth Engine's ``distinct`` (first image of each key)."""
+
+    def __init__(self, images, log):
+        self.images, self.log = list(images), log
+
+    def distinct(self, properties):
+        self.log.append(("distinct", properties))
+        seen, kept = set(), []
+        for image in self.images:
+            key = tuple(image[p] for p in properties)
+            if key not in seen:
+                seen.add(key)
+                kept.append(image)
+        return _SliceCollection(kept, self.log)
+
+    def aggregate_histogram(self, prop):
+        self.log.append(("aggregate_histogram", prop))
+        counts = {}
+        for image in self.images:
+            counts[image[prop]] = counts.get(image[prop], 0) + 1.0  # Earth Engine gives floats
+        return types.SimpleNamespace(getInfo=lambda: counts or None)
+
+
+def _slice(platform, orbit, orbit_pass, slice_number):
+    return {
+        "platform_number": platform,
+        "orbitNumber_start": orbit,
+        "orbitProperties_pass": orbit_pass,
+        "sliceNumber": slice_number,
+    }
+
+
+#: Three ascending acquisitions (one image each; S1A and S1C share an absolute orbit
+#: number, which is per satellite) and two descending ones of two slices each.
+S1_SLICES = [
+    _slice("A", 100, "ASCENDING", 7),
+    _slice("C", 100, "ASCENDING", 3),
+    _slice("A", 112, "ASCENDING", 7),
+    _slice("A", 105, "DESCENDING", 11),
+    _slice("A", 105, "DESCENDING", 12),
+    _slice("A", 117, "DESCENDING", 11),
+    _slice("A", 117, "DESCENDING", 12),
+]
+
+
+def test_sentinel1_pass_counts_count_acquisitions_in_one_request():
+    log = []
+    counts = gee.sentinel1_pass_counts(_SliceCollection(S1_SLICES, log), "unit")
+    assert counts == {"ASCENDING": 3, "DESCENDING": 2}
+    assert all(isinstance(v, int) for v in counts.values())
+    assert log == [
+        ("distinct", ["platform_number", "orbitNumber_start"]),
+        ("aggregate_histogram", "orbitProperties_pass"),
+    ]
+    # Counting images would pick the pass whose two acquisitions crossed a slice boundary.
+    images = {"ASCENDING": 3, "DESCENDING": 4}
+    assert gee.sentinel1_orbit_pass(images) == "DESCENDING"
+    assert gee.sentinel1_orbit_pass(counts) == "ASCENDING"
+    assert gee.sentinel1_pass_counts(_SliceCollection([], [])) == {}
+
+
+def test_sentinel1_acquisitions_keep_one_slice_per_satellite_and_orbit():
+    assert gee.S1_ACQUISITION_PROPERTIES == ("platform_number", "orbitNumber_start")
+    kept = gee.sentinel1_acquisitions(_SliceCollection(S1_SLICES, [])).images
+    assert [(i["platform_number"], i["orbitNumber_start"]) for i in kept] == [
+        ("A", 100),
+        ("C", 100),
+        ("A", 112),
+        ("A", 105),
+        ("A", 117),
+    ]
+    assert "sentinel1_acquisitions" in gee.__all__
+
+
+@pytest.mark.parametrize("method", ["greenest", "max_ndvi"])
+def test_sentinel1_rejects_ndvi_composites(method):
+    with pytest.raises(ValueError, match="needs NIR and red bands, which source 'sentinel1'"):
+        gee.apply_composite_method(None, method, "sentinel1")
+
+
+class TestSentinel1CoverageAdvice:
+    TAGS = {
+        "AGRIBOUND_ORBIT_PASS": "DESCENDING",
+        "AGRIBOUND_ORBIT_PASS_ACQUISITIONS": "ASCENDING:25,DESCENDING:31",
+    }
+
+    def test_names_the_pass_and_the_acquisitions_of_both(self):
+        advice = gee._coverage_advice(_cfg("sentinel1", year=2023), self.TAGS)
+        assert advice.startswith(
+            "The rest has no acquisition of the DESCENDING pass or is masked (VV "
+        )
+        assert "below -30 dB: swath edges, border noise" in advice
+        assert "(acquisitions per pass: ASCENDING:25,DESCENDING:31)" in advice
+        assert "a composite uses one pass" in advice and "HPC tiles" in advice
+        # A calendar year already holds every relative orbit of the pass.
+        assert "date" not in advice and "cloud" not in advice
+
+    def test_wider_window_only_with_a_date_range(self):
+        cfg = _cfg("sentinel1", year=2023, date_range=("2023-06-01", "2023-06-30"))
+        advice = gee._coverage_advice(cfg, self.TAGS)
+        assert advice.endswith(
+            "A wider date_range can add acquisitions of this pass (and can change the pass)."
+        )
+
+    def test_without_tags(self):
+        advice = gee._coverage_advice(_cfg("sentinel1", year=2023))
+        assert "no acquisition of the orbit pass used" in advice
+        assert "acquisitions per pass" not in advice
+
+    def test_other_sources_unchanged(self):
+        advice = gee._coverage_advice(_cfg("sentinel2", year=2023), self.TAGS)
+        assert advice == (
+            "The rest is masked (clouds, shadows) or has no observation; consider a wider date "
+            "window or a higher cloud_cover_max."
+        )
+
+
+def test_sentinel1_no_data_error_names_the_scene_filters():
+    error = gee._years_error(_cfg("sentinel1", year=2023), [2021], ("2023-01-01", "2024-01-01"))
+    assert str(error).startswith(
+        "No sentinel1 images (IW mode, 10 m, VV and VH polarisations) intersect the study-area "
+        "extent for 2023-01-01 to 2024-01-01 (end exclusive)."
+    )
+    assert "cloud" not in str(error)
+
+
+def test_sentinel1_recipe_version_is_in_its_cache_key_only(monkeypatch):
+    from agribound._cache import cache_key
+
+    configs = {s: _cfg(s, year=2023) for s in ("sentinel1", "sentinel2", "landsat-pan")}
+    assert gee._recipe_parts("sentinel2") == (gee.COMPOSITE_RECIPE_VERSION,)
+    assert gee._recipe_parts("sentinel1") == (
+        gee.COMPOSITE_RECIPE_VERSION,
+        f"sentinel1-recipe-{gee.S1_RECIPE_VERSION}",
+    )
+
+    def keys():
+        return {s: cache_key(c, *gee._recipe_parts(s)) for s, c in configs.items()}
+
+    before = keys()
+    monkeypatch.setattr(gee, "S1_RECIPE_VERSION", "999")
+    after = keys()
+    assert after["sentinel1"] != before["sentinel1"]
+    assert after["sentinel2"] == before["sentinel2"]
+    assert after["landsat-pan"] == before["landsat-pan"]
+
+
+def _s1_counts(monkeypatch, counts):
+    """Stub the orbit-pass request of _build_sentinel1; return what it was asked to count."""
+    seen = []
+
+    def fake(collection, context="sentinel1"):
+        seen.append((collection.name, context))
+        return dict(counts)
+
+    monkeypatch.setattr(gee, "sentinel1_pass_counts", fake)
+    return seen
+
+
+class TestSentinel1Collection:
+    S1 = f"IC({gee.S1_COLLECTION})"
+    BASE = f"IC({gee.S1_COLLECTION}).filterBounds.filter.filter.filter.filter"
+
+    def test_scene_filters(self, recording_ee):
+        collection = gee.sentinel1_collection("REGION")
+        assert collection.name == self.BASE
+        assert _calls(recording_ee, self.S1, "filterBounds") == [(self.S1, ("REGION",))]
+        assert [args[0] for _, args in _calls(recording_ee, self.S1, "filter")] == [
+            ("eq", "instrumentMode", "IW"),
+            ("eq", "resolution_meters", 10),
+            ("listContains", "transmitterReceiverPolarisation", "VV"),
+            ("listContains", "transmitterReceiverPolarisation", "VH"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("counts", "orbit_pass"),
+        [
+            ({"ASCENDING": 12, "DESCENDING": 30}, "DESCENDING"),
+            ({"ASCENDING": 40, "DESCENDING": 30}, "ASCENDING"),
+            ({"ASCENDING": 9, "DESCENDING": 9}, "DESCENDING"),
+        ],
+    )
+    def test_spec(self, recording_ee, monkeypatch, counts, orbit_pass):
+        seen = _s1_counts(monkeypatch, counts)
+        spec = gee._build_sentinel1(_cfg("sentinel1", year=2023), "REGION")
+        # The passes are counted among the dated, scene-filtered images (one request) ...
+        dated = f"{self.BASE}.filterDate"
+        assert _calls(recording_ee, self.S1, "filterDate") == [
+            (self.BASE, ("2023-01-01", "2024-01-01"))
+        ]
+        assert seen == [(dated, "sentinel1 2023")]
+        # ... and the composite keeps the images of one pass.
+        filters = [args[0] for _, args in _calls(recording_ee, self.S1, "filter")]
+        assert filters[-1] == ("eq", "orbitProperties_pass", orbit_pass)
+        assert not any(f[0] == "lte" for f in filters)  # no scene cloud filter
+        assert spec.raw.name == f"{dated}.filter"
+        ((name, (prepare,)),) = _calls(recording_ee, self.S1, "map")
+        assert name == spec.raw.name and prepare is gee.prepare_sentinel1_image
+        assert spec.history.name == self.BASE  # every date, both passes
+        assert spec.bands == ["VV", "VH", "VV_VH"]
+        assert spec.dtype == "uint8" and spec.resolution_m == 10.0
+        assert spec.collections == ["COPERNICUS/S1_GRD"]
+        assert spec.count_property == "platform_number"
+        assert spec.count_labels == gee.S1_PLATFORMS
+        # The composite uses every slice of the pass but counts its acquisitions.
+        assert _calls(recording_ee, self.S1, "distinct") == [
+            (spec.raw.name, (["platform_number", "orbitNumber_start"],))
+        ]
+        assert spec.counted.name == f"{spec.raw.name}.distinct"
+        assert spec.count_unit == "acquisition"
+        assert spec.round_composite is True
+
+    def test_other_sources_count_raw_images_unrounded(self):
+        spec = gee.CollectionSpec(
+            raw="RAW",
+            prepared=None,
+            history=None,
+            bands=[],
+            resolution_m=10.0,
+            dtype="float32",
+            collections=[],
+        )
+        assert spec.counted is None and spec.count_unit == "image"
+        assert spec.round_composite is False
+
+    def test_notes_become_tags(self, recording_ee, monkeypatch):
+        _s1_counts(monkeypatch, {"DESCENDING": 30, "ASCENDING": 12})
+        notes = gee._build_sentinel1(_cfg("sentinel1", year=2023), "REGION").notes
+        assert all(isinstance(v, str) for v in notes.values())  # each becomes AGRIBOUND_<KEY>
+        assert notes["orbit_pass"] == "DESCENDING"
+        assert notes["orbit_pass_acquisitions"] == "ASCENDING:12,DESCENDING:30"
+        assert "orbit_pass_images" not in notes
+        assert notes["image_counts"] == (
+            "acquisitions: the GRD slices with the same platform_number and orbitNumber_start "
+            "count once"
+        )
+        assert notes["instrument_mode"] == "IW" and notes["polarisation"] == "VV+VH"
+        assert json.loads(notes["s1_db_ranges"]) == {
+            "VV": [-25.0, 0.0],
+            "VH": [-32.0, -8.0],
+            "VV_VH": [0.0, 15.0],
+        }
+        assert notes["rgb_mapping"] == "R=VV, G=VH, B=VV_VH (VV - VH, dB)"
+        assert "1 + round(254 * clamp((dB - lo) / (hi - lo), 0, 1))" in notes["scaling"]
+        assert "then the median, rounded (halves up)" in notes["scaling"]
+        assert "dB = lo + (value - 1) * (hi - lo) / 254" in notes["scaling"]
+        assert notes["edge_mask"] == "VV < -30 dB masked in every band"
+        assert "cloud_cover_max and s2_cloud_mask are ignored" in notes["cloud_filter"]
+        assert notes["s1_recipe_version"] == gee.S1_RECIPE_VERSION
+
+    def test_date_range_and_ignored_optical_settings(self, recording_ee, monkeypatch):
+        _s1_counts(monkeypatch, {"ASCENDING": 3})
+        cfg = _cfg(
+            "sentinel1",
+            year=2024,
+            date_range=("2024-04-01", "2024-09-30"),
+            cloud_cover_max=5,
+            s2_cloud_mask="cloud_score_plus",
+        )
+        spec = gee._build_sentinel1(cfg, "REGION")
+        assert _calls(recording_ee, self.S1, "filterDate")[0][1] == ("2024-04-01", "2024-10-01")
+        assert spec.notes["orbit_pass"] == "ASCENDING"
+        assert spec.notes["orbit_pass_acquisitions"] == "ASCENDING:3,DESCENDING:0"
+        assert spec.collections == ["COPERNICUS/S1_GRD"]  # no Cloud Score+ link
+        assert not any(attr == "linkCollection" for _, attr, _, _ in recording_ee)
+
+
+def _sentinel1_build(tmp_path, aoi, monkeypatch, calls, counts, summary, values=(100.0,), **kwargs):
+    """Build a sentinel1 composite with the stubbed Earth Engine layer; return builder, path, cfg.
+
+    The collection spec is made by the real ``_build_sentinel1`` (recording ee, with
+    the orbit-pass counts *counts*); *summary* is what the image-count request returns,
+    and the prepared images hold one pixel each, of *values* in every band.
+    """
+    cfg = _cfg("sentinel1", year=2023, **kwargs).merged(
+        study_area=aoi, output_path=str(tmp_path / "out.gpkg")
+    )
+    _s1_counts(monkeypatch, counts)
+    spec = gee._build_sentinel1(cfg, "REGION")
+    spec.prepared = FakeCollection([FakeImage({b: [[v]] for b in gee.S1_BANDS}) for v in values])
+    monkeypatch.setitem(gee._COLLECTION_BUILDERS, "sentinel1", lambda cfg, region: spec)
+    calls["summary"] = summary
+    builder = gee.GEECompositeBuilder()
+    return builder, builder.build(cfg), cfg
+
+
+class TestSentinel1Build:
+    def test_export_and_tags(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch, caplog
+    ):
+        from agribound._cache import cache_key
+
+        summary = {"n_images": 30, "years": [2023], "counts": {"C": 14, "A": 16}}
+        with caplog.at_level("INFO", logger="agribound.composites.gee"):
+            builder, path, cfg = _sentinel1_build(
+                tmp_path,
+                sample_aoi_geojson,
+                monkeypatch,
+                stub_builder,
+                {"ASCENDING": 12, "DESCENDING": 30},
+                summary,
+            )
+        (call,) = stub_builder["export"]
+        assert call["dtype"] == "uint8" and call["band_names"] == ["VV", "VH", "VV_VH"]
+        # The image-count request counts acquisitions (one image per satellite and orbit).
+        assert stub_builder["count_property"] == "platform_number"
+        assert stub_builder["counted"].name.endswith(".filterDate.filter.distinct")
+        assert stub_builder["summary_context"] == "sentinel1 2023 acquisition count"
+        with rasterio.open(path) as src:
+            assert src.count == 3 and src.res == (10, 10)
+            tags = src.tags()
+        assert tags["AGRIBOUND_SOURCE"] == "sentinel1"
+        assert tags["AGRIBOUND_VALUE_SCALE"] == "uint8"
+        assert tags["AGRIBOUND_COLLECTIONS"] == "COPERNICUS/S1_GRD"
+        assert tags["AGRIBOUND_COMPOSITE_METHOD"] == "median"
+        assert tags["AGRIBOUND_N_IMAGES"] == "30"
+        assert tags["AGRIBOUND_ORBIT_PASS"] == "DESCENDING"
+        assert tags["AGRIBOUND_ORBIT_PASS_ACQUISITIONS"] == "ASCENDING:12,DESCENDING:30"
+        assert "AGRIBOUND_ORBIT_PASS_IMAGES" not in tags
+        assert tags["AGRIBOUND_IMAGE_COUNTS"].startswith("acquisitions: the GRD slices")
+        assert tags["AGRIBOUND_SENSORS"] == "S1A,S1C"
+        assert tags["AGRIBOUND_SENSOR_IMAGES"] == "S1A:16,S1C:14"
+        assert json.loads(tags["AGRIBOUND_S1_DB_RANGES"])["VH"] == [-32.0, -8.0]
+        assert tags["AGRIBOUND_RGB_MAPPING"].startswith("R=VV, G=VH, B=VV_VH")
+        assert tags["AGRIBOUND_S1_RECIPE_VERSION"] == gee.S1_RECIPE_VERSION
+        assert "AGRIBOUND_SPECTRAL_RESPONSE" not in tags  # a landsat-pan tag
+        # The Sentinel-1 recipe is part of the cache key (file name and tag).
+        key = cache_key(cfg, *gee._recipe_parts("sentinel1"))
+        assert tags["AGRIBOUND_CACHE_KEY"] == key
+        assert path.endswith(f"sentinel1_composite_{key}.tif")
+        assert cache_key(cfg, gee.COMPOSITE_RECIPE_VERSION) != key
+        assert builder.last_metadata["AGRIBOUND_ORBIT_PASS"] == "DESCENDING"
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("acquisitions per sensor: S1A 16, S1C 14" in m for m in messages)
+        assert any(
+            "acquisitions per orbit pass: ASCENDING 12, DESCENDING 30; the composite uses "
+            "DESCENDING (more acquisitions; DESCENDING on a tie)" in m
+            for m in messages
+        )
+        assert any(
+            "sentinel1 2023: 30 acquisition(s) in 2023-01-01..2024-01-01" in m for m in messages
+        )
+
+    @pytest.mark.parametrize(
+        ("values", "exported"),
+        [
+            ((100.0, 101.0), 101.0),  # median 100.5: rounded, not truncated by the uint8 export
+            ((100.0, 102.0, 101.0, 103.0), 102.0),  # 101.5
+            ((100.0, 101.0, 140.0), 101.0),  # an odd count: a value of the images
+        ],
+    )
+    def test_median_is_rounded_before_the_uint8_export(
+        self,
+        tmp_path,
+        sample_aoi_geojson,
+        stub_builder,
+        recording_ee,
+        monkeypatch,
+        values,
+        exported,
+    ):
+        summary = {"n_images": len(values), "years": [2023], "counts": {"A": len(values)}}
+        _sentinel1_build(
+            tmp_path,
+            sample_aoi_geojson,
+            monkeypatch,
+            stub_builder,
+            {"DESCENDING": len(values)},
+            summary,
+            values=values,
+        )
+        (call,) = stub_builder["export"]
+        for band in gee.S1_BANDS:
+            assert call["image"].value(band).tolist() == [[exported]], band
+
+    def test_other_sources_export_the_median_unrounded(
+        self, tmp_path, sample_aoi_geojson, stub_builder, monkeypatch
+    ):
+        def spec(config, region):
+            images = [FakeImage({b: [[v]] for b in gee.S2_BANDS}) for v in (100.0, 101.0)]
+            return gee.CollectionSpec(
+                raw="RAW",
+                prepared=FakeCollection(images),
+                history="HISTORY",
+                bands=list(gee.S2_BANDS),
+                resolution_m=10.0,
+                dtype="float32",
+                collections=[gee.S2_COLLECTION],
+            )
+
+        monkeypatch.setitem(gee._COLLECTION_BUILDERS, "sentinel2", spec)
+        gee.GEECompositeBuilder().build(_s2_config(tmp_path, sample_aoi_geojson))
+        (call,) = stub_builder["export"]
+        assert call["image"].value("B4").tolist() == [[100.5]]
+        assert stub_builder["counted"] == "RAW"
+        assert stub_builder["summary_context"] == "sentinel2 2023 image count"
+
+    def test_without_images_names_the_scene_filters(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch
+    ):
+        from agribound.composites import NoDataError
+
+        with pytest.raises(NoDataError) as info:
+            _sentinel1_build(
+                tmp_path,
+                sample_aoi_geojson,
+                monkeypatch,
+                stub_builder,
+                {},
+                {"n_images": 0, "years": [], "counts": {}},
+            )
+        message = str(info.value)
+        assert message.startswith("No sentinel1 images (IW mode, 10 m, VV and VH polarisations)")
+        assert "Years with images over the study-area extent: 2019, 2021." in message
+        assert stub_builder["export"] == []
+
+    @pytest.mark.parametrize("method", ["greenest", "max_ndvi"])
+    @pytest.mark.parametrize("source", ["sentinel1", "landsat-pan"])
+    def test_ndvi_composites_refused_before_any_earth_engine_request(
+        self, tmp_path, sample_aoi_geojson, monkeypatch, method, source
+    ):
+        def fail(*args, **kwargs):
+            raise AssertionError("no Earth Engine call is expected")
+
+        monkeypatch.setattr("agribound.auth.ensure_gee", fail)
+        monkeypatch.setattr(gee, "sentinel1_pass_counts", fail)
+        monkeypatch.setitem(gee._COLLECTION_BUILDERS, source, fail)
+        match = f"needs NIR and red bands, which source '{source}'"
+        with pytest.raises(ValueError, match=match):  # rejected by the configuration ...
+            _cfg(source, year=2023, composite_method=method)
+        cfg = _cfg(source, year=2023).merged(
+            study_area=sample_aoi_geojson, output_path=str(tmp_path / "o.gpkg")
+        )
+        cfg.composite_method = method  # ... and by the builder, if changed after validation
+        with pytest.raises(ValueError, match=match):
+            gee.GEECompositeBuilder().build(cfg)
+
+    def test_cached_composite_warns_with_the_sentinel1_advice(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch, caplog
+    ):
+        stub_builder["nan_fraction"] = 0.5
+        summary = {"n_images": 8, "years": [2023], "counts": {"A": 8}}
+        advice = (
+            "The rest has no acquisition of the ASCENDING pass or is masked",
+            "(acquisitions per pass: ASCENDING:8,DESCENDING:0)",
+        )
+        with caplog.at_level("WARNING", logger="agribound.composites.gee"):
+            _, path, cfg = _sentinel1_build(
+                tmp_path,
+                sample_aoi_geojson,
+                monkeypatch,
+                stub_builder,
+                {"ASCENDING": 8},
+                summary,
+            )
+        assert any(all(a in r.getMessage() for a in advice) for r in caplog.records)
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="agribound.composites.gee"):
+            assert gee.GEECompositeBuilder().build(cfg) == path  # cached
+        assert any(
+            "cached sentinel1 composite" in r.getMessage()
+            and all(a in r.getMessage() for a in advice)
+            for r in caplog.records
+        )
+
+    def test_no_valid_pixel_counts_acquisitions(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch
+    ):
+        from agribound.composites import NoDataError
+
+        stub_builder["nan_fraction"] = 1.0
+        summary = {"n_images": 8, "years": [2023], "counts": {"A": 8}}
+        with pytest.raises(NoDataError) as info:
+            _sentinel1_build(
+                tmp_path,
+                sample_aoi_geojson,
+                monkeypatch,
+                stub_builder,
+                {"DESCENDING": 8, "ASCENDING": 2},
+                summary,
+            )
+        message = str(info.value)
+        assert "although 8 acquisition(s) matched the filters" in message
+        assert "The rest has no acquisition of the DESCENDING pass" in message
+        assert "(acquisitions per pass: ASCENDING:2,DESCENDING:8)" in message
+
+
+# ---------------------------------------------------------------------------
+# HLS: reversed HLSS30 footprints at 180 degrees
+# ---------------------------------------------------------------------------
+
+
+def _gc_km(a, b, radius_km=6371.0):
+    """Great-circle distance in km between two (lon, lat) points."""
+    import math
+
+    lon1, lat1, lon2, lat2 = map(math.radians, (*a, *b))
+    cos_d = math.sin(lat1) * math.sin(lat2) + math.cos(lat1) * math.cos(lat2) * math.cos(
+        lon2 - lon1
+    )
+    return radius_km * math.acos(max(-1.0, min(1.0, cos_d)))
+
+
+class TestHlsFarPoints:
+    @pytest.mark.parametrize(
+        ("centroid", "p1", "p2"),
+        [
+            # The investigation's values (outputs/hls_antimeridian/investigate/NOTES.md).
+            ((-1.518, 5.538), (178.482, -5.538), (-91.518, -5.538)),  # Twifo Praso
+            ((179.7, -17.6), (-0.3, 17.6), (89.7, 17.6)),  # Fiji, west of 180 degrees
+            ((-179.85, -17.6), (0.15, 17.6), (90.15, 17.6)),  # Fiji, east of 180 degrees
+            ((149.775, -30.225), (-30.225, 30.225), (59.775, 30.225)),  # Murray-Darling
+            ((0.0, 0.0), (-180.0, 0.0), (-90.0, 0.0)),
+            ((180.0, 10.0), (0.0, -10.0), (90.0, -10.0)),
+            ((-180.0, 10.0), (0.0, -10.0), (90.0, -10.0)),
+        ],
+    )
+    def test_points(self, centroid, p1, p2):
+        from shapely.geometry import Point
+
+        got1, got2 = gee.hls_far_points(Point(*centroid))
+        assert got1 == pytest.approx(p1, abs=1e-9)
+        assert got2 == pytest.approx(p2, abs=1e-9)
+
+    def test_points_of_a_grid_outline_come_from_its_centroid(self):
+        p1, p2 = gee.hls_far_points(FIJI_WEST_BOX)
+        c = FIJI_WEST_BOX.centroid
+        assert p1 == pytest.approx((c.x - 180.0, -c.y))
+        assert p2 == pytest.approx((c.x - 90.0, -c.y))
+
+    def test_far_from_the_region_and_from_each_other(self):
+        import math
+
+        for lat in np.arange(-80.0, 80.1, 5.0):
+            for lon in np.arange(-180.0, 180.0, 15.0):
+                c = (float(lon), float(lat))
+                p1, p2 = gee.hls_far_points(box(lon - 0.02, lat - 0.02, lon + 0.02, lat + 0.02))
+                for p in (p1, p2):
+                    assert -180.0 <= p[0] < 180.0 and p[1] == pytest.approx(-lat)
+                # A real granule (about 110 km) that covers part of the region meets neither.
+                assert _gc_km(c, p1) == pytest.approx(math.pi * 6371.0, abs=0.01)  # 20,015 km
+                assert _gc_km(c, p2) >= 10_007.0
+                # A reversed footprint's tile holds at most one of them.
+                apart = _gc_km(p1, p2)
+                assert apart == pytest.approx(
+                    6371.0 * math.acos(math.sin(math.radians(lat)) ** 2), abs=0.01
+                )
+                assert apart > 1_000.0
+        # 2,792 km at 72.1 degrees, the latitude reached by the most northerly affected tile.
+        p1, p2 = gee.hls_far_points(box(179.0, 72.0, 179.2, 72.2))
+        assert _gc_km(p1, p2) == pytest.approx(2_791.5, abs=0.5)
+
+    @pytest.mark.parametrize(
+        ("geometry", "near"),
+        [
+            (FIJI_WEST_BOX, True),
+            (FIJI_EAST_BOX, True),
+            (TWIFO_BOX, False),
+            (LEA_BOX, False),
+            (MURRAY_BOX, False),
+            (box(175.0, 10.0, 175.1, 10.1), True),  # 5 degrees from 180
+            (box(174.8, 10.0, 174.99, 10.1), False),
+            (box(-175.0, 10.0, -174.9, 10.1), True),
+            (box(-174.99, 10.0, -174.8, 10.1), False),
+            # An outline whose longitudes wrap at 180 degrees spans -180 to 180.
+            (box(-179.98, -17.0, 179.98, -16.9), True),
+        ],
+    )
+    def test_near_antimeridian(self, geometry, near):
+        assert gee.near_antimeridian(geometry) is near
+
+    def test_margin(self):
+        # Every affected MGRS tile reaches at most 3.0006 degrees from 180 (2026-10-09).
+        assert gee.HLS_ANTIMERIDIAN_MARGIN_DEG == 5.0
+        assert gee.near_antimeridian(box(170.0, 0.0, 170.5, 0.5), margin_deg=10.0)
+        assert not gee.near_antimeridian(box(170.0, 0.0, 170.5, 0.5))
+        for name in (
+            "hls_antimeridian_images",
+            "hls_far_points",
+            "hls_footprint_filter",
+            "near_antimeridian",
+            "near_hls_reversed_footprint_tiles",
+        ):
+            assert name in gee.__all__
+
+    @pytest.mark.parametrize(
+        ("geometry", "near"),
+        [
+            # Inside the affected tiles (outputs/hls_antimeridian/verify): Koro (T01KAA),
+            # Amchitka (T01UBT, T60UXC), Wrangel Island (T01WCV, T60WWE), the edge of T01KAA.
+            (box(179.38, -17.36, 179.44, -17.30), True),
+            (box(179.23, 51.48, 179.27, 51.52), True),
+            (box(179.48, 71.28, 179.52, 71.32), True),
+            (box(-179.76, -17.62, -179.71, -17.58), True),
+            (FIJI_WEST_BOX, True),
+            (box(178.8, -49.7, 178.85, -49.65), True),  # Antipodes Islands (T01FBE)
+            (box(179.4, -9.5, 179.45, -9.45), True),  # Tuvalu (T01LAK)
+            (box(179.95, -16.85, 180.0, -16.80), True),  # ends at 180 degrees
+            (box(-180.0, 64.0, -179.0, 65.0), True),
+            # Within 5 degrees of 180 but outside the latitudes of the affected tiles:
+            # New Zealand's North Island, Kamchatka, Tonga.
+            (box(175.0, -41.6, 178.6, -37.5), False),
+            (box(175.0, 55.0, 178.0, 58.0), False),
+            (box(-175.3, -21.3, -175.0, -21.0), False),
+            # Away from 180 degrees.
+            (TWIFO_BOX, False),
+            (MURRAY_BOX, False),
+            (box(170.0, -17.5, 174.9, -17.0), False),
+        ],
+    )
+    def test_near_the_tiles_with_reversed_footprints(self, geometry, near):
+        assert gee.near_hls_reversed_footprint_tiles(geometry) is near
+
+    def test_latitudes_of_the_tiles_with_reversed_footprints(self):
+        # outputs/hls_antimeridian/verify/results/v06_rings.json: the 31 tiles, merged into
+        # ranges where they overlap or nearly do (the margin covers the gaps between them).
+        assert gee.HLS_REVERSED_FOOTPRINT_LATITUDES == (
+            (-50.6084, -46.8854),
+            (-19.9628, -9.0282),
+            (50.3874, 52.3414),
+            (62.0859, 72.0996),
+        )
+        # 0.5 degrees of latitude beyond a range still counts; 0.6 does not.
+        assert gee.near_hls_reversed_footprint_tiles(box(179.5, 52.7, 179.6, 52.8))
+        assert not gee.near_hls_reversed_footprint_tiles(box(179.5, 52.95, 179.6, 53.0))
+
+    def test_region_coordinates_need_a_request_only_for_a_computed_geometry(self):
+        from shapely.geometry import mapping
+
+        class Computed:
+            def toGeoJSON(self):  # noqa: N802 - ee API name
+                raise RuntimeError("Cannot convert a computed geometry to GeoJSON.")
+
+            def getInfo(self):  # noqa: N802 - ee API name
+                return mapping(FIJI_EAST_BOX)
+
+        assert gee._region_geometry_4326(FakeRegion(TWIFO_BOX)).equals(TWIFO_BOX)
+        assert gee._region_geometry_4326(Computed()).equals(FIJI_EAST_BOX)
+
+
+def test_hls_antimeridian_images_keep_unbounded_images_whose_tile_meets_the_region(monkeypatch):
+    """The per-image flag: an unbounded geometry and an even-odd ring that meets the region."""
+    polygons, intersects = [], []
+
+    class Coordinates:
+        def __init__(self, meets):
+            self.meets = meets
+
+    class Ring:
+        def __init__(self, meets):
+            self.meets = meets
+
+        def coordinates(self):
+            return Coordinates(self.meets)
+
+    class Tile:
+        def __init__(self, rings, proj, geodesic, max_error, even_odd):
+            polygons.append((proj, geodesic, max_error, even_odd))
+            (self.coords,) = rings
+
+        def intersects(self, region, max_error):
+            intersects.append((region, max_error))
+            return self.coords.meets
+
+    class Image:
+        def __init__(self, name, unbounded, meets):
+            self.name, self.unbounded, self.meets = name, unbounded, meets
+
+        def get(self, prop):
+            assert prop == "system:footprint"
+            return Ring(self.meets)
+
+        def geometry(self):
+            return types.SimpleNamespace(isUnbounded=lambda: self.unbounded)
+
+        def set(self, prop, value):
+            return {"name": self.name, prop: value}
+
+    class Collection:
+        def __init__(self, items, steps):
+            self.items, self.steps = list(items), tuple(steps)
+
+        def filterBounds(self, geometry):  # noqa: N802 - ee API name
+            return Collection(self.items, (*self.steps, ("bounds", geometry)))
+
+        def filter(self, value):
+            items = self.items
+            if value[0] == "eq":
+                items = [i for i in items if i[value[1]] == value[2]]
+            return Collection(items, (*self.steps, value))
+
+        def filterDate(self, start, end):  # noqa: N802 - ee API name
+            return Collection(self.items, (*self.steps, ("date", start, end)))
+
+        def map(self, fn):
+            return Collection([fn(i) for i in self.items], (*self.steps, ("map",)))
+
+    images = [
+        Image("reversed_here", True, True),
+        Image("reversed_elsewhere", True, False),
+        Image("bounded_here", False, True),
+        Image("bounded_elsewhere", False, False),
+    ]
+
+    def geometry(value):
+        return value
+
+    geometry.Point = lambda coords: ("point", tuple(coords))
+    geometry.Polygon = Tile
+    module = types.ModuleType("ee")
+    module.ImageCollection = lambda cid: Collection(images, [("collection", cid)])
+    module.Geometry = geometry
+    module.List = lambda items: items
+    module.Algorithms = types.SimpleNamespace(If=lambda cond, a, b: a if cond else b)
+    module.Filter = _fake_filter_namespace()
+    monkeypatch.setitem(sys.modules, "ee", module)
+
+    window = ("2022-01-01", "2023-01-01")
+    out = gee.hls_antimeridian_images("REGION", FIJI_WEST_BOX, cloud_cover_max=80, window=window)
+    assert [i["name"] for i in out.items] == ["reversed_here"]
+    p1, _ = gee.hls_far_points(FIJI_WEST_BOX)
+    assert out.steps == (
+        ("collection", gee.HLSS30_COLLECTION),
+        ("bounds", ("point", p1)),
+        ("lte", "CLOUD_COVERAGE", 80),
+        ("date", *window),
+        ("map",),
+        ("eq", "agribound_real_footprint", 1),
+    )
+    # The ring is read as a geodesic polygon with the even-odd rule; 1 m maximum error.
+    assert set(polygons) == {(None, True, None, True)}
+    assert set(intersects) == {("REGION", 1)}
+    # Without a cloud filter or a window (the agent's live check, the history).
+    out = gee.hls_antimeridian_images("REGION", FIJI_WEST_BOX)
+    assert [s[0] for s in out.steps] == ["collection", "bounds", "map", "eq"]
+
+
+@pytest.fixture
+def answering_ee(monkeypatch):
+    """Recording ``ee`` for the HLS builder near 180 degrees.
+
+    The listing request, ``ee.Dictionary({"HLSL30": ..., "HLSS30": ...}).getInfo()``,
+    returns ``state["ids"]`` (image IDs per collection name). The listed chains are kept in
+    ``state["listings"]`` (their names) and each list of images loaded by ID in
+    ``state["by_id"]``; a collection made from such a list is named
+    ``IC(by-id <collection>)``.
+    """
+    state = {"log": [], "ids": {}, "by_id": [], "listings": []}
+    module = types.ModuleType("ee")
+
+    def image_collection(arg):
+        if isinstance(arg, list):
+            state["by_id"].append(list(arg))
+            collection = arg[0][1].rsplit("/", 1)[0] if arg else "none"
+            return Chain(f"IC(by-id {collection})", state["log"])
+        return Chain(f"IC({arg})", state["log"])
+
+    class Dictionary:
+        def __init__(self, entries):
+            state["listings"].append({key: value.name for key, value in entries.items()})
+            self.keys = list(entries)
+
+        def getInfo(self):  # noqa: N802 - ee API name
+            state["log"].append(("Dictionary", "getInfo", (), {}))
+            return {key: list(state["ids"].get(key, [])) for key in self.keys}
+
+    module.ImageCollection = image_collection
+    module.Dictionary = Dictionary
+    module.Image = lambda asset_id: ("Image", asset_id)
+    module.Filter = _fake_filter_namespace()
+    module.Geometry = types.SimpleNamespace(Point=lambda coords: ("point", tuple(coords)))
+    monkeypatch.setitem(sys.modules, "ee", module)
+    return state
+
+
+def _recipe_output(log, collection_name, source_bands, band):
+    """Run the per-image recipe mapped over *collection_name* on a one-pixel image.
+
+    Returns ``(value of band, value of the source band it comes from)``.
+    """
+    (fn,) = [args[0] for name, attr, args, _ in log if name == collection_name and attr == "map"]
+    src = {b: np.full((1, 1), 0.01 * (i + 1)) for i, b in enumerate(source_bands)}
+    src["Fmask"] = np.zeros((1, 1))
+    _, out = fn(FakeImage(src))  # ("Image", ...) from _keep_time with the recording ee
+    source_band = source_bands[gee.HLS_BANDS.index(band)]
+    return out.value(band)[0, 0], src[source_band][0, 0]
+
+
+class TestHlsNear180:
+    S30 = f"IC({gee.HLSS30_COLLECTION})"
+    L30 = f"IC({gee.HLSL30_COLLECTION})"
+    IDS = ["T01KAA_20220917T221941", "T01KAA_20220523T221939"]
+    #: The listing chain after ``IC(<collection>)``: bounded by p1, cloud and date filters,
+    #: the per-image flag and its filter, the IDs.
+    LISTED = ".filterBounds.filter.filterDate.map.filter.aggregate_array"
+
+    @staticmethod
+    def _merges(log):
+        return {name: args[0].name for name, attr, args, _ in log if attr == "merge"}
+
+    @pytest.mark.parametrize("region_box", [FIJI_WEST_BOX, FIJI_EAST_BOX])
+    def test_listed_images_are_loaded_by_id(self, answering_ee, caplog, region_box):
+        answering_ee["ids"] = {"HLSS30": list(self.IDS)}
+        region = FakeRegion(region_box)
+        with caplog.at_level("INFO", logger="agribound.composites.gee"):
+            spec = gee._build_hls(_cfg("hls", cloud_cover_max=80), region)
+        log = answering_ee["log"]
+        p1, p2 = gee.hls_far_points(region_box)
+        # One request lists the images of both collections at 180 degrees whose tile meets
+        # the region (bounded by p1, cloud and date filters, flagged per image).
+        assert [name for name, attr, _, _ in log if attr == "getInfo"] == ["Dictionary"]
+        assert answering_ee["listings"] == [
+            {"HLSL30": f"{self.L30}{self.LISTED}", "HLSS30": f"{self.S30}{self.LISTED}"}
+        ]
+        for ic in (self.L30, self.S30):
+            listed = f"{ic}{self.LISTED}"
+            assert (listed.rsplit(".", 1)[0], "aggregate_array", ("system:index",), {}) in log
+            assert [args for _, args in _calls(log, ic, "filterBounds")] == [
+                (("point", p1),),  # the listing
+                (region,),  # the composite's selection
+                (("point", p1),),  # the history
+            ]
+            assert (
+                f"{ic}.filterBounds.filter",
+                "filterDate",
+                ("2022-01-01", "2023-01-01"),
+                {},
+            ) in log
+        # Loaded by ID (sorted) and merged into the HLSS30 images of the window.
+        assert answering_ee["by_id"] == [
+            [("Image", f"{gee.HLSS30_COLLECTION}/{i}") for i in sorted(self.IDS)]
+        ]
+        merges = self._merges(log)
+        s30_base = f"{self.S30}.filterBounds.filter.filter"
+        s30_raw = f"{s30_base}.filterDate.merge"
+        assert merges[f"{s30_base}.filterDate"] == f"IC(by-id {gee.HLSS30_COLLECTION})"
+        # The history (years of the no-image error) takes them from the collection.
+        assert merges[s30_base] == f"{self.S30}.filterBounds.filter.map.filter"
+        l30_base = f"{self.L30}.filterBounds.filter.filter"
+        l30_raw = f"{l30_base}.filterDate"  # no HLSL30 image listed
+        assert merges[l30_raw] == s30_raw
+        assert merges[l30_base] == f"{self.L30}.filterBounds.filter.map.filter"
+        assert merges[f"{l30_base}.merge"] == f"{s30_base}.merge"
+        assert spec.raw.name == f"{l30_raw}.merge"
+        assert spec.history.name == f"{l30_base}.merge.merge"
+        # The images loaded by ID go through the recipe with the others (Fmask, x10000,
+        # B8A renamed to B5): the recipe is mapped over the merged HLSS30 images.
+        assert spec.prepared.name == f"{l30_raw}.map.merge"
+        assert merges[f"{l30_raw}.map"] == f"{s30_raw}.map"
+        value, source = _recipe_output(log, s30_raw, gee.HLSS30_SOURCE_BANDS, "B5")
+        assert value == pytest.approx(source * 10000)  # B8A
+        # Both collections still drop the images that meet a far point.
+        far = ("not", ("or", ("bounds", ("point", p1)), ("bounds", ("point", p2))))
+        for ic in (self.L30, self.S30):
+            assert (f"{ic}.filterBounds.filter", "filter", (far,), {}) in log
+        assert spec.notes["hlss30_images_by_id"] == 2
+        assert spec.notes["hlsl30_images_by_id"] == 0
+        assert "0 HLSL30 and 2 HLSS30 image(s) of the MGRS tiles there" in caplog.text
+
+    def test_listed_hlsl30_images_are_loaded_by_id_too(self, answering_ee):
+        """HLSL30 had no reversed footprint on 2026-10-09; the far-point exclusion applies to
+        it as well, so any it would drop at a tile at 180 degrees is added back."""
+        l30_ids = ["T01KAA_20220602T221845"]
+        answering_ee["ids"] = {"HLSL30": l30_ids, "HLSS30": list(self.IDS)}
+        spec = gee._build_hls(_cfg("hls", cloud_cover_max=80), FakeRegion(FIJI_WEST_BOX))
+        log = answering_ee["log"]
+        assert [name for name, attr, _, _ in log if attr == "getInfo"] == ["Dictionary"]
+        assert answering_ee["by_id"] == [
+            [("Image", f"{gee.HLSL30_COLLECTION}/{l30_ids[0]}")],
+            [("Image", f"{gee.HLSS30_COLLECTION}/{i}") for i in sorted(self.IDS)],
+        ]
+        merges = self._merges(log)
+        l30_base = f"{self.L30}.filterBounds.filter.filter"
+        s30_base = f"{self.S30}.filterBounds.filter.filter"
+        l30_raw, s30_raw = f"{l30_base}.filterDate.merge", f"{s30_base}.filterDate.merge"
+        assert merges[f"{l30_base}.filterDate"] == f"IC(by-id {gee.HLSL30_COLLECTION})"
+        assert merges[f"{s30_base}.filterDate"] == f"IC(by-id {gee.HLSS30_COLLECTION})"
+        assert merges[l30_raw] == s30_raw and spec.raw.name == f"{l30_raw}.merge"
+        assert spec.prepared.name == f"{l30_raw}.map.merge"
+        value, source = _recipe_output(log, l30_raw, gee.HLS_BANDS, "B5")
+        assert value == pytest.approx(source * 10000)
+        assert spec.notes["hlsl30_images_by_id"] == 1
+        assert spec.notes["hlss30_images_by_id"] == 2
+
+    def test_no_listed_image(self, answering_ee):
+        answering_ee["ids"] = {}
+        spec = gee._build_hls(_cfg("hls", cloud_cover_max=80), FakeRegion(FIJI_EAST_BOX))
+        assert answering_ee["by_id"] == []
+        merges = self._merges(answering_ee["log"])
+        for ic in (self.L30, self.S30):
+            base = f"{ic}.filterBounds.filter.filter"
+            assert merges[base] == f"{ic}.filterBounds.filter.map.filter"
+        s30_dated = f"{self.S30}.filterBounds.filter.filter.filterDate"
+        assert s30_dated not in merges  # nothing to load by ID
+        assert merges[f"{self.L30}.filterBounds.filter.filter.filterDate"] == s30_dated
+        assert spec.notes["hlss30_images_by_id"] == 0
+        assert spec.notes["hlsl30_images_by_id"] == 0
+
+    @pytest.mark.parametrize("region_box", [TWIFO_BOX, LEA_BOX, MURRAY_BOX])
+    def test_no_request_away_from_180(self, answering_ee, region_box):
+        answering_ee["ids"] = {"HLSS30": list(self.IDS)}
+        region = FakeRegion(region_box)
+        spec = gee._build_hls(_cfg("hls"), region)
+        log = answering_ee["log"]
+        assert [name for name, attr, _, _ in log if attr == "getInfo"] == []
+        assert answering_ee["listings"] == [] and answering_ee["by_id"] == []
+        assert "hlss30_images_by_id" not in spec.notes
+        assert "hlsl30_images_by_id" not in spec.notes
+        # Only the composite's selection: no listing, no history of the images at 180 degrees.
+        for ic in (self.L30, self.S30):
+            assert _calls(log, ic, "filterBounds") == [(ic, (region,))]
+            dated = f"{ic}.filterBounds.filter.filter.filterDate"
+            assert [name for name, _ in _calls(log, ic, "map")] == [dated]  # the recipe
+        assert self._merges(log)[f"{self.L30}.filterBounds.filter.filter"] == (
+            f"{self.S30}.filterBounds.filter.filter"
+        )
+
+    def test_grid_across_180_uses_the_antipode_of_the_split_outline(self, answering_ee):
+        """A study area that ends at 180 degrees: its grid reaches across 180 degrees, and the
+        selection region is the outline split there (``ee_geometry``)."""
+        area = box(179.95, -16.85, 180.0, -16.80)
+        grid = gee.compute_export_grid(area, gee.resolve_export_crs("utm", area), 30.0)
+        outline = gee.split_at_antimeridian(gee.grid_footprint_4326(grid))
+        assert outline.geom_type == "MultiPolygon"
+        spec = gee._build_hls(_cfg("hls", cloud_cover_max=80), FakeRegion(outline))
+        p1, p2 = gee.hls_far_points(outline)
+        assert p1 == pytest.approx((-0.0253, 16.8251), abs=1e-3)  # not near 180 degrees
+        assert p2 == pytest.approx((89.9747, 16.8251), abs=1e-3)
+        log = answering_ee["log"]
+        assert [name for name, attr, _, _ in log if attr == "getInfo"] == ["Dictionary"]
+        for ic in (self.L30, self.S30):
+            assert [args for _, args in _calls(log, ic, "filterBounds")][0] == (("point", p1),)
+        assert spec.notes["hlss30_images_by_id"] == 0
+
+
+class TestAntimeridianOutline:
+    """Export grids that reach across 180 degrees (their study area ends at or near it)."""
+
+    #: Study areas whose UTM grid reaches across 180 degrees: east edge at 180 degrees, or
+    #: up to 0.2 degrees short of it (outward rounding to whole pixels, and UTM grid
+    #: convergence away from the equator); and one in zone 1 that starts at -180 degrees.
+    ACROSS = [
+        box(179.95, -16.85, 180.0, -16.80),  # 5 km, Fiji
+        box(179.5, -17.0, 179.999, -16.9),  # 0.001 degrees short, 0.1 degrees tall
+        box(179.5, -18.0, 179.97, -16.0),  # 0.03 degrees short, 2 degrees tall
+        box(179.5, 51.8, 179.981, 52.1),  # Aleutian Islands
+        box(179.0, 71.0, 179.95, 71.5),  # Chukotka, 1.8 km short
+        box(179.5, 64.0, 179.8, 66.0),  # 0.2 degrees (about 9 km) short
+        box(-180.0, -16.85, -179.95, -16.80),  # zone 1
+    ]
+
+    @staticmethod
+    def _geojson_sent(monkeypatch, geometry):
+        sent = []
+        module = types.ModuleType("ee")
+        module.Geometry = lambda geojson, proj, geodesic: sent.append((geojson, proj, geodesic))
+        monkeypatch.setitem(sys.modules, "ee", module)
+        gee.ee_geometry(geometry)
+        ((geojson, proj, geodesic),) = sent
+        assert proj is None and geodesic is False
+        return shape(geojson)
+
+    @pytest.mark.parametrize("area", ACROSS)
+    def test_outline_is_split_at_180_for_earth_engine(self, monkeypatch, area):
+        grid = gee.compute_export_grid(area, gee.resolve_export_crs("utm", area), 30.0)
+        outline = gee.grid_footprint_4326(grid)
+        # As one polygon, its longitudes run from about -180 to 180 (a band around the globe).
+        assert outline.bounds[2] - outline.bounds[0] > 359.0
+        region = self._geojson_sent(monkeypatch, outline)
+        assert region.geom_type == "MultiPolygon" and region.is_valid
+        west, east = sorted(region.geoms, key=lambda p: p.bounds[0], reverse=True)
+        assert west.bounds[2] == 180.0 and east.bounds[0] == -180.0
+        assert west.bounds[0] > 178.0 and east.bounds[2] < -179.0
+        # The parts are the grid: no area lost or added (planar, longitudes unwrapped to
+        # 0..360), and they cover the study area.
+        unwrapped = gee._unwrap_antimeridian(region)
+        assert unwrapped.bounds[2] - unwrapped.bounds[0] < 1.5
+        assert unwrapped.area == pytest.approx(gee._unwrap_antimeridian(outline).area, rel=1e-9)
+        assert unwrapped.covers(translate(area, xoff=360.0) if area.bounds[0] < 0 else area)
+        # Far points from the centroid near 180 degrees, not from the planar one near 0.
+        c = unwrapped.centroid
+        p1, _ = gee.hls_far_points(region)
+        assert p1 == pytest.approx((gee._wrap_longitude(c.x + 180.0), -c.y))
+        assert abs(p1[0]) < 1.0
+        for a, b in zip(gee.hls_far_points(outline), gee.hls_far_points(region), strict=True):
+            assert a == pytest.approx(b, abs=1e-9)
+        assert gee.near_antimeridian(region)
+
+    @pytest.mark.parametrize(
+        "area",
+        [
+            box(179.94, -16.85, 179.99, -16.80),  # 0.01 degrees short: the grid stays west
+            box(179.38, -17.36, 179.44, -17.30),  # Koro, inside T01KAA
+            box(-179.76, -17.62, -179.71, -17.58),  # the edge of T01KAA, zone 1
+            box(-1.30, 5.55, -1.25, 5.60),  # Twifo Praso
+        ],
+    )
+    def test_other_outlines_are_sent_unchanged(self, monkeypatch, area):
+        grid = gee.compute_export_grid(area, gee.resolve_export_crs("utm", area), 30.0)
+        outline = gee.grid_footprint_4326(grid)
+        assert gee.split_at_antimeridian(outline) is outline
+        assert self._geojson_sent(monkeypatch, outline).equals_exact(outline, 0.0)
+
+    def test_geographic_grid_beyond_180(self, monkeypatch):
+        area = box(179.95, -16.85, 180.0, -16.80)
+        outline = gee.grid_footprint_4326(gee.compute_export_grid(area, "EPSG:4326", 30.0))
+        assert outline.bounds[2] > 180.0  # whole pixels: about 1.6 m beyond 180 degrees
+        region = self._geojson_sent(monkeypatch, outline)
+        assert region.geom_type == "MultiPolygon"
+        assert max(p.bounds[2] for p in region.geoms) == 180.0
+        assert min(p.bounds[0] for p in region.geoms) == -180.0
+
+    def test_split_at_antimeridian(self):
+        from shapely import wkt
+        from shapely.geometry import MultiPolygon, Point
+
+        east, west = box(179.9, -17.0, 180.0, -16.9), box(-180.0, -17.0, -179.9, -16.9)
+        split = MultiPolygon([east, west])  # as GeoJSON (RFC 7946) writes it
+        out = gee.split_at_antimeridian(split)
+        assert out.equals(split)
+        assert gee.hls_far_points(split)[0] == pytest.approx((0.0, 16.95))
+        # Written across 180 degrees with longitudes beyond it, or with a jump of nearly 360
+        # degrees between two vertices: split there.
+        for geometry in (
+            box(179.9, -17.0, 180.1, -16.9),
+            box(-180.1, -17.0, -179.9, -16.9),
+            wkt.loads("POLYGON ((179.9 -17, -179.9 -17, -179.9 -16.9, 179.9 -16.9, 179.9 -17))"),
+        ):
+            assert gee.split_at_antimeridian(geometry).equals(split)
+            assert gee.hls_far_points(geometry)[0] == pytest.approx((0.0, 16.95))
+        # Left as they are: planar geometries wider than 180 degrees, a band around the
+        # globe, and anything that is not a polygon.
+        for geometry in (
+            box(-100.0, 0.0, 100.0, 1.0),
+            box(-180.0, -17.0, 180.0, -16.9),
+            Point(181.0, 0.0),
+            box(10.0, 10.0, 11.0, 11.0),
+        ):
+            assert gee.split_at_antimeridian(geometry) is geometry
+        assert "split_at_antimeridian" in gee.__all__
+
+
+#: Composite cache keys and configuration hashes of ``_cfg(source)`` (2022, a bbox study
+#: area), computed with the code before the HLS footprint fix (2026-10-09): only the
+#: ``hls`` composite key changes.
+PRE_HLS_FIX_KEYS = {
+    "landsat": ("2a9b6073c31a", "b04f4c8132cf4aec917f072e77adff3bcd341f94"),
+    "landsat-pan": ("b77cfc775aed", "470ff7675494dcbb9377db9e169af2980874fbba"),
+    "sentinel2": ("5de6dabfae84", "3ff932f35f5239bddcba7115a0384a9a19c1beb3"),
+    "hls": ("2e95b83d1e69", "df35395f0fa347f7da5911974ecae2d4c9c8d415"),
+    "naip": ("ee2ad206e3b6", "e6ff2493105823ec3a26bc08ccbf78a77ddf7fa9"),
+    "spot": ("c44b59c7c9c0", "72ab8e510025f6bb48ff3f1ab20b604dee9c40f1"),
+    "spot-pan": ("51deebe0339d", "e8ad4970e34226a9b9d4394564c914b880220c42"),
+    "sentinel1": ("749ad92e743e", "7cdeaa8cde38d9a937565077a02e80a71a66dfa2"),
+}
+
+
+@pytest.mark.parametrize("source", list(PRE_HLS_FIX_KEYS))
+def test_hls_fix_changes_only_the_hls_composite_key(source):
+    from agribound._cache import cache_key
+    from agribound._results import RESULTS_VERSIONS, results_versions
+    from agribound.provenance import config_hash, reuse_mismatch
+
+    assert set(PRE_HLS_FIX_KEYS) == set(gee._COLLECTION_BUILDERS)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # SPOT is a restricted source
+        config = _cfg(source)
+    old_key, old_hash = PRE_HLS_FIX_KEYS[source]
+    key = cache_key(config, *gee._recipe_parts(source))
+    assert config_hash(config) == old_hash
+    if source == "hls":
+        # Re-keyed once: the recipe before had no HLS part.
+        assert key != old_key == cache_key(config, gee.COMPOSITE_RECIPE_VERSION)
+        assert key == cache_key(config, gee.COMPOSITE_RECIPE_VERSION, "hls-recipe-2")
+    else:
+        assert key == old_key
+    # No results-version component: outputs made before the fix are reused, away from the
+    # MGRS tiles at 180 degrees (this study area is in New Mexico).
+    assert not any("hls" in name for name in RESULTS_VERSIONS)
+    default_engine = {"delineate_anything": RESULTS_VERSIONS["delineate_anything"]}
+    assert results_versions(config) == default_engine
+    record = {
+        "status": "success",
+        "config_hash": old_hash,
+        "facts": {"results_versions": results_versions(config), "composite": {}},
+    }
+    assert reuse_mismatch(record, config) is None
+
+
+def test_hls_recipe_version_is_in_its_cache_key_only(monkeypatch):
+    from agribound._cache import cache_key
+    from agribound.provenance import config_hash
+
+    configs = {s: _cfg(s, year=2023) for s in ("hls", "sentinel1", "sentinel2", "landsat")}
+    assert gee.HLS_RECIPE_VERSION == "2"
+    assert gee._recipe_parts("hls") == (gee.COMPOSITE_RECIPE_VERSION, "hls-recipe-2")
+    assert gee._recipe_parts("landsat") == (gee.COMPOSITE_RECIPE_VERSION,)
+
+    def keys():
+        return {s: cache_key(c, *gee._recipe_parts(s)) for s, c in configs.items()}
+
+    def hashes():
+        return {s: config_hash(c) for s, c in configs.items()}
+
+    before, before_hashes = keys(), hashes()
+    monkeypatch.setattr(gee, "HLS_RECIPE_VERSION", "999")
+    after = keys()
+    assert after["hls"] != before["hls"]
+    assert {s: k for s, k in after.items() if s != "hls"} == {
+        s: k for s, k in before.items() if s != "hls"
+    }
+    assert hashes() == before_hashes
+
+
+def _hls_spec(tmp_path, aoi, monkeypatch, calls, summary, **kwargs):
+    """An hls configuration and its spec (real ``_build_hls``, recording ee, Twifo's outline),
+    served to the stubbed builder; *summary* is what the image-count request returns."""
+    cfg = _cfg("hls", **kwargs).merged(study_area=aoi, output_path=str(tmp_path / "out.gpkg"))
+    spec = gee._build_hls(cfg, FakeRegion(TWIFO_BOX))
+    spec.prepared = FakeCollection([FakeImage({b: [[400.0]] for b in gee.HLS_BANDS})])
+    monkeypatch.setitem(gee._COLLECTION_BUILDERS, "hls", lambda cfg, region: spec)
+    calls["summary"] = summary
+    return cfg, spec
+
+
+class TestHlsBuild:
+    def test_tags_and_the_new_cache_key(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch
+    ):
+        from pathlib import Path
+
+        from agribound._cache import cache_key
+
+        summary = {"n_images": 45, "years": [2022]}
+        cfg, spec = _hls_spec(tmp_path, sample_aoi_geojson, monkeypatch, stub_builder, summary)
+        # A composite cached by the code before the fix is not reused.
+        old = Path(cfg.get_working_dir()) / (
+            f"hls_composite_{cache_key(cfg, gee.COMPOSITE_RECIPE_VERSION)}.tif"
+        )
+        _write(old, np.ones((7, 2, 2), np.float32), Affine(30, 0, 500000, 0, -30, 4000060))
+        builder = gee.GEECompositeBuilder()
+        path = builder.build(cfg)
+        (call,) = stub_builder["export"]
+        key = cache_key(cfg, gee.COMPOSITE_RECIPE_VERSION, "hls-recipe-2")
+        assert path == call["path"] != str(old)
+        assert path.endswith(f"hls_composite_{key}.tif")
+        tags = call["tags"]
+        assert tags["AGRIBOUND_CACHE_KEY"] == key
+        assert tags["AGRIBOUND_RECIPE_VERSION"] == gee.COMPOSITE_RECIPE_VERSION
+        assert tags["AGRIBOUND_HLS_RECIPE_VERSION"] == "2"
+        assert tags["AGRIBOUND_FOOTPRINT_FILTER"].startswith(
+            "images whose footprint meets the antipode of the grid outline's centroid"
+        )
+        assert "AGRIBOUND_HLSS30_IMAGES_BY_ID" not in tags
+        assert tags["AGRIBOUND_COLLECTIONS"] == "NASA/HLS/HLSL30/v002,NASA/HLS/HLSS30/v002"
+        # AGRIBOUND_N_IMAGES counts the selection without the far-point images.
+        assert stub_builder["counted"] is spec.raw
+        assert stub_builder["summary_context"] == "hls 2022 image count"
+        assert tags["AGRIBOUND_N_IMAGES"] == 45
+        assert gee.GEECompositeBuilder().build(cfg) == path  # cached under the new key
+        assert len(stub_builder["export"]) == 1
+
+    def test_no_valid_pixel_reports_the_count_without_the_far_point_images(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch
+    ):
+        from agribound.composites import NoDataError
+
+        stub_builder["nan_fraction"] = 1.0
+        summary = {"n_images": 10, "years": [2024]}
+        cfg, spec = _hls_spec(
+            tmp_path,
+            sample_aoi_geojson,
+            monkeypatch,
+            stub_builder,
+            summary,
+            year=2024,
+            date_range=("2024-10-01", "2024-10-31"),
+        )
+        with pytest.raises(NoDataError) as info:
+            gee.GEECompositeBuilder().build(cfg)
+        assert stub_builder["counted"] is spec.raw
+        assert "The hls 2024 composite has no valid pixel inside the study area although 10 " in (
+            str(info.value)
+        )
+
+    def test_a_window_of_reversed_footprints_only_raises_the_no_image_error(
+        self, tmp_path, sample_aoi_geojson, stub_builder, recording_ee, monkeypatch
+    ):
+        """Lea County, 2022-10-13 to 2022-10-31: 7 reversed-footprint images and no other.
+
+        Counted without them, the window has no image: the no-image error with the years
+        of the history (also without them), and no download.
+        """
+        from agribound.composites import NoDataError
+
+        histories = []
+        monkeypatch.setattr(
+            gee, "available_years", lambda col, context="": histories.append(col) or [2022, 2023]
+        )
+        cfg, spec = _hls_spec(
+            tmp_path,
+            sample_aoi_geojson,
+            monkeypatch,
+            stub_builder,
+            {"n_images": 0, "years": []},
+            date_range=("2022-10-13", "2022-10-31"),
+        )
+        with pytest.raises(NoDataError) as info:
+            gee.GEECompositeBuilder().build(cfg)
+        assert str(info.value) == (
+            "No hls images (scene cloud cover <= 20%) intersect the study-area extent for "
+            "2022-10-13 to 2022-11-01 (end exclusive). Years with images over the study-area "
+            "extent: 2022, 2023."
+        )
+        assert histories == [spec.history]
+        assert stub_builder["export"] == []
+
+
+# ---------------------------------------------------------------------------
+# Image dates: the image list in the composite's tags
+# ---------------------------------------------------------------------------
+
+#: ``system:time_start`` (ms) of 2020-01-02 10:39:23 UTC and 2020-08-04 10:39:20 UTC.
+T_0102 = 1_577_961_563_770
+T_0804 = 1_596_537_560_000
+
+
+class TestImageListRequest:
+    def test_image_list_in_the_same_request(self, summary_ee):
+        summary_ee["info"] = {
+            "n": 2,
+            "years": [2020],
+            "counts": {"Sentinel-2A": 2},
+            "images": [["S2/b", T_0804, 10.6], ["S2/a", T_0102, -1]],
+            "dates": ["2020-08-04", "2020-01-02"],
+        }
+        collection = _SummaryCollection(summary_ee["log"])
+        summary = gee.collection_summary(
+            collection,
+            "unit",
+            count_property="SPACECRAFT_NAME",
+            image_list=True,
+            cloud_property="CLOUDY_PIXEL_PERCENTAGE",
+        )
+        (query,) = summary_ee["queries"]  # one request
+        assert set(query) == {"n", "years", "counts", "images", "dates"}
+        assert summary["images"] == [["S2/b", T_0804, 10.6], ["S2/a", T_0102, -1]]
+        assert summary["dates"] == ["2020-01-02", "2020-08-04"]
+        assert summary["n_images"] == 2 and summary["counts"] == {"Sentinel-2A": 2}
+        # The first IMAGE_LIST_MAX images by time, one row each.
+        assert ("sort", "system:time_start") in summary_ee["log"]
+        assert ("SORTED", "toList", (gee.IMAGE_LIST_MAX,), {}) in summary_ee["log"]
+        calls = [entry for entry in summary_ee["log"] if len(entry) == 4]
+        (mapped,) = [args[0] for name, _, args, _ in calls if name == "SORTED.toList"]
+        assert callable(mapped)
+
+    def test_request_unchanged_without_the_image_list(self, summary_ee):
+        summary_ee["info"] = {"n": 3, "years": [2023], "images": [["x", T_0102, 1]]}
+        summary = gee.collection_summary(_SummaryCollection(summary_ee["log"]), "unit")
+        (query,) = summary_ee["queries"]
+        assert set(query) == {"n", "years"}
+        assert summary == {"n_images": 3, "years": [2023]}
+        assert ("sort", "system:time_start") not in summary_ee["log"]
+
+    def test_missing_lists_are_empty(self, summary_ee):
+        summary_ee["info"] = {"n": 0, "years": [], "images": None}
+        summary = gee.collection_summary(
+            _SummaryCollection(summary_ee["log"]), "unit", image_list=True
+        )
+        assert summary["images"] == [] and summary["dates"] == []
+
+
+class _RowImage:
+    """An image for the image-list row function: properties only."""
+
+    def __init__(self, props):
+        self.props = props
+
+    def get(self, name):
+        return self.props.get(name)
+
+    def toDictionary(self, names):  # noqa: N802 - ee API name
+        return {n: self.props[n] for n in names if n in self.props}
+
+
+@pytest.fixture
+def row_ee(monkeypatch):
+    module = types.ModuleType("ee")
+    module.Image = lambda x: x
+
+    class Dictionary(dict):
+        def get(self, key, default=None):
+            return dict.get(self, key, default)
+
+    module.Dictionary = Dictionary
+    module.List = list
+    module.Algorithms = types.SimpleNamespace(If=lambda c, a, b: a if c else b)
+    monkeypatch.setitem(sys.modules, "ee", module)
+    return module
+
+
+class TestImageRow:
+    def test_asset_id_time_and_cloud(self, row_ee):
+        row = gee._image_row("CLOUDY_PIXEL_PERCENTAGE")
+        image = _RowImage(
+            {
+                "system:id": "COPERNICUS/S2_SR_HARMONIZED/x",
+                "system:index": "1_x",
+                "system:time_start": T_0804,
+                "CLOUDY_PIXEL_PERCENTAGE": 10.626962,
+            }
+        )
+        assert row(image) == ["COPERNICUS/S2_SR_HARMONIZED/x", T_0804, 10.626962]
+
+    def test_index_without_an_asset_id_and_missing_cloud(self, row_ee):
+        image = _RowImage({"system:index": "2_LC09_x", "system:time_start": T_0102})
+        assert gee._image_row("CLOUD_COVER")(image) == ["2_LC09_x", T_0102, -1]
+        assert gee._image_row(None)(image) == ["2_LC09_x", T_0102, -1]
+
+
+class TestImageListTags:
+    def test_rows_sorted_by_date_with_rounded_cloud(self):
+        images = [
+            ["COPERNICUS/S2_SR_HARMONIZED/b", T_0804, 10.626962],
+            ["COPERNICUS/S2_SR_HARMONIZED/a", T_0102, 6.164276],
+            ["COPERNICUS/S2_SR_HARMONIZED/c", T_0102 + 1000, -1],
+        ]
+        tags = gee._image_list_tags(images, 3, ["2020-01-02", "2020-08-04"])
+        assert json.loads(tags["AGRIBOUND_IMAGE_LIST"]) == [
+            ["COPERNICUS/S2_SR_HARMONIZED/a", "2020-01-02", 6.16],
+            ["COPERNICUS/S2_SR_HARMONIZED/c", "2020-01-02", None],
+            ["COPERNICUS/S2_SR_HARMONIZED/b", "2020-08-04", 10.63],
+        ]
+        assert " " not in tags["AGRIBOUND_IMAGE_LIST"]  # compact JSON
+        assert tags["AGRIBOUND_IMAGE_DATES"] == 2
+        assert tags["AGRIBOUND_IMAGE_DATE_FIRST"] == "2020-01-02"
+        assert tags["AGRIBOUND_IMAGE_DATE_LAST"] == "2020-08-04"
+        assert "AGRIBOUND_IMAGE_LIST_TRUNCATED" not in tags
+
+    def test_utc_dates(self):
+        # 2020-12-31 23:30 UTC is 2021-01-01 in UTC+1, but the list gives UTC dates.
+        late = int(_dt_utc(2020, 12, 31, 23, 30).timestamp() * 1000)
+        tags = gee._image_list_tags([["x", late, 0]], 1)
+        assert json.loads(tags["AGRIBOUND_IMAGE_LIST"]) == [["x", "2020-12-31", 0.0]]
+        assert tags["AGRIBOUND_IMAGE_DATES"] == 1  # from the rows when no dates are given
+
+    @pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs time.tzset (POSIX)")
+    @pytest.mark.parametrize("zone", ["America/Los_Angeles", "Asia/Tokyo", "UTC"])
+    def test_utc_dates_in_any_local_time_zone(self, local_zone, zone):
+        # 23:30 UTC is the next day east of UTC, and 00:30 UTC the day before west of it
+        # (Oro's image of 2021-08-21 was acquired at 00:27 UTC): a date in local time
+        # would differ from the UTC date in one of the two zones.
+        late = int(_dt_utc(2020, 12, 31, 23, 30).timestamp() * 1000)
+        early = int(_dt_utc(2021, 8, 21, 0, 30).timestamp() * 1000)
+        local_zone(zone)
+        tags = gee._image_list_tags([["a", late, 1], ["b", early, 2]], 2)
+        assert json.loads(tags["AGRIBOUND_IMAGE_LIST"]) == [
+            ["a", "2020-12-31", 1.0],
+            ["b", "2021-08-21", 2.0],
+        ]
+        assert tags["AGRIBOUND_IMAGE_DATE_FIRST"] == "2020-12-31"
+        assert tags["AGRIBOUND_IMAGE_DATE_LAST"] == "2021-08-21"
+
+    def test_truncated_list_keeps_the_dates_of_every_image(self):
+        images = [[f"id{i}", T_0102 + i * 86_400_000, 1] for i in range(3)]
+        dates = ["2020-01-02", "2020-01-03", "2020-01-04", "2020-06-30", "2020-12-27"]
+        tags = gee._image_list_tags(images, 1500, dates)
+        assert len(json.loads(tags["AGRIBOUND_IMAGE_LIST"])) == 3
+        assert tags["AGRIBOUND_IMAGE_LIST_TRUNCATED"] == "first 3 of 1500 by date"
+        assert tags["AGRIBOUND_IMAGE_DATES"] == 5
+        assert tags["AGRIBOUND_IMAGE_DATE_LAST"] == "2020-12-27"
+
+    def test_no_image(self):
+        tags = gee._image_list_tags([], 0, [])
+        assert tags == {"AGRIBOUND_IMAGE_LIST": "[]", "AGRIBOUND_IMAGE_DATES": 0}
+
+    def test_cap(self):
+        assert gee.IMAGE_LIST_MAX == 1000 and "IMAGE_LIST_MAX" in gee.__all__
+
+
+def _dt_utc(*args):
+    import datetime
+
+    return datetime.datetime(*args, tzinfo=datetime.UTC)
+
+
+@pytest.fixture
+def local_zone():
+    """Set the process's local time zone (``TZ`` and ``time.tzset``); restored afterwards."""
+    old = os.environ.get("TZ")
+
+    def set_zone(zone):
+        os.environ["TZ"] = zone
+        time.tzset()
+
+    yield set_zone
+    if old is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = old
+    time.tzset()
+
+
+@pytest.mark.parametrize(
+    ("source", "prop"),
+    [
+        ("landsat", "CLOUD_COVER"),
+        ("landsat-pan", "CLOUD_COVER"),
+        ("sentinel2", "CLOUDY_PIXEL_PERCENTAGE"),
+        ("spot", "cloud_coverage_percentage"),
+        ("spot-pan", "cloud_coverage_percentage"),
+        ("naip", None),
+    ],
+)
+def test_specs_name_their_scene_cloud_property(recording_ee, source, prop):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # SPOT is a restricted source
+        cfg = _cfg(source)
+    spec = gee._COLLECTION_BUILDERS[source](cfg, "REGION")
+    assert spec.scene_cloud_property == prop
+    filters = [args for _, attr, args, _ in recording_ee if attr == "filter"]
+    if prop:  # the property the scene filter uses
+        assert (("lte", prop, cfg.cloud_cover_max),) in filters
+
+
+def test_hls_and_sentinel1_specs_name_their_scene_cloud_property(recording_ee, monkeypatch):
+    hls = gee._build_hls(_cfg("hls"), FakeRegion(TWIFO_BOX))
+    assert hls.scene_cloud_property == "CLOUD_COVERAGE"
+    _s1_counts(monkeypatch, {"DESCENDING": 3})
+    assert gee._build_sentinel1(_cfg("sentinel1"), "REGION").scene_cloud_property is None
+
+
+#: Rows and dates of an image-count request (Sentinel-2 at Twifo Praso, 2020, abridged).
+SUMMARY_WITH_IMAGES = {
+    "n_images": 3,
+    "years": [2023],
+    "images": [
+        ["COPERNICUS/S2_SR_HARMONIZED/b", T_0804, 10.626962],
+        ["COPERNICUS/S2_SR_HARMONIZED/a", T_0102, 6.164276],
+        ["COPERNICUS/S2_SR_HARMONIZED/c", T_0102, 0.5],
+    ],
+    "dates": ["2020-01-02", "2020-08-04"],
+}
+
+#: The tags of a Sentinel-2 composite of the stubbed builder before the image list
+#: (``AGRIBOUND_VALID_FRACTION`` is added to the same mapping after the download).
+TAGS_BEFORE_THE_IMAGE_LIST = {
+    "AGRIBOUND_VERSION",
+    "AGRIBOUND_SOURCE",
+    "AGRIBOUND_VALUE_SCALE",
+    "AGRIBOUND_YEAR",
+    "AGRIBOUND_DATE_START",
+    "AGRIBOUND_DATE_END_EXCLUSIVE",
+    "AGRIBOUND_COMPOSITE_METHOD",
+    "AGRIBOUND_N_IMAGES",
+    "AGRIBOUND_IMAGE_YEARS",
+    "AGRIBOUND_COLLECTIONS",
+    "AGRIBOUND_CLOUD_COVER_MAX",
+    "AGRIBOUND_EXPORT_CRS",
+    "AGRIBOUND_RESOLUTION_M",
+    "AGRIBOUND_CACHE_KEY",
+    "AGRIBOUND_RECIPE_VERSION",
+    "AGRIBOUND_VALID_FRACTION",
+}
+
+
+class TestBuilderImageList:
+    def test_tags_list_the_images_and_add_only_new_names(
+        self, tmp_path, sample_aoi_geojson, stub_builder
+    ):
+        from agribound._cache import cache_key
+
+        stub_builder["summary"] = SUMMARY_WITH_IMAGES
+        cfg = _s2_config(tmp_path, sample_aoi_geojson)
+        builder = gee.GEECompositeBuilder()
+        path = builder.build(cfg)
+        (call,) = stub_builder["export"]
+        tags = call["tags"]
+        new = {
+            "AGRIBOUND_IMAGE_LIST",
+            "AGRIBOUND_IMAGE_DATES",
+            "AGRIBOUND_IMAGE_DATE_FIRST",
+            "AGRIBOUND_IMAGE_DATE_LAST",
+        }
+        assert set(tags) == TAGS_BEFORE_THE_IMAGE_LIST | new
+        # The image-count request asked for the list (one request).
+        assert stub_builder["image_list"] is True
+        assert stub_builder["summary_context"] == "sentinel2 2023 image count"
+        # The existing tags keep their values; the cache key is unchanged.
+        assert tags["AGRIBOUND_N_IMAGES"] == 3 and tags["AGRIBOUND_IMAGE_YEARS"] == "2023"
+        assert tags["AGRIBOUND_CACHE_KEY"] == cache_key(cfg, gee.COMPOSITE_RECIPE_VERSION)
+        assert path.endswith(f"sentinel2_composite_{tags['AGRIBOUND_CACHE_KEY']}.tif")
+        assert json.loads(tags["AGRIBOUND_IMAGE_LIST"]) == [
+            ["COPERNICUS/S2_SR_HARMONIZED/a", "2020-01-02", 6.16],
+            ["COPERNICUS/S2_SR_HARMONIZED/c", "2020-01-02", 0.5],
+            ["COPERNICUS/S2_SR_HARMONIZED/b", "2020-08-04", 10.63],
+        ]
+        assert tags["AGRIBOUND_IMAGE_DATES"] == 2
+        assert (tags["AGRIBOUND_IMAGE_DATE_FIRST"], tags["AGRIBOUND_IMAGE_DATE_LAST"]) == (
+            "2020-01-02",
+            "2020-08-04",
+        )
+        # Written to the GeoTIFF (and so copied into the provenance record).
+        with rasterio.open(path) as src:
+            written = src.tags()
+        assert written["AGRIBOUND_IMAGE_LIST"] == tags["AGRIBOUND_IMAGE_LIST"]
+        assert written["AGRIBOUND_IMAGE_DATES"] == "2"
+        assert builder.last_metadata["AGRIBOUND_IMAGE_DATE_LAST"] == "2020-08-04"
+        # The pipeline copies the composite's AGRIBOUND_* tags into facts["composite"].
+        from agribound.pipeline import _composite_tags
+
+        facts = _composite_tags(path)
+        assert facts["AGRIBOUND_IMAGE_LIST"] == tags["AGRIBOUND_IMAGE_LIST"]
+        assert facts["AGRIBOUND_IMAGE_DATE_FIRST"] == "2020-01-02"
+
+    def test_the_spec_names_the_cloud_property_of_the_list(
+        self, tmp_path, sample_aoi_geojson, stub_builder, monkeypatch
+    ):
+        def spec_with_cloud(config, region):
+            img = FakeImage({b: np.ones((1, 1)) for b in gee.S2_BANDS})
+            return gee.CollectionSpec(
+                raw="RAW",
+                prepared=FakeCollection([img]),
+                history="HISTORY",
+                bands=list(gee.S2_BANDS),
+                resolution_m=10.0,
+                dtype="float32",
+                collections=[gee.S2_COLLECTION],
+                scene_cloud_property="CLOUDY_PIXEL_PERCENTAGE",
+            )
+
+        monkeypatch.setitem(gee._COLLECTION_BUILDERS, "sentinel2", spec_with_cloud)
+        stub_builder["summary"] = SUMMARY_WITH_IMAGES
+        gee.GEECompositeBuilder().build(_s2_config(tmp_path, sample_aoi_geojson))
+        assert stub_builder["cloud_property"] == "CLOUDY_PIXEL_PERCENTAGE"
+        assert stub_builder["counted"] == "RAW"
+
+    def test_more_images_than_the_cap(self, tmp_path, sample_aoi_geojson, stub_builder):
+        stub_builder["summary"] = {**SUMMARY_WITH_IMAGES, "n_images": 1500}
+        gee.GEECompositeBuilder().build(_s2_config(tmp_path, sample_aoi_geojson))
+        tags = stub_builder["export"][0]["tags"]
+        assert tags["AGRIBOUND_IMAGE_LIST_TRUNCATED"] == "first 3 of 1500 by date"
+        assert tags["AGRIBOUND_N_IMAGES"] == 1500
+
+    def test_a_cached_composite_keeps_its_old_tags(
+        self, tmp_path, sample_aoi_geojson, stub_builder
+    ):
+        """A composite cached before the image list is reused as it is (same key, no list)."""
+        from agribound._cache import cache_path
+
+        cfg = _s2_config(tmp_path, sample_aoi_geojson)
+        old = cache_path(cfg, "sentinel2_composite", ".tif", gee.COMPOSITE_RECIPE_VERSION)
+        _write(old, np.ones((12, 2, 2), np.float32), Affine(10, 0, 500000, 0, -10, 4000020))
+        with rasterio.open(old, "r+") as dst:
+            dst.update_tags(AGRIBOUND_N_IMAGES="3", AGRIBOUND_VALID_FRACTION="1.0")
+        builder = gee.GEECompositeBuilder()
+        assert builder.build(cfg) == str(old)
+        assert stub_builder["export"] == []
+        assert "AGRIBOUND_IMAGE_LIST" not in builder.last_metadata
+        assert builder.last_metadata["AGRIBOUND_N_IMAGES"] == "3"
+
+
+# ---------------------------------------------------------------------------
+# NAIP: which neighbouring years show in the mosaic
+# ---------------------------------------------------------------------------
+
+
+class _ShapelyGeometry:
+    """``ee.Geometry`` stand-in backed by shapely (planar areas)."""
+
+    def __init__(self, geometry):
+        self.geometry = geometry
+
+    def difference(self, other, max_error):
+        return _ShapelyGeometry(self.geometry.difference(other.geometry))
+
+    def intersection(self, other, max_error):
+        return _ShapelyGeometry(self.geometry.intersection(other.geometry))
+
+    def area(self, max_error):
+        return self.geometry.area
+
+
+class _Footprints:
+    """NAIP collection stand-in: ``(date, footprint)`` pairs; ``geometry()`` is their union."""
+
+    def __init__(self, images):
+        self.images = list(images)
+
+    def filterDate(self, start, end):  # noqa: N802 - ee API name
+        return _Footprints([(d, g) for d, g in self.images if start <= d < end])
+
+    def geometry(self, max_error):
+        from shapely.ops import unary_union
+
+        return _ShapelyGeometry(unary_union([g for _, g in self.images]))
+
+
+class TestNaipYearsShown:
+    """The 1.1 run of example 25 warned "images from [...] fill gaps" in 7 squares, and
+    listed those years in ``AGRIBOUND_IMAGE_YEARS``, although the run year's images
+    covered every square: the other years' images lay under them."""
+
+    def test_year_areas_follow_the_mosaic_order(self, monkeypatch):
+        module = types.ModuleType("ee")
+        module.Dictionary = lambda query: types.SimpleNamespace(getInfo=lambda: dict(query))
+        monkeypatch.setitem(sys.modules, "ee", module)
+        raw = _Footprints(
+            [
+                ("2022-06-01", box(0, 0, 10, 6)),  # the run year: the lower 60 %
+                ("2023-07-01", box(0, 5, 10, 8)),  # newer, so above 2021
+                ("2021-05-01", box(0, 0, 10, 10)),
+            ]
+        )
+        areas = gee.naip_year_areas(raw, _ShapelyGeometry(box(0, 0, 10, 10)), 2022, [2021, 2023])
+        assert areas == {"area_m2": 100.0, "uncovered_m2": 40.0, "2023": 20.0, "2021": 20.0}
+        covered = gee.naip_year_areas(
+            _Footprints([("2022-06-01", box(-1, -1, 11, 11)), ("2021-05-01", box(0, 0, 10, 10))]),
+            _ShapelyGeometry(box(0, 0, 10, 10)),
+            2022,
+            [2021],
+        )
+        assert covered == {"area_m2": 100.0, "uncovered_m2": 0.0, "2021": 0.0}
+
+    @pytest.fixture
+    def naip_build(self, tmp_path, sample_aoi_geojson, stub_builder, monkeypatch):
+        """Build a NAIP 2022 composite; *areas* is what naip_year_areas returns (or raises)."""
+
+        def fake_spec(config, region):
+            return gee.CollectionSpec(
+                raw="RAW",
+                prepared=types.SimpleNamespace(mosaic=lambda: "MOSAIC"),
+                history="HISTORY",
+                bands=list(gee.NAIP_BANDS),
+                resolution_m=1.0,
+                dtype="uint8",
+                collections=[gee.NAIP_COLLECTION],
+            )
+
+        monkeypatch.setitem(gee._COLLECTION_BUILDERS, "naip", fake_spec)
+        requests = []
+
+        def build(areas, years=(2021, 2022, 2023), **kwargs):
+            def fake_areas(raw, region, year, other):
+                requests.append((raw, region, year, list(other)))
+                if isinstance(areas, Exception):
+                    raise areas
+                return areas
+
+            monkeypatch.setattr(gee, "naip_year_areas", fake_areas)
+            stub_builder["summary"] = {"n_images": 6, "years": list(years)}
+            config = AgriboundConfig(
+                source="naip",
+                year=2022,
+                study_area=sample_aoi_geojson,
+                gee_project="test-project",
+                output_path=str(tmp_path / "out.gpkg"),
+                lulc_filter=False,
+                **kwargs,
+            )
+            gee.GEECompositeBuilder().build(config)
+            return stub_builder["export"][-1]["tags"]
+
+        build.requests = requests
+        return build
+
+    @staticmethod
+    def _messages(caplog, level):
+        return [r.getMessage() for r in caplog.records if r.levelno == level]
+
+    def test_years_under_the_run_year_are_not_listed(self, naip_build, caplog):
+        import logging
+
+        areas = {"area_m2": 4e6, "uncovered_m2": 0.0, "2021": 0.0, "2023": 1.0}  # <= 1 pixel
+        with caplog.at_level(logging.INFO, logger="agribound.composites.gee"):
+            tags = naip_build(areas)
+        assert naip_build.requests == [("RAW", "REGION", 2022, [2021, 2023])]
+        assert tags["AGRIBOUND_IMAGE_YEARS"] == "2022"
+        assert tags["AGRIBOUND_IMAGE_YEARS_UNDERNEATH"] == "2021,2023"
+        assert not any("NAIP" in m for m in self._messages(caplog, logging.WARNING))
+        assert (
+            "NAIP mosaic for 2022: images from [2021, 2023] intersect the study-area extent but "
+            "lie under the 2022 images." in self._messages(caplog, logging.INFO)
+        )
+
+    def test_a_year_that_fills_part_of_the_extent_is_listed_with_its_share(
+        self, naip_build, caplog
+    ):
+        import logging
+
+        areas = {"area_m2": 4e6, "uncovered_m2": 2e5, "2021": 0.5, "2023": 1.2e5}
+        with caplog.at_level(logging.INFO, logger="agribound.composites.gee"):
+            tags = naip_build(areas)
+        assert tags["AGRIBOUND_IMAGE_YEARS"] == "2022,2023"
+        assert tags["AGRIBOUND_IMAGE_YEARS_UNDERNEATH"] == "2021"
+        assert self._messages(caplog, logging.WARNING) == [
+            "NAIP mosaic for 2022: 2022 images are on top; images from [2023] fill 3 % of the "
+            "study-area extent; images from [2021] lie under them."
+        ]
+
+    def test_without_the_measurement_every_year_is_listed(self, naip_build, caplog):
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="agribound.composites.gee"):
+            tags = naip_build(RuntimeError("429 Too Many Requests"))
+        assert tags["AGRIBOUND_IMAGE_YEARS"] == "2021,2022,2023"
+        assert "AGRIBOUND_IMAGE_YEARS_UNDERNEATH" not in tags
+        (warning,) = self._messages(caplog, logging.WARNING)
+        assert "images from [2021, 2023] may fill gaps" in warning
+        assert "not measured: 429 Too Many Requests" in warning
+
+    @pytest.mark.parametrize(
+        ("years", "kwargs"),
+        [
+            ((2022,), {}),  # only the run year
+            ((2021, 2022), {"date_range": ("2021-06-01", "2022-09-30")}),  # newest on top
+            ((2021, 2023), {}),  # no run-year image: the existing WARNING, all years
+        ],
+    )
+    def test_no_request_without_other_years_under_the_run_year(self, naip_build, years, kwargs):
+        tags = naip_build({}, years=years, **kwargs)
+        assert naip_build.requests == []
+        assert tags["AGRIBOUND_IMAGE_YEARS"] == ",".join(map(str, years))
+        assert "AGRIBOUND_IMAGE_YEARS_UNDERNEATH" not in tags
+
+
+#: The four agribound 1.0.1 runs of example 23 recorded on 2026-09-30 (their provenance
+#: records): the configuration as recorded, its configuration hash and the composite's
+#: cache key. The study areas are example 23's squares (centre and side in SITES), here as
+#: the same polygons in WKT: the cache key depends on the geometry, not on the file name.
+#: The recorded gee_project is left out: neither the hash nor the key uses it.
+RELEASE_1_0_1_BASE = {
+    "aoi_selection": "representative_point",
+    "bands": None,
+    "cache_dir": None,
+    "cloud_cover_max": 80,
+    "cloud_score_threshold": 0.6,
+    "composite_method": "median",
+    "date_range": None,
+    "device": "auto",
+    "embedding_cache_dir": None,
+    "engine": "delineate-anything",
+    "engine_params": {"max_detections": 1000},
+    "export_crs": "utm",
+    "export_method": "local",
+    "fine_tune": False,
+    "fine_tune_block_size_m": 5000.0,
+    "fine_tune_epochs": 20,
+    "fine_tune_split": "block",
+    "fine_tune_split_column": None,
+    "fine_tune_val_split": 0.2,
+    "gcs_bucket": None,
+    "gee_high_volume": False,
+    "gee_max_requests": 8,
+    "gee_project": None,
+    "gee_service_account_key": None,
+    "gee_workload_tag": None,
+    "google_embedding_backend": "gee",
+    "landsat_pan_missions": "auto",
+    "local_tif_path": None,
+    "lulc_batch_size": 200,
+    "lulc_crop_threshold": 0.3,
+    "lulc_dataset": "auto",
+    "lulc_filter": False,
+    "lulc_mode": "server",
+    "lulc_nodata_policy": "keep",
+    "lulc_on_error": "raise",
+    "lulc_tree_crops": False,
+    "min_field_area_m2": 2500.0,
+    "n_workers": 4,
+    "naip_resolution_m": 1.0,
+    "output_format": "gpkg",
+    "output_path": "outputs/tree_crops/twifo/fields_sentinel2_da_2020.gpkg",
+    "overwrite": False,
+    "provenance": True,
+    "reference_boundaries": None,
+    "s2_cloud_mask": "cloud_score_plus",
+    "sam_backend": "sam2",
+    "sam_crop_padding": 0.15,
+    "sam_min_crop_px": 64,
+    "sam_model": None,
+    "sam_refine": False,
+    "seed": 42,
+    "simplify_tolerance": 2.0,
+    "source": "sentinel2",
+    "study_area": "outputs/tree_crops/twifo/study_area.geojson",
+    "tessera_variant": None,
+    "tessera_version": "v1",
+    "tile_size": 10000,
+    "usgs_allow_year_fallback": False,
+    "usgs_retries": 3,
+    "usgs_service_url": (
+        "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer"
+    ),
+    "usgs_state": None,
+    "usgs_timeout_s": 120,
+    "year": 2020,
+}
+TWIFO_WKT = (
+    "POLYGON ((-1.4955032599320377 5.515674790288927, -1.495388865913433 5.560891430400164, "
+    "-1.5405184541386092 5.56100479685173, -1.540629420016046 5.515787229421631, "
+    "-1.4955032599320377 5.515674790288927))"
+)
+ORO_WKT = (
+    "POLYGON ((148.1387484537715 -8.813674076127333, 148.13866551636252 -8.786543907157466, "
+    "148.11139253897002 -8.786625292600124, 148.1114734908959 -8.813755716709187, "
+    "148.1387484537715 -8.813674076127333))"
+)
+RELEASE_1_0_1_RUNS = {
+    "twifo sentinel2 da 2020": (
+        {},
+        TWIFO_WKT,
+        "f78e64763c12ede972d3111e8183a99e51e4d0f1",
+        "e2c329c1855c",
+    ),
+    "oro sentinel2 da 2021": (
+        {
+            "output_path": "outputs/tree_crops/oro/fields_sentinel2_da_2021.gpkg",
+            "study_area": "outputs/tree_crops/oro/study_area.geojson",
+            "year": 2021,
+        },
+        ORO_WKT,
+        "d767a270d6580cc35c8bf48092bedb7f67de9345",
+        "24daf529b64a",
+    ),
+    "twifo sentinel2 ftw 2020": (
+        {
+            "engine": "ftw",
+            "engine_params": {"window_dates": ["2020-01-15", "2020-08-15"]},
+            "output_path": "outputs/tree_crops/twifo/fields_sentinel2_ftw_2020.gpkg",
+        },
+        TWIFO_WKT,
+        "3b689611b3eace06682ebe1f49705bcded9acd62",
+        "e2c329c1855c",
+    ),
+    "twifo landsat-pan da 2020": (
+        {
+            "cloud_cover_max": 20,
+            "output_path": "outputs/tree_crops/twifo/fields_landsat-pan_da_2020.gpkg",
+            "s2_cloud_mask": "scl",
+            "source": "landsat-pan",
+        },
+        TWIFO_WKT,
+        "54fe63ae1a496a959e4e4840fb8c8320bf0f5985",
+        "cb79d2e12c3e",
+    ),
+}
+
+
+@pytest.mark.parametrize("run", list(RELEASE_1_0_1_RUNS))
+def test_release_1_0_1_hashes_and_composite_keys_are_unchanged(run, monkeypatch):
+    """The image list adds tags only: 1.0.1's configuration hashes and composite keys hold."""
+    from agribound._cache import cache_key
+    from agribound.provenance import config_hash
+
+    # The configuration needs an Earth Engine project, which a CI runner does not have
+    # ($GEE_PROJECT, gcloud or a key); the project is not part of the hash or the key.
+    monkeypatch.setenv("GEE_PROJECT", "test-project")
+    changes, wkt, expected_hash, expected_key = RELEASE_1_0_1_RUNS[run]
+    config = AgriboundConfig.from_dict({**RELEASE_1_0_1_BASE, **changes})
+    assert config_hash(config) == expected_hash
+    keyed = config.merged(study_area=wkt)
+    assert cache_key(keyed, *gee._recipe_parts(keyed.source)) == expected_key
+
+
+def test_image_list_tags_survive_odd_values():
+    """A missing time or an odd cloud value never breaks a composite's tags."""
+    images = [
+        ["a", T_0102, "NaN"],
+        ["b", None, 12.345],
+        ["c", T_0804, "not a number"],
+        ["d"],
+    ]
+    tags = gee._image_list_tags(images, 4)
+    rows = json.loads(tags["AGRIBOUND_IMAGE_LIST"])  # strict JSON: no NaN
+    assert rows == [
+        ["b", None, 12.35],
+        ["d", None, None],
+        ["a", "2020-01-02", None],
+        ["c", "2020-08-04", None],
+    ]
+    assert tags["AGRIBOUND_IMAGE_DATES"] == 2
+    assert "NaN" not in tags["AGRIBOUND_IMAGE_LIST"]

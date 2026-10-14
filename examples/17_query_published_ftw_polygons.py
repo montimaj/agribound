@@ -21,7 +21,8 @@ it is common: on 2026-09-27 it was null for all rows of the New Mexico
 partition and 99.7 % of New South Wales. See example 21 for a live query and
 an evaluation against reference boundaries.
 
-Runtime: about a second (tested 2026-09-27).
+Runtime: about a second (tested 2026-09-27; 2 s with the interpreter's
+start in the development run of agribound 1.1, 2026-10-09).
 
 Prerequisites:
     pip install agribound

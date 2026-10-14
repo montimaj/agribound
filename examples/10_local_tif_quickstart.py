@@ -23,8 +23,10 @@ Notes:
       ``outputs/local_quickstart/``. An existing output made with the same
       settings is loaded instead of recomputed; ``--overwrite`` recomputes it.
 
-Estimated runtime (not measured for 1.0): ~2-5 minutes for a small raster (GPU
-or CPU).
+Runtime: 15 s in the development run of agribound 1.1 (2026-10-09, Apple M2
+Max with MPS), on a Sentinel-2 composite of one of example 19's tiles given
+with ``--tif`` (Delineate-Anything 5 s, then the map), and 16 s with
+agribound 1.1.0 on 2026-10-11.
 
 Prerequisites:
     pip install "agribound[delineate-anything]"
@@ -46,7 +48,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
@@ -140,6 +142,7 @@ def main():
     web_map = agribound.show_boundaries(
         map_ready(gdf),
         satellite_tif=args.tif,
+        satellite_bands=bands,  # the same R, G, B bands the engine read
         output_html=str(OUTPUT_DIR / "map.html"),
     )
     show_in_notebook(web_map)

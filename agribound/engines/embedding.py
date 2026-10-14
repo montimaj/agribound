@@ -8,6 +8,12 @@ segments, not field instances: every connected region of every cluster
 becomes a polygon, and non-cropland segments are only removed by the
 downstream area and LULC filters.
 
+With ``source="local"`` the engine clusters the bands of any real-valued
+feature GeoTIFF in the same way (for example SAR backscatter, polarimetric
+or temporal statistics). Bands in different units need
+``engine_params["standardize"]`` (``"zscore"`` or ``"robust"``); without
+it, the band with the largest numeric spread decides the clusters.
+
 Clustering is memory-bounded: the raster is read in row blocks of at most
 ``engine_params["max_block_mb"]`` MiB, a seeded uniform random sample of
 valid pixels is drawn in one pass, the dimensionality reduction and the
@@ -46,7 +52,11 @@ DEFAULT_PARAMS: dict[str, Any] = {
     "cluster_sample_size": 50_000,
     "silhouette_sample_size": 5_000,
     "max_block_mb": 256,
+    "standardize": "none",
 }
+
+#: Values of ``engine_params["standardize"]``.
+STANDARDIZE_METHODS: tuple[str, ...] = ("none", "zscore", "robust")
 
 #: Matryoshka prefix lengths of TESSERA v2 embeddings: 16, 32 and 64 are the
 #: nested dimensions described for the v2 models (ucam-eo/tessera README);
@@ -100,6 +110,19 @@ class EmbeddingEngine(DelineationEngine):
     pca_sample_size, cluster_sample_size, silhouette_sample_size : int
         Sizes of the nested random samples used to fit PCA, the clusterer and
         the silhouette selection (defaults 100 000, 50 000, 5 000).
+    standardize : str
+        Per-band scaling before PCA and clustering, with statistics of the
+        sampled pixels: ``"none"`` (default; embedding dimensions share one
+        scale), ``"zscore"`` (mean and standard deviation) or ``"robust"``
+        (median and IQR / 1.349). Feature rasters with mixed units (e.g. SAR
+        backscatter in dB, entropy in [0, 1] and alpha in degrees, with
+        ``source="local"``) need ``"zscore"`` or ``"robust"``; otherwise the
+        bands with the largest numeric spread decide the clusters (a local
+        raster whose band standard deviations differ by more than 10 times
+        logs a WARNING). The centre and scale of each band are recorded in
+        ``engine_meta["standardize"]``. ``"none"`` is left out of the
+        cluster cache key and of ``engine_meta["params"]``, so existing
+        configurations keep their cache entries and records.
     max_block_mb : float
         Maximum size of one row block read from the raster (default 256 MiB).
         Peak memory is a few times this (a block, the copy of its valid
@@ -176,6 +199,12 @@ class EmbeddingEngine(DelineationEngine):
         params["max_block_mb"] = float(params["max_block_mb"])
         if params["max_block_mb"] <= 0:
             raise ValueError("max_block_mb must be > 0")
+        standardize = str(params["standardize"]).lower().strip()
+        if standardize not in STANDARDIZE_METHODS:
+            raise ValueError(
+                f"standardize must be one of {STANDARDIZE_METHODS}, got {standardize!r}"
+            )
+        params["standardize"] = standardize
 
         depth = params["matryoshka_depth"]
         if depth is not None:
@@ -210,9 +239,12 @@ class EmbeddingEngine(DelineationEngine):
         from agribound._cache import cache_path
 
         params = params if params is not None else EmbeddingEngine.resolve_params(config)
-        # max_block_mb only changes how the raster is read, not the result.
+        # max_block_mb only changes how the raster is read, not the result; standardize="none"
+        # is left out so that cache entries written before the parameter existed stay valid.
         parts = [_CACHE_VERSION, f"seed={config.seed}", _file_signature(raster_path)] + [
-            f"{k}={params[k]}" for k in sorted(params) if k != "max_block_mb"
+            f"{k}={params[k]}"
+            for k in sorted(params)
+            if k != "max_block_mb" and not (k == "standardize" and params[k] == "none")
         ]
         return cache_path(config, "embedding_clusters", ".tif", *parts)
 
@@ -231,7 +263,9 @@ class EmbeddingEngine(DelineationEngine):
         Parameters
         ----------
         raster_path : str
-            Embedding GeoTIFF (float32, one band per embedding dimension).
+            Embedding GeoTIFF (float32, one band per embedding dimension) or,
+            with ``source="local"``, a feature GeoTIFF (one real-valued
+            feature per band; integer and float types are read as float32).
         config : AgriboundConfig
             Pipeline configuration.
 
@@ -245,17 +279,31 @@ class EmbeddingEngine(DelineationEngine):
         Raises
         ------
         ValueError
-            For an unsupported source, invalid parameters, a raster with too
-            few valid pixels, or SAM refinement without ``sam_rgb_bands``.
+            For an unsupported source, a raster of class codes (its
+            ``AGRIBOUND_VALUE_SCALE`` tag is ``"categorical"``: distances
+            between nominal codes are meaningless), invalid parameters, a
+            raster with complex pixels or too few valid pixels, or SAM
+            refinement without ``sam_rgb_bands``.
+
+        Notes
+        -----
+        A pixel is clustered when every band is finite and the bands are not
+        all zero. With a finite nodata value, an embedding pixel is skipped
+        when every band equals it; a pixel of a local feature raster is
+        skipped when any band equals it (feature bands can be missing one at
+        a time).
         """
-        from agribound.io.raster import get_raster_info
+        from agribound.io.raster import get_raster_info, refuse_categorical
 
         if config.source not in self.supported_sources:
             raise ValueError(
-                f"The embedding engine needs an embedding source {self.supported_sources}, "
-                f"got {config.source!r}"
+                f"The embedding engine needs an embedding source or a local feature raster "
+                f"{self.supported_sources}, got {config.source!r}"
             )
+        # K-means distances on class codes are meaningless (codes are nominal).
+        refuse_categorical(raster_path, config, "The embedding engine")
         params = self.resolve_params(config)
+        _check_pixel_types(raster_path)
         info = get_raster_info(raster_path)
         depth = params["matryoshka_depth"]
         if depth is not None and depth > info.count:
@@ -322,6 +370,8 @@ class EmbeddingEngine(DelineationEngine):
             bands = list(range(1, (depth or n_bands) + 1))
             height, width = src.height, src.width
             nodata = src.nodata
+            # Bands of a local feature raster can be missing one at a time.
+            any_band_nodata = config.source == "local"
             bytes_per_row = max(1, width * len(bands) * 4)
             block_rows = int(max(1, min(height, params["max_block_mb"] * 2**20 // bytes_per_row)))
 
@@ -332,7 +382,7 @@ class EmbeddingEngine(DelineationEngine):
                         np.float32, copy=False
                     )
                     flat = data.reshape(len(bands), -1).T
-                    yield row, h, flat, _valid_mask(data, nodata)
+                    yield row, h, flat, _valid_mask(data, nodata, any_band_nodata=any_band_nodata)
 
             # Pass 1: uniform random sample without replacement (bottom-k random keys).
             n_keep = max(params["pca_sample_size"], params["cluster_sample_size"])
@@ -354,9 +404,20 @@ class EmbeddingEngine(DelineationEngine):
                     keys, sample = keys[sel], sample[sel]
             sample = sample[np.argsort(keys, kind="stable")]
             if n_valid < 3:
+                kind = "feature" if any_band_nodata else "embedding"
+                rule = "any band" if any_band_nodata else "every band"
                 raise ValueError(
-                    f"{raster_path} has {n_valid} valid embedding pixels; at least 3 are needed"
+                    f"{raster_path} has {n_valid} valid {kind} pixels; at least 3 are needed (a "
+                    f"pixel is valid when every band is finite, the bands are not all zero and, "
+                    f"with a finite nodata value ({nodata}), not {rule} equals it)"
                 )
+
+            # Optional per-band standardisation with the sample's statistics.
+            if config.source == "local" and params["standardize"] == "none":
+                _warn_unequal_spread(sample, raster_path)
+            centre, scale = _standardisation(sample, params["standardize"])
+            if centre is not None:
+                sample = _standardised(sample, centre, scale)
 
             # Dimensionality reduction.
             reducer = None
@@ -372,8 +433,18 @@ class EmbeddingEngine(DelineationEngine):
                 "n_valid_pixels": int(n_valid),
                 "seed": seed,
                 "block_rows": block_rows,
-                "params": _jsonable(params),
+                # standardize="none" is left out, as in the cache key: the record of an
+                # existing configuration stays the one written before the parameter existed.
+                "params": _jsonable(
+                    {k: v for k, v in params.items() if not (k == "standardize" and v == "none")}
+                ),
             }
+            if centre is not None:
+                meta["standardize"] = {
+                    "method": params["standardize"],
+                    "centre": [float(v) for v in centre],
+                    "scale": [float(v) for v in scale],
+                }
             if depth is not None:
                 meta["reduction"] = "matryoshka"
                 meta["n_features"] = depth
@@ -441,6 +512,8 @@ class EmbeddingEngine(DelineationEngine):
                     for start in range(0, len(idx), _PREDICT_CHUNK):
                         sel = idx[start : start + _PREDICT_CHUNK]
                         x = flat[sel]
+                        if centre is not None:
+                            x = _standardised(x, centre, scale)
                         if reducer is not None:
                             x = reducer.transform(x)
                         labels[sel] = predict(x).astype(np.int32) + 1
@@ -527,11 +600,41 @@ def _select_k(
     return int(best_k), scores, int(len(sample))
 
 
-def _valid_mask(data: np.ndarray, nodata: float | None = None) -> np.ndarray:
+def _standardisation(
+    sample: np.ndarray, method: str
+) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
+    """Per-band centre and scale (float64) of an ``(N, bands)`` sample.
+
+    ``"zscore"``: mean and standard deviation; ``"robust"``: median and
+    IQR / 1.349; ``"none"``: ``(None, None)``. Zero or non-finite scales
+    become 1.
+    """
+    if method == "none":
+        return None, None
+    x = np.asarray(sample, dtype=np.float64)
+    if method == "zscore":
+        centre, scale = x.mean(axis=0), x.std(axis=0)
+    elif method == "robust":
+        q25, centre, q75 = np.percentile(x, [25, 50, 75], axis=0)
+        scale = (q75 - q25) / 1.349
+    else:
+        raise ValueError(f"standardize must be one of {STANDARDIZE_METHODS}, got {method!r}")
+    return centre, np.where(np.isfinite(scale) & (scale > 0), scale, 1.0)
+
+
+def _standardised(x: np.ndarray, centre: np.ndarray, scale: np.ndarray) -> np.ndarray:
+    """``(x - centre) / scale`` as float32 (the dtype the clusterer is fitted on)."""
+    return ((x - centre) / scale).astype(np.float32)
+
+
+def _valid_mask(
+    data: np.ndarray, nodata: float | None = None, *, any_band_nodata: bool = False
+) -> np.ndarray:
     """Valid pixels of a ``(bands, h, w)`` block, flattened, computed band by band.
 
     A pixel is valid when all its bands are finite, not all zero and, for a
-    finite *nodata*, not all equal to *nodata*.
+    finite *nodata*, not all equal to *nodata* (with *any_band_nodata*, the
+    rule for local feature rasters: no band equal to *nodata*).
     """
     finite = np.ones(data.shape[1] * data.shape[2], dtype=bool)
     nonzero = np.zeros_like(finite)
@@ -539,15 +642,57 @@ def _valid_mask(data: np.ndarray, nodata: float | None = None) -> np.ndarray:
     # Compare in the block's dtype: a float32 pixel equal to float32(1e-3) differs
     # from the float64 value 1e-3.
     nd = data.dtype.type(nodata) if check_nodata else None
-    not_nodata = np.zeros_like(finite)
+    not_nodata = np.ones_like(finite) if any_band_nodata else np.zeros_like(finite)
     for band in data:
         values = band.ravel()
         finite &= np.isfinite(values)
         nonzero |= values != 0
         if check_nodata:
-            not_nodata |= values != nd
+            if any_band_nodata:
+                not_nodata &= values != nd
+            else:
+                not_nodata |= values != nd
     valid = finite & nonzero
     return valid & not_nodata if check_nodata else valid
+
+
+def _check_pixel_types(raster_path: str) -> None:
+    """Reject complex pixels: the float32 read would silently drop the imaginary part."""
+    import rasterio
+
+    with rasterio.open(raster_path) as src:
+        complex_types = sorted({str(d) for d in src.dtypes if "complex" in str(d)})
+    if complex_types:
+        raise ValueError(
+            f"{raster_path} has complex pixels ({', '.join(complex_types)}), which cannot be "
+            "clustered: write real-valued features instead, one per band (for example "
+            "backscatter intensity in dB, or coherence magnitude)"
+        )
+
+
+#: Ratio of the largest to the smallest band standard deviation above which a
+#: local feature raster clustered without standardisation logs a warning.
+_SPREAD_WARNING_RATIO = 10.0
+
+
+def _warn_unequal_spread(sample: np.ndarray, raster_path: str) -> None:
+    """Log a WARNING when the sampled bands' standard deviations differ by > 10x."""
+    if sample.shape[1] < 2:
+        return
+    sd = np.asarray(sample, dtype=np.float64).std(axis=0)
+    positive = sd[sd > 0]
+    if len(positive) < 2 or positive.max() <= _SPREAD_WARNING_RATIO * positive.min():
+        return
+    logger.warning(
+        "%s: the band standard deviations range from %.3g (band %d) to %.3g (band %d); "
+        "without engine_params['standardize'] the bands with the largest spread decide the "
+        "clusters. Set standardize='zscore' (or 'robust') unless the bands share one unit.",
+        raster_path,
+        positive.min(),
+        int(np.flatnonzero(sd == positive.min())[0]) + 1,
+        positive.max(),
+        int(np.argmax(sd)) + 1,
+    )
 
 
 def _gdal_cache_mb(params: dict[str, Any]) -> int:

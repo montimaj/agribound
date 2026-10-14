@@ -5,8 +5,8 @@ Main pipeline orchestrator.
 
     seed -> reuse check -> composite (+ LULC raster prefetch) -> fine-tuning
          -> engine -> SAM refinement -> study-area selection -> post-processing
-         -> LULC crop filter -> metadata columns -> evaluation -> export
-         -> provenance record
+         -> centre-pivot post-process (opt-in) -> LULC crop filter
+         -> metadata columns -> evaluation -> export -> provenance record
 
 Composites cover the study area's bounding box in the export CRS (they are
 not masked to the study-area polygons), so the study-area selection
@@ -20,7 +20,9 @@ delineation later on a GPU node.
 Every stage runs inside :meth:`agribound.provenance.RunRecorder.step`; the
 record is written to ``<output_path>.provenance.json`` and decides whether an
 existing output can be reused (:func:`agribound.provenance.reuse_mismatch`:
-configuration hash, study-area fingerprint and results versions).
+configuration hash, study-area fingerprint, results versions, for TESSERA the
+state of the store's objects that were read and, for HLS at 180 degrees, the
+HLS recipe of the composite).
 """
 
 from __future__ import annotations
@@ -55,6 +57,9 @@ _NAMED_DEFAULTS: dict[str, Any] = {
 }
 
 _ALIASES = {"min_area": "min_field_area_m2", "simplify": "simplify_tolerance"}
+
+#: Engines whose output the pipeline's SAM refinement stage skips.
+_NO_SAM_STAGE_ENGINES = ("embedding", "crop-sequence")
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +209,9 @@ def delineate(
         ``agribound:engine``, ``agribound:source``,
         ``agribound:year``, ``agribound:version`` and ``agribound:run_id``.
         ``gdf.attrs`` holds ``run_id``, ``engine_meta``, ``lulc_stats``,
-        ``sam_stats`` and ``evaluation_metrics`` when available.
+        ``sam_stats``, ``pivot_stats`` (with ``engine_params["pivots"]``,
+        see :func:`agribound.postprocess.pivots.snap_pivots`) and
+        ``evaluation_metrics`` when available.
 
     Raises
     ------
@@ -215,7 +222,13 @@ def delineate(
         path (without a study area: from a local raster whose path, size or
         modification time has changed), or has different results versions
         (:mod:`agribound._results`: a component's output for the same
-        configuration has changed since the release that made it).
+        configuration has changed since the release that made it), or, for
+        ``source="tessera-embedding"``, was read from TESSERA store objects
+        that have changed since (or has no record of them, when the store's
+        current state can be determined), or, for ``source="hls"``, was made
+        from a composite selected before HLS recipe 2 for a study area at the
+        MGRS tiles at 180 degrees whose HLSS30 footprints are reversed
+        (:func:`agribound.composites.gee.near_hls_reversed_footprint_tiles`).
     RuntimeError
         If the LULC filter fails and ``lulc_on_error="raise"`` (the default).
 
@@ -229,9 +242,11 @@ def delineate(
     :func:`agribound.provenance.reuse_mismatch`. A record of agribound <=
     1.0.0 has neither fact: it counts as results version 1, and a
     study-area file (or local raster) cannot be verified (logged at WARNING;
-    the output is reused). With ``provenance=False`` no record is
-    written, so a later run on the same *output_path* needs
-    ``overwrite=True``.
+    the output is reused). A TESSERA output is also compared with the
+    store's current state (the store stamp in ``facts["composite"]``); it is
+    reused with a WARNING when that state cannot be determined. With
+    ``provenance=False`` no record is written, so a later run on the same
+    *output_path* needs ``overwrite=True``.
 
     Zero detections are not an early exit: an empty output file, the
     evaluation (if requested) and the provenance record are still written.
@@ -398,8 +413,10 @@ def _run_stages(config: AgriboundConfig, recorder: Any) -> gpd.GeoDataFrame:
         recorder.add_warning(msg)
 
     # SAM refinement ----------------------------------------------------------
+    # The embedding engine refines its own polygons; crop-sequence zones are never
+    # refined (the configuration refuses sam_refine for them: their input is class codes).
     sam_stats = None
-    if config.sam_refine and config.engine != "embedding" and len(gdf) > 0:
+    if config.sam_refine and config.engine not in _NO_SAM_STAGE_ENGINES and len(gdf) > 0:
         with recorder.step("sam_refine"):
             from agribound.engines.samgeo_engine import refine_boundaries
 
@@ -427,6 +444,9 @@ def _run_stages(config: AgriboundConfig, recorder: Any) -> gpd.GeoDataFrame:
         with recorder.step("postprocess"):
             gdf = _postprocess(gdf, config)
         recorder.set("n_postprocessed", len(gdf))
+
+    # Centre-pivot post-process (engine_params["pivots"], default "off") ---------------
+    gdf, pivot_stats = _apply_pivots(gdf, config, recorder)
 
     # LULC crop filter ------------------------------------------------------------
     lulc_stats = None
@@ -472,6 +492,8 @@ def _run_stages(config: AgriboundConfig, recorder: Any) -> gpd.GeoDataFrame:
         gdf.attrs["engine_meta"] = engine_meta
     if sam_stats:
         gdf.attrs["sam_stats"] = sam_stats
+    if pivot_stats:
+        gdf.attrs["pivot_stats"] = pivot_stats
     if lulc_stats:
         gdf.attrs["lulc_stats"] = lulc_stats
     if metrics is not None:
@@ -859,6 +881,42 @@ def _postprocess(gdf: gpd.GeoDataFrame, config: AgriboundConfig) -> gpd.GeoDataF
     return gdf
 
 
+def _apply_pivots(
+    gdf: gpd.GeoDataFrame, config: AgriboundConfig, recorder: Any
+) -> tuple[gpd.GeoDataFrame, dict | None]:
+    """Apply the centre-pivot post-process of ``engine_params["pivots"]``.
+
+    The last geometric step, after :func:`_postprocess` and before the LULC
+    crop filter: :func:`agribound.postprocess.pivots.snap_pivots` with
+    ``"merge"`` or ``"snap"`` and ``min_area_m2=config.min_field_area_m2``.
+    With ``aoi_selection="clip"`` the result is clipped to the study area
+    again, since a snapped circle can reach past the outline its pieces were
+    clipped to. With the default ``"off"`` nothing is done or recorded;
+    otherwise the provenance fact ``pivots`` holds the step's statistics,
+    which are also returned (``(gdf, stats)``).
+
+    Raises
+    ------
+    ValueError
+        For an unknown ``engine_params["pivots"]``.
+    """
+    from agribound.postprocess.pivots import resolve_pivot_mode, snap_pivots
+
+    mode = resolve_pivot_mode(config.engine_params.get("pivots"))
+    if mode == "off":
+        return gdf, None
+    with recorder.step("pivots"):
+        gdf = snap_pivots(gdf, mode, min_area_m2=config.min_field_area_m2)
+        if config.aoi_selection == "clip" and config.study_area and len(gdf):
+            n_snapped = len(gdf)
+            gdf, _ = select_in_study_area(gdf, study_area_in_crs(config, gdf.crs), "clip")
+            gdf.attrs["pivot_stats"]["n_after_clip"] = len(gdf)
+            gdf.attrs["pivot_stats"]["n_before_clip"] = n_snapped
+    stats = copy.deepcopy(gdf.attrs.get("pivot_stats"))
+    recorder.set("pivots", stats)
+    return gdf, stats
+
+
 def _engine_imagery_ends(meta: Any, config_end: _dt.date) -> list[_dt.date]:
     """Last days of the imagery an engine read, from its ``engine_meta``.
 
@@ -1057,8 +1115,9 @@ def _load_existing_output(config: AgriboundConfig) -> gpd.GeoDataFrame | None:
     ------
     FileExistsError
         If the output exists, ``overwrite`` is *False* and it cannot be
-        verified to come from the same configuration, study area and results
-        versions (:func:`agribound.provenance.reuse_mismatch`).
+        verified to come from the same configuration, study area, results
+        versions, for TESSERA store objects and, for HLS at 180 degrees, HLS
+        recipe (:func:`agribound.provenance.reuse_mismatch`).
     """
     from agribound.io.vector import read_vector
     from agribound.provenance import provenance_path, read_provenance, reuse_mismatch

@@ -44,7 +44,7 @@ from typing import Any
 import geopandas as gpd
 import numpy as np
 
-from agribound.config import AgriboundConfig
+from agribound.config import AgriboundConfig, effective_bands
 from agribound.engines.base import DelineationEngine
 from agribound.registry import ENGINE_REGISTRY
 
@@ -506,7 +506,9 @@ class GeoAIEngine(DelineationEngine):
         self.validate_input(raster_path, config)
         params = config.engine_params
         checkpoint, hub_info = resolve_geoai_checkpoint(params)
-        indices = get_canonical_band_indices(config.source, ["R", "G", "B"], bands=config.bands)
+        indices = get_canonical_band_indices(
+            config.source, ["R", "G", "B"], bands=effective_bands(config)
+        )
         confidence = float(params.get("confidence_threshold", 0.5))
         nms = float(params.get("nms_threshold", 0.3))
         limits = maskrcnn_limits()

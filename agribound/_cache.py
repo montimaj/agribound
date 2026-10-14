@@ -29,6 +29,9 @@ CACHE_SCHEMA_VERSION: str = "2"
 
 _KEY_LENGTH = 12
 _COORD_PRECISION = 1e-7
+#: The crop-type map stacks (:data:`agribound.registry.CROP_SEQUENCE_SOURCES`), whose key
+#: holds ``crop_sequence_years``.
+_CROP_SEQUENCE_SOURCES = ("cdl-sequence", "aci-sequence")
 
 # (study_area string, mtime_ns or None, size or None) -> fingerprint
 _AOI_FINGERPRINT_CACHE: dict[tuple[str, int | None, int | None], str] = {}
@@ -177,6 +180,8 @@ def _key_fields(config: Any, include_temporal: bool) -> list[tuple[str, Any]]:
         )
     if source == "landsat-pan":
         items.append(("landsat_pan_missions", getattr(config, "landsat_pan_missions", "auto")))
+    if source in _CROP_SEQUENCE_SOURCES:
+        items.append(("crop_sequence_years", getattr(config, "crop_sequence_years", None)))
     if source == "usgs-naip-plus":
         items.append(("usgs_service_url", getattr(config, "usgs_service_url", None)))
         items.append(("usgs_state", getattr(config, "usgs_state", None)))
@@ -219,9 +224,10 @@ def cache_key(config: Any, *parts: object, include_temporal: bool = True) -> str
     ``s2_cloud_mask``, ``naip_resolution_m``; ``cloud_score_threshold`` when
     Cloud Score+ masking is selected; ``tessera_version``/``tessera_variant``
     for embedding sources; ``google_embedding_backend`` for Google embeddings;
-    ``landsat_pan_missions`` for Landsat PAN; the USGS service URL, state and
-    year-fallback flag for USGS NAIP Plus; and the local raster's path, size
-    and modification time for local sources.
+    ``landsat_pan_missions`` for Landsat PAN; ``crop_sequence_years`` for the
+    crop-type map stacks (``cdl-sequence``, ``aci-sequence``); the USGS
+    service URL, state and year-fallback flag for USGS NAIP Plus; and the
+    local raster's path, size and modification time for local sources.
     """
     payload = {
         "fields": [

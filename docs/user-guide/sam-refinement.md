@@ -9,8 +9,19 @@ It is a post-processing stage
 (`agribound.engines.samgeo_engine.refine_boundaries`), not an engine. It runs
 after delineation and before the study-area selection and post-processing, for
 every engine except `embedding`, which refines its own polygons (see
-[Engines](engines.md#embedding-clustering-embedding)).
+[Engines](engines.md#embedding-clustering-embedding)), `crop-sequence`,
+whose input is a stack of crop-type map codes with no image to prompt, and
+`sam-auto`, whose polygons are already SAM masks: `sam_refine=True` is
+refused for `crop-sequence` and `sam-auto` (`ValueError`) and for the
+`cdl-sequence` and `aci-sequence` sources, and `refine_boundaries` refuses a
+raster tagged `categorical`.
 `engine_params["sam_refine"]` is still honoured as a legacy switch.
+
+Refinement prompts SAM with one box per polygon of another engine: it
+replaces outlines that engine drew and adds no polygon. The `sam-auto`
+engine instead delineates with SAM 2.1 directly, from a grid of point
+prompts on large tiles, with its own model (`engine_params["sam_model"]`);
+see [SAM 2.1 automatic masks](engines.md#sam-21-automatic-masks-sam-auto).
 
 ```python
 gdf = agribound.delineate(
@@ -95,37 +106,42 @@ either side of it. In 1.0.1 the example still writes both variants, with the
 default `sam_min_coverage` in both; the coverage test runs inside
 `refine_boundaries`, before the example's own trim.
 
-In the 1.0.1 run of example 15 on 2026-09-29 (default `sam_min_coverage` of
-0.5), 6 of the 29 pivots were part of a TESSERA cluster polygon more than
-twice their area before SAM (10 with 1.0.0; the 1.0.1 k-means solution puts
-18.2 % of the crop-filter area in polygons over 200 ha, against 38.4 %, see
-[Engines](engines.md#embedding-clustering-embedding)). SAM 2 on
-Sentinel-2 over every polygon refined 546 of the 2,170 TESSERA crop-filter
-polygons; 37 masks covered less than half of their polygon and were not used,
-and 1 failed. It left 2 of the 29 pivots less than half covered (2.4 % and
-45.7 %; the first had been part of a polygon 2.7 times its area) and removed
-6.6 % of the crop-filter area (48,186.2 to 45,013.6 ha). The 568.6 ha TESSERA
-polygon that holds 4 pivots keeps its input geometry, so these stay 94-98 %
-covered; with 1.0.0, SAM had left them at most 7.4 % covered. For the Google
-Satellite Embedding polygons, SAM 2 refined 367 of 1,986 (70 masks covered
-too little, 1 failed), left 4 of the 29 pivots less than half covered and
-removed 4.9 % of the area (54,206.0 to 51,540.4 ha). Three of those 4 pivots
-had been part of a polygon more than twice their area. The fourth had almost
-no polygon already before SAM, because the crop filter had removed the
-11,105 ha cluster polygon that held it.
+In the development run of 1.1 (2026-10-09; default `sam_min_coverage` of
+0.5), whose TESSERA embeddings come from the store as converted again
+upstream (see [Satellite Sources](satellite-sources.md#embeddings)), 6 of the
+29 pivots were part of a TESSERA cluster polygon more than twice their area
+before SAM (10 with 1.0.0; the k-means solution since 1.0.1 puts 18.2 % of
+the crop-filter area in polygons over 200 ha, against 38.4 %, see
+[Engines](engines.md#embedding-clustering-embedding)). SAM 2 on Sentinel-2
+over every polygon refined 544 of the 2,154 TESSERA crop-filter polygons; 36
+masks covered less than half of their polygon and were not used, and none
+failed. It left 2 of the 29 pivots less than half covered (2.0 % and 44.9 %;
+the first had been part of a polygon 2.7 times its area) and removed 6.2 % of
+the crop-filter area (48,213.8 to 45,244.6 ha). The 568.7 ha TESSERA polygon
+that holds 4 pivots keeps its input geometry, so these stay 93-98 % covered;
+with 1.0.0, SAM had left them at most 7.4 % covered. The Google Satellite
+Embedding polygons are those of the 1.0.1 run: SAM 2 refined 367 of 1,986
+(70 masks covered too little, 1 failed), left 4 of the 29 pivots less than
+half covered and removed 4.9 % of the area (54,206.0 to 51,540.4 ha). Three
+of those 4 pivots had been part of a polygon more than twice their area. The
+fourth had almost no polygon already before SAM, because the crop filter had
+removed the 11,105 ha cluster polygon that held it. (The TESSERA numbers of
+the 1.0.1 run of 2026-09-29, read from the store before it was converted
+again, were 546 of 2,170 refined, 37 masks below half, 1 failed, 2.4 % and
+45.7 % for the two pivots and 6.6 % of the area.)
 
-In the 1.0.1 run of 2026-09-29, the split variant kept 283 TESSERA and 205
-Google polygons over 50 ha unrefined. Of the other 1,887 and 1,781, SAM 2
-refined 289 and 208; 13 and 28 masks covered too little, and none failed. It
-left no TESSERA pivot and 1 Google pivot less than half covered: the Google
-one (0.2 % covered) is the pivot that already had almost no polygon after the
+In the development run of 1.1, the split variant kept 284 TESSERA and 205
+Google polygons over 50 ha unrefined. Of the other 1,870 and 1,781, SAM 2 refined
+287 and 208; 11 and 28 masks covered too little, and none failed. It left no
+TESSERA pivot and 1 Google pivot less than half covered: the Google one
+(0.2 % covered) is the pivot that already had almost no polygon after the
 crop filter. The refined layers covered 0.1 % (TESSERA) and 0.8 % (Google)
 less than the crop-filter polygons, and 6 and 9 of the pivots stayed inside
 unrefined polygons more than twice their area. On the example's other SAM
-input, three TESSERA dimensions, SAM 2 refined 550 of the 2,170 TESSERA
-polygons when given every polygon (33 masks covered too little, 1 failed) and
-293 of the 1,887 parts of 50 ha or less in the split variant (9 covered too
-little, none failed).
+input, three TESSERA dimensions, SAM 2 refined 544 of the 2,154 TESSERA
+polygons when given every polygon (35 masks covered too little, 1 failed)
+and 289 of the 1,870 parts of 50 ha or less in the split variant (9 covered
+too little, none failed).
 
 ## How refinement works
 
@@ -241,7 +257,7 @@ directly, and the `ensemble` engine accepts it in its `engine_params`.
     inputs are its 1.0.0 DINOv3 outputs without SAM, refined afterwards as
     example 13 does; example 14's own SAM runs refine before post-processing
     and are not shown. Example 13's input is example 20's Delineate-Anything
-    output, as in the [gallery](../gallery.md).
+    output of the 1.0 runs (Sentinel-2 2019), as in the 1.0 gallery.
 
     | Input | Measure | no SAM | 0 (1.0.0) | 0.5 (default) | 0.7 |
     |---|---|---|---|---|---|
@@ -249,7 +265,7 @@ directly, and the `ensemble` engine accepts it in its `engine_params`.
     | | pivots less than half covered (of 29) | 0 / 0 | 8 / 14 | 1 / 2 | 0 / 0 |
     | | area lost against the input polygons | - | 15.7 % / 24.1 % | 7.4 % / 8.1 % | 2.9 % / 0.9 % |
     | Example 13, Delineate-Anything, Sentinel-2 2019 (67 masks) | `n_low_coverage` | - | 0 | 0 | 0 |
-    | Example 14, DINOv3 NAIP / SPOT 2022, Lea County | F1 (in-sample, 227 reference fields) | 0.604 / 0.423 | 0.609 / 0.479 | 0.590 / 0.445 | 0.595 / 0.418 |
+    | Example 14, DINOv3 NAIP / SPOT 2022, Lea County | F1 (in-sample, 227 reference fields, NMOSE WUCB polygons) | 0.604 / 0.423 | 0.609 / 0.479 | 0.590 / 0.445 | 0.595 / 0.418 |
     | | reference fields less than half covered | 35 / 67 | 80 / 105 | 53 / 85 | 40 / 77 |
 
     Every example 13 mask covered at least 92 % of its polygon, so no
@@ -264,7 +280,13 @@ directly, and the `ensemble` engine accepts it in its `engine_params`.
 On inputs whose polygons often hold several fields, such as embedding
 clusters, 0.7 left fewer fields uncovered than the default in these runs,
 but its Lea County SPOT F1 is below the value without SAM. Check the effect
-on your own reference data. Because the default changes the results, 1.0.1
+on your own reference data. In the development run of 1.1, with the default
+0.5 and new models (example 14's own SAM stage, which refines before
+post-processing; in-sample against the 388 DRI/NMOSE V18 polygons), F1 was
+the same with and without SAM on NAIP 2022 (0.564; 226 fields matched in
+both) and 0.587 against 0.584 on SPOT 2023; thresholds 0 and 0.7 were not
+run there. On example 13's input of that run (Sentinel-2 2024, 72 masks) no
+mask was rejected. Because the default changes the results, 1.0.1
 does not reuse a 1.0.0 output of a run with `sam_refine`: it raises
 `FileExistsError` until the output is recomputed with `overwrite=True` (see
 [Output reuse](reproducibility.md#output-reuse)).
@@ -287,13 +309,14 @@ Only single-object box prompts are used; SAM 3's concept-exemplar prompts
 ### SAM 3 is untested
 
 !!! warning "The SAM 3 backends are currently untested"
-    Neither `sam3` nor `sam3-hf` has been run end to end with agribound 1.0.1:
-    the `facebook/sam3` weights are gated, and no approved Hugging Face token
-    was available when 1.0.0 and 1.0.1 were prepared. The tests cover their imports,
+    Neither `sam3` nor `sam3-hf` has been run end to end with agribound 1.1.0
+    or earlier: the `facebook/sam3` weights are gated, and no approved Hugging
+    Face token was available when 1.0.0 and 1.0.1 were prepared; the examples'
+    1.1 re-run did not use them either. The tests cover their imports,
     platform checks and argument handling only. agribound logs a WARNING (also
     recorded in the provenance) whenever a SAM 3 backend is loaded. Check the
     refined polygons before relying on them, or use `sam2` (the default), which
-    was run in the 1.0.0 and 1.0.1 examples.
+    was run in the 1.0.0 and 1.0.1 examples and in their 1.1 re-run.
 
 ### SAM 3 platform support
 

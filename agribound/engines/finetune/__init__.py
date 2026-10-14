@@ -19,6 +19,15 @@ only when it needs them:
   (``_finetune_prithvi(train_dir, config) -> str``)
 - ``_ftw``: not dispatched. FTW models are trained with ftw-baselines.
 
+Two rules on the training labels are public here (implemented in ``_data``):
+:func:`field_interior_depths` and :func:`widest_boundary_erosion`, the widest
+boundary band (``engine_params["boundary_erosion"]``) that leaves at most
+10 % of the reference fields without an interior pixel on a raster's grid,
+for DINOv3 and Prithvi on coarse imagery; and :func:`dinov3_processing_gsd`,
+the pixel size of the grid DINOv3 reads a raster on (10 m for rasters coarser
+than 10 m, else the raster's own), on which DINOv3's band should be measured
+(``widest_boundary_erosion(..., grid_gsd_m=...)``).
+
 Which engines can be fine-tuned is read from
 :data:`agribound.registry.ENGINE_REGISTRY` (``fine_tunable``). Any other engine
 raises :class:`ValueError` with instructions. The engine is never replaced by
@@ -34,9 +43,13 @@ fingerprint of the reference file (resolved path, modification time and size),
 the number of epochs, the split settings, the seed, ``config.bands``, the
 ``engine_params`` (excluding ``checkpoint_path`` and ``sam_*`` keys), the
 engine's default chip-size rule (:func:`agribound.engines.finetune._data.chip_size_rule`)
-and, for Delineate-Anything, the version of the training recipe
-(:data:`agribound.engines.finetune._yolo.RECIPE_VERSION`), so a checkpoint
-trained with an earlier recipe is not reused. The trainers receive a copy of
+and, for Delineate-Anything and DINOv3, the version of the training recipe
+(:data:`agribound.engines.finetune._yolo.RECIPE_VERSION`,
+:data:`agribound.engines.finetune._dinov3.RECIPE_VERSION`), so a checkpoint
+trained with an earlier recipe is not reused. For DINOv3 on a raster that it
+reads on a processing grid (:func:`dinov3_processing_gsd`, rasters coarser
+than 10 m by default) the grid is part of the key too; other rasters' keys
+do not change. The trainers receive a copy of
 the configuration whose
 :meth:`~agribound.config.AgriboundConfig.get_working_dir` is that directory.
 Their chips and checkpoints therefore cannot collide with another run's.
@@ -55,10 +68,20 @@ from pathlib import Path
 from typing import Any
 
 from agribound.config import AgriboundConfig
+from agribound.engines.finetune._data import (
+    dinov3_processing_gsd,
+    field_interior_depths,
+    widest_boundary_erosion,
+)
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["fine_tune"]
+__all__ = [
+    "dinov3_processing_gsd",
+    "fine_tune",
+    "field_interior_depths",
+    "widest_boundary_erosion",
+]
 
 #: Engine name -> (submodule, trainer function, trainer takes ``model_key``).
 _TRAINERS: dict[str, tuple[str, str, bool]] = {
@@ -99,6 +122,11 @@ _NOT_FINE_TUNABLE_HINTS: dict[str, str] = {
         "engine_params={'engines': [{'engine': 'delineate-anything', "
         "'engine_params': {'checkpoint_path': '/path/to/best.pt'}}]}."
     ),
+    "crop-sequence": (
+        "The crop-sequence engine builds zones from crop-type map codes with fixed "
+        "rules and has no trainable weights. Set fine_tune=False; reference_boundaries "
+        "is then used for evaluation only."
+    ),
 }
 
 
@@ -126,10 +154,11 @@ def fine_tune(
     Raises
     ------
     ValueError
-        If reference boundaries are not provided, or if ``config.engine`` is
+        If reference boundaries are not provided, if ``config.engine`` is
         unknown or not fine-tunable (``fine_tunable`` is False in
         :data:`agribound.registry.ENGINE_REGISTRY`, e.g. ``"ftw"``,
-        ``"embedding"``, ``"ensemble"``).
+        ``"embedding"``, ``"crop-sequence"``, ``"ensemble"``), or if the raster
+        holds class codes (:func:`agribound.io.raster.refuse_categorical`).
     NotImplementedError
         If the registry marks the engine as fine-tunable but no trainer is
         wired up for it here.
@@ -141,10 +170,13 @@ def fine_tune(
 
     engine = config.engine
     _check_fine_tunable(engine)
+    from agribound.io.raster import refuse_categorical
+
+    refuse_categorical(raster_path, config, "Fine-tuning")
 
     # Derive a model key for per-model checkpoint isolation
     model_key = _get_model_key(engine, config)
-    run_dir = _run_dir(config, engine, model_key)
+    run_dir = _run_dir(config, engine, model_key, raster_path)
 
     # Check for cached checkpoint — avoid redundant fine-tuning
     cached = _cached_checkpoint(run_dir)
@@ -264,8 +296,14 @@ def _training_params(engine_params: dict[str, Any]) -> str:
     return json.dumps(relevant, sort_keys=True, default=str)
 
 
-def _run_dir(config: AgriboundConfig, engine: str, model_key: str) -> Path:
-    """Return (and create) the cache directory for this fine-tuning run."""
+def _run_dir(
+    config: AgriboundConfig, engine: str, model_key: str, raster_path: str | None = None
+) -> Path:
+    """Return (and create) the cache directory for this fine-tuning run.
+
+    *raster_path* (the composite) is read only for DINOv3, whose key holds
+    the processing grid when one applies (:func:`dinov3_processing_gsd`).
+    """
     from agribound._cache import cache_path
     from agribound.engines.finetune import _data
 
@@ -284,11 +322,16 @@ def _run_dir(config: AgriboundConfig, engine: str, model_key: str) -> Path:
         # change of that rule must not reuse checkpoints trained on differently sized chips.
         f"chip_rule={_data.chip_size_rule(engine)}",
     ]
-    if engine == "delineate-anything":
+    if engine in ("delineate-anything", "dinov3"):
         # A new training recipe (same engine_params) must not reuse earlier checkpoints.
-        from agribound.engines.finetune._yolo import RECIPE_VERSION
-
-        parts.append(f"recipe={RECIPE_VERSION}")
+        recipe = importlib.import_module(f"{__name__}.{_TRAINERS[engine][0]}").RECIPE_VERSION
+        parts.append(f"recipe={recipe}")
+    if engine == "dinov3" and raster_path is not None:
+        grid = _data.dinov3_processing_gsd(raster_path, config.engine_params)
+        if grid is not None:
+            # Chips and checkpoints on the processing grid are not those of the raster's
+            # own grid; the keys of rasters read as they are do not change.
+            parts.append(f"dinov3_grid={grid!r}:{_data.DINOV3_GRID_VERSION}")
     if split == "block":
         parts.append(f"block_size_m={config.fine_tune_block_size_m}")
     elif split == "column":

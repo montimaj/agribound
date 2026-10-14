@@ -17,7 +17,7 @@ How agribound does on tree crops, in four study areas with reference boundaries:
        Resources (DWR) / Land IQ Statewide Crop Mapping of water year 2022,
        which maps every field, so the evaluation is split into tree crops and
        other fields. 5 km square.
-    4. Ubeda, Jaen, Spain (2023): olive groves of a few hectares with trees
+    4. Úbeda, Jaén, Spain (2023): olive groves of a few hectares with trees
        about 10 m apart. Reference: SIGPAC land parcels ("recintos") of the
        previous campaign (2025), which map all land; recintos split some
        groves along cadastral lines, so the groves are also evaluated after
@@ -39,36 +39,61 @@ Approaches (each a separate agribound run with ``lulc_filter=False``):
           square (centres 19.5 km apart; a March 2021 scene);
         - Madera: DWR / Land IQ fields in a 5 km square 41.9 km from the
           Madera square (centres 48.3 km apart; 2022);
-        - Ubeda: SIGPAC recintos in a 4 km square 10.8 km from the Ubeda
+        - Úbeda: SIGPAC recintos in a 4 km square 10.8 km from the Úbeda
           square (centres 16.1 km apart; July 2023).
-      The squares near Madera and Ubeda were chosen by a fixed rule from the
+      The squares near Madera and Úbeda were chosen by a fixed rule from the
       reference labels and the SPOT coverage alone, before any model ran on
       them (see ``TRAINING_AREAS``); their training labels are every mapped
       field that reaches into the square, whatever its size (the chips label
-      every other pixel as background). The DINOv3 settings and these two
-      squares were fixed before any DINOv3 model, or any model trained on these
-      squares, was scored. The Higaturu
+      every other pixel as background). For this example's first runs
+      (2026-10-05/06; the 1.0 gallery), the DINOv3 settings and these two
+      squares were fixed before any DINOv3 model, or any model trained on
+      these squares, was scored, and the Higaturu
       fine-tuning of Delineate-Anything was added after the released model
-      found one parcel at Oro, and kept after its own Oro score was seen; none
-      of its settings was changed after that score. Both models get the same
-      labels and SPOT-Pan composite and the same rules: chips with at least
-      ``min_label_fraction`` of their pixels labelled, a random 20 % of the
-      chips for validation (a parcel cut by a chip edge can be in both) and 20
-      epochs. Each uses its own chips and default recipe. Delineate-Anything:
-      512 px chips, Ultralytics' augmentation (flips, brightness, scale,
-      translation) and ``yolo_lr0=1e-4``, set on the NORPALM validation chips
-      because with so few chips the default learning rate wrecks the
-      pretrained weights (see the fine-tuning guide). DINOv3 (ViT-L/16
-      backbone pre-trained on SAT-493M satellite imagery, DPT head; it has no
-      published field-boundary weights, so it has no released variant):
-      agribound's defaults, i.e. 256 px chips, no augmentation, full
-      fine-tuning, learning rate 1e-4, batch 4, and early stopping after 10
-      epochs without improvement of the validation loss (so at most 20
-      epochs); the panchromatic band is copied into its three RGB inputs.
+      found one parcel at Oro and kept after its own Oro score was seen, with
+      no setting changed after that score. The current default recipes came
+      later: DINOv3's (class weights, the checkpoint with the best validation
+      mean IoU, input normalisation, a 4 px boundary band) was designed after
+      its first models had merged the blocks at Twifo, with the band
+      chosen on the validation chips of models trained on all four training
+      areas, and Delineate-Anything's (overlapping chips, an optimizer step
+      after every batch, no labels for slivers) after the Higaturu model had
+      drawn the frame of its tiles at Oro. A run with the current recipes is
+      therefore not an independent test at Twifo (DINOv3) or at Oro
+      (Delineate-Anything). Both models get the same labels and SPOT-Pan
+      composite and the same rules: chips with at least
+      ``min_label_fraction`` of their pixels labelled, 20 % for validation
+      and 20 epochs. Each uses its own chips and default recipe, and so its
+      own split: DINOv3's 256 px chips do not overlap, and a random 20 % of
+      them are validation chips (a parcel cut by a chip edge can be in both
+      splits); Delineate-Anything's 512 px chips overlap, half a chip apart,
+      so a random 20 % of the chip-size cells are validation cells, a chip
+      takes the split of its cells, and the chips that cover cells of both
+      splits are dropped (no pixel is in both splits, but a parcel can be;
+      at Higaturu 6 of the 77 chips kept are validation chips).
+      Delineate-Anything: Ultralytics' augmentation (flips, brightness,
+      scale, translation) and ``yolo_lr0=1e-4``, set on the NORPALM
+      validation chips because with so few chips the default learning rate
+      wrecks the pretrained weights (see the fine-tuning guide). DINOv3
+      (ViT-L/16 backbone pre-trained on SAT-493M satellite imagery, DPT head;
+      it has no published field-boundary weights, so it has no released
+      variant): agribound's defaults, i.e. 256 px chips, no augmentation,
+      full fine-tuning, learning rate 1e-4, batch 4, and early stopping after
+      10 epochs without improvement (so at most 20 epochs); the panchromatic
+      band is copied into its three RGB inputs. The fine-tuned outputs of
+      the development run of agribound 1.1 (2026-10-10) were made with these
+      recipes and the tile stitching of 1.1. Those of the 1.0 gallery
+      were made with the earlier recipes: Delineate-Anything with the recipe
+      of 2026-10-05 (512 px chips that did not overlap, a random 20 % of
+      them for validation, Ultralytics' optimizer step every four batches,
+      every clipped label part kept) and agribound 1.0.1's tile stitching,
+      DINOv3 with agribound 1.0.1's recipe and inference, which kept the
+      epoch with the lowest validation loss and used a 2 px boundary band
+      (see the fine-tuning guide).
       DINOv3 predicts background, field interior and field boundary pixels
       over the whole square and the fields are its interior regions, while
       Delineate-Anything predicts field instances per 512 px tile. At Madera
-      and Ubeda one SPOT scene covers both the training and the evaluated
+      and Úbeda one SPOT scene covers both the training and the evaluated
       square, so the two composites share that acquisition (no labels or
       pixels are shared). At Madera the training scene (8 May 2022, leaf-on)
       differs in season from the evaluation composite, a median of 11 scenes
@@ -77,15 +102,28 @@ Approaches (each a separate agribound run with ``lulc_filter=False``):
       square (runs ``da-may``, ``da-ft-may`` and ``dinov3-ft-may``). The
       released Delineate-Anything weights (and so its fine-tuned models) were
       trained on FBIS-73M, whose training patches cover the Madera square and
-      87 % of the Ubeda square, with labels that match the DWR / Land IQ and
+      87 % of the Úbeda square, with labels that match the DWR / Land IQ and
       SIGPAC references (121 of the 122 Madera reference fields and 166 of the
-      225 Ubeda recintos), while it has no patches in Ghana or Papua New
+      225 Úbeda recintos), while it has no patches in Ghana or Papua New
       Guinea (checked against the public patch list, images and labels on
-      2026-10-06). So at Madera and Ubeda Delineate-Anything has seen most of
+      2026-10-06). So at Madera and Úbeda Delineate-Anything has seen most of
       the evaluated fields (at Madera nearly all) and DINOv3 has not;
     - Delineate-Anything v2 on Landsat 8/9 panchromatic 15 m (``landsat-pan``;
       outside the model's 0.25-10 m training range) and on Sentinel-2 10 m;
       at Madera also on NAIP (1 m);
+    - Delineate-Anything v2 (as released, default settings except
+      ``max_detections=1000``, as for Landsat PAN and Sentinel-2) on
+      Sentinel-1 GRD composites (``sentinel1``: VV, VH and VV-VH backscatter
+      in dB scaled to uint8, the median of one orbit pass over the year;
+      added after 1.0.1). Delineate-Anything's training data, FBIS-73M,
+      include Sentinel-1 patches (18 within 10 km of the Madera square), so
+      on radar it is not zero-shot in sensor type either. The outputs of
+      agribound 1.0.1 have no Sentinel-1 rows. The development run of
+      agribound 1.1 (2026-10-10) made them with the same Delineate-Anything
+      backend as its optical rows, and they scored as in a pilot of
+      2026-10-08 by this script's rules: tree-crop F1 0.80 at Madera
+      (Sentinel-2: 0.80) and 0.06 at Úbeda, F1_ov 0.11 at Twifo and 0.00 at
+      Oro;
     - FTW (``FTW_PRUE_EFNET_B5``, two Sentinel-2 windows). Oil palm has no
       crop season, so at Twifo the two windows are set to clear months;
     - unsupervised k-means (k = 20) of the Google Satellite Embedding and of
@@ -102,12 +140,15 @@ World ``crops`` + ``trees`` (and the C3S tree-cover classes; NLCD, used in
 the US, already counts orchards as cultivated crops). The printed table
 reports how many polygons each variant keeps; ``summary.csv`` also gives the
 share of the matched predictions (IoU >= 0.5) that each variant keeps
-(``matched_kept_default``, ``matched_kept_tree_crops``; at Madera and Jaen,
+(``matched_kept_default``, ``matched_kept_tree_crops``; at Madera and Úbeda,
 those matched to tree-crop fields).
 
 Evaluation (``agribound.evaluate``): one-to-one matching at IoU >= 0.5,
 boundary metrics at a 10 m tolerance, bootstrap intervals; references and
 predictions are selected by their representative point inside the square.
+Reference polygons smaller than 2,500 m2, the predictions' minimum area, are
+dropped, and the script prints how many: none at Twifo and Madera, 7 at Oro
+and 36 at Úbeda (31 of them tree-crop recintos), counted on 2026-10-08.
 Precision needs care because the RSPO references do not map every field in
 their squares:
 
@@ -115,13 +156,13 @@ their squares:
       overlap a reference polygon (``count_tp / (count_tp + count_fp -
       count_fp_unassigned)``); at Oro also the precision of the predictions
       with at least half of their area within 20 m of a reference parcel.
-    - Madera and Jaen: the references map all agricultural fields, so the
+    - Madera and Úbeda: the references map all agricultural fields, so the
       tree-crop scores are the ``per_stratum["tree"]`` entries of one
       evaluation against all fields.
     - Merge and split rates: a reference field is merged when its main
       prediction also covers at least 25 % of another reference field (of any
       crop), and split when at least two predictions each cover 10 % of it;
-      at Madera and Jaen the rates are averaged over the tree-crop fields.
+      at Madera and Úbeda the rates are averaged over the tree-crop fields.
     - Twifo also gets the areal recall and spill of the predictions against
       the estate outline (the blocks joined, clipped to the square), the
       protocol for concession outlines that are not subdivided into blocks:
@@ -155,6 +196,39 @@ September 2026 (no mapping date) and SIGPAC is the 2025 campaign, while SPOT
 the clearest SPOT coverage; SPOT is filtered by scene cloud cover but not
 cloud-masked.
 
+Single-date Sentinel-2 run (opt-in, ``--s2-single-date``; off by default, and
+without it the runs and outputs are those above). Each area also gets
+Delineate-Anything v2 as released (``max_detections=1000``) on the Sentinel-2
+composite of one acquisition. ``agribound.survey_scenes`` ranks the
+acquisitions of the area's year over its square by their clear share under the
+area's own Sentinel-2 settings (Cloud Score+ at Twifo Praso and Oro, the
+default SCL mask at Madera and Úbeda); the script saves the table as
+``scenes_sentinel2_<year>.csv`` in the area's folder, and the run uses a
+one-day ``date_range`` on the date ranked first, with the default ``median``
+(the images of that date). The run is named after its date
+(``sentinel2 da-<date>``) and scored like the others. It repeats a pilot
+(2026-10-09) in which the single clearest acquisition was a worse input for
+Delineate-Anything than the year's median: ``F1_ov`` 0.097 against 0.248 at
+Twifo Praso and 0.107 against 0.163 at a smallholder square in Malaysia that
+this example does not have; at Oro neither composite gave a field, and at
+Madera, inside the model's training data, the tree-crop F1 was 0.837 against
+0.802. On 2026-10-10 the survey ranked first the pilot's dates at Twifo Praso
+(2020-08-04), Oro (2021-08-21) and Madera (2022-01-24; the pilot ranked by
+Cloud Score+, this example by SCL), and 2023-12-19 at Úbeda. This run's rows
+can differ from the pilot's numbers for two reasons. The pilot ran the
+Delineate-Anything backend of its day on CPU. And where the date has several
+granules over the square, the one-day composite is their per-pixel median,
+while the pilot used one granule: at Madera on 2022-01-24 the composite is
+the median of tiles T10SGF and T10SGG, their mean where both are clear
+(Level-2A processing is done per tile, so they differ by about 5 in
+reflectance x 10,000 on average), and the pilot used T10SGF alone. At Twifo
+Praso, with one image on 2020-08-04, the composite equals the pilot's. In the
+run with agribound 1.1.0 (2026-10-11), on the dates above, the single date
+scored ``F1_ov`` 0.095 against 0.244 for the year's median at Twifo Praso and
+0 against 0 at Oro, and tree-crop F1 0.843 against 0.802 at Madera and 0.057
+against 0.159 at Úbeda. See "Dates in a composite" in the satellite-sources
+guide.
+
 Thanks to Jacob Abramowitz (The University of Alabama in Huntsville) for
 asking about tree crops and pointing to the RSPO concession maps and the
 subdivided Twifo estate; see Abramowitz et al. (2023), Remote Sensing
@@ -166,12 +240,22 @@ SPOT 6/7 (AIRBUS/SPOT6_7) is restricted to select Earth Engine users. Without
 access the SPOT runs, SAM 2 and the fine-tuning are skipped and the rest runs.
 ``--no-dinov3`` skips DINOv3, the slowest step (full fine-tuning of a ViT-L;
 each checkpoint is about 3.7 GB, in the training area's ``.agribound_cache``).
+``--dry-run`` prints every run's configuration (validated) and runs,
+downloads and writes nothing.
 
-Estimated runtime: about 2 hours on an Apple M2 Max (MPS), downloads, the
-fine-tunings and the crop-filter steps included: about 27 minutes for
-everything but DINOv3 and the Madera and Ubeda fine-tunings (2026-10-05), and
-94 minutes for those in a run that reused the rest (2026-10-06), of which the
-four DINOv3 fine-tunings took 14 to 21 minutes each.
+Runtime: 2.4 hours (8,605 s) in one pass in the development run of agribound
+1.1 (2026-10-10, Apple M2 Max with MPS; composites and FTW's checkpoint
+downloaded, the RSPO zip given with ``--rspo-zip``, the other model weights
+already cached), the Sentinel-1 runs and the crop-filter steps included: about
+120 minutes for the four training areas (the Delineate-Anything fine-tunings
+took 5 to 14 minutes each and the DINOv3 fine-tunings 16 to 23 minutes each,
+training alone) and about 23 minutes for the four evaluated areas. The
+``--s2-single-date`` runs add per area a scene survey (one Earth Engine
+request at Twifo Praso and Oro, 15-29 s; 13, one per month after one that ran
+out of memory, at Madera and Úbeda, 36-69 s; 2026-10-10), one composite and
+one Delineate-Anything run: 6.7 minutes (402 s) with agribound 1.1.0 on
+2026-10-11, in a run that reused the other outputs and made the three TESSERA
+runs again.
 
 Prerequisites:
     pip install "agribound[gee,delineate-anything,dinov3,ftw,embedding,tessera,samgeo]"
@@ -195,6 +279,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import agribound
+from agribound.provenance import to_jsonable
 
 # Paths below are relative to the repository root. The notebook version of this
 # script runs from examples/notebooks/, so it changes to the repository root first.
@@ -205,7 +290,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r"geedim\..*")
 warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"geedim\..*")
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
@@ -463,8 +548,12 @@ def sha256_of(path):
     return digest.hexdigest()
 
 
-def clean_polygons(gdf, crs, min_area=MIN_AREA):
-    """Valid polygons in *crs*, at least *min_area*, without near-duplicates (> 90 % covered)."""
+def clean_polygons(gdf, crs, min_area=MIN_AREA, small=None):
+    """Valid polygons in *crs*, at least *min_area*, without near-duplicates (> 90 % covered).
+
+    The valid polygons smaller than *min_area* are appended to the list *small*, when
+    given, so that the caller can count those of its square.
+    """
     import geopandas as gpd
     import shapely
 
@@ -474,7 +563,10 @@ def clean_polygons(gdf, crs, min_area=MIN_AREA):
         for g in geoms
     ]
     gdf = gpd.GeoDataFrame(gdf.drop(columns="geometry"), geometry=polys, crs=gdf.crs).to_crs(crs)
-    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty & (gdf.area >= min_area)]
+    valid = gdf.geometry.notna() & ~gdf.geometry.is_empty
+    if small is not None:
+        small.append(gdf[valid & (gdf.area < min_area)])
+    gdf = gdf[valid & (gdf.area >= min_area)]
     gdf = gdf.reset_index(drop=True)
     drop = set()
     for i, j in zip(*gdf.sindex.query(gdf.geometry, predicate="intersects"), strict=True):
@@ -510,7 +602,7 @@ def rspo_zip(args):
     return path
 
 
-def load_rspo(args, area, crs, filters):
+def load_rspo(args, area, crs, filters, small=None):
     """RSPO polygons matching *filters* (column -> value) near *area* (a UTM polygon)."""
     import geopandas as gpd
     import pyogrio
@@ -519,10 +611,10 @@ def load_rspo(args, area, crs, filters):
     gdf = pyogrio.read_dataframe(f"/vsizip/{rspo_zip(args)}", layer=0, bbox=tuple(box_3395))
     for column, value in filters.items():
         gdf = gdf[gdf[column].astype(str).str.strip() == value]
-    return clean_polygons(gdf, crs)
+    return clean_polygons(gdf, crs, small=small)
 
 
-def load_dwr(area, crs, min_area=MIN_AREA):
+def load_dwr(area, crs, min_area=MIN_AREA, small=None):
     """DWR / Land IQ 2022 fields near *area*, with ``stratum`` "tree" or "other"."""
     import geopandas as gpd
     import shapely
@@ -556,10 +648,10 @@ def load_dwr(area, crs, min_area=MIN_AREA):
     gdf = gdf[~gdf["CLASS2"].isin(DWR_NON_FIELD)]
     tree = gdf["CLASS2"].isin(DWR_TREE_CLASSES) | gdf["CROPTYP2"].isin(DWR_TREE_CLASSES)
     gdf["stratum"] = ["tree" if t else "other" for t in tree]
-    return clean_polygons(gdf, crs, min_area)
+    return clean_polygons(gdf, crs, min_area, small)
 
 
-def load_sigpac(area, crs, name, min_area=MIN_AREA):
+def load_sigpac(area, crs, name, min_area=MIN_AREA, small=None):
     """SIGPAC agricultural recintos near *area*, with ``stratum`` "tree" or "other".
 
     *name* (the study or training area) names the record of the parcels' digest.
@@ -603,7 +695,7 @@ def load_sigpac(area, crs, name, min_area=MIN_AREA):
     record.write_text(digest)
     gdf = gdf[~gdf["uso_sigpac"].isin(SIGPAC_NON_FIELD)]
     gdf["stratum"] = ["tree" if u in SIGPAC_TREE_USES else "other" for u in gdf["uso_sigpac"]]
-    return clean_polygons(gdf, crs, min_area)
+    return clean_polygons(gdf, crs, min_area, small)
 
 
 def dissolve_by_use(gdf):
@@ -785,8 +877,12 @@ def base_config(site, slug, source, engine, label, args, **overrides):
     )
 
 
-def site_runs(slug, site, args, checkpoints):
-    """(label, source, engine, config overrides) of every run of one study area."""
+def site_runs(slug, site, args, checkpoints, s2_date=None):
+    """(label, source, engine, config overrides) of every run of one study area.
+
+    *s2_date* (``--s2-single-date``): the date of the clearest Sentinel-2
+    acquisition (``clearest_s2_date``), which adds the run on that date alone.
+    """
     da, many = "delineate-anything", {"engine_params": {"max_detections": 1000}}
     runs = []
     if args.spot:
@@ -809,6 +905,10 @@ def site_runs(slug, site, args, checkpoints):
         runs.append(("da", "naip", da, {}))
     runs.append(("da", "landsat-pan", da, many))
     runs.append(("da", "sentinel2", da, many))
+    if s2_date:  # the same run on one acquisition: a one-day window (median of its images)
+        runs.append((f"da-{s2_date}", "sentinel2", da, {**many, "date_range": (s2_date, s2_date)}))
+    # Sentinel-1 GRD backscatter (VV, VH, VV - VH), the released model with the same rule.
+    runs.append(("da", "sentinel1", da, many))
     ftw = (
         {"engine_params": {"window_dates": site["ftw_window_dates"]}}
         if site["ftw_window_dates"]
@@ -820,6 +920,31 @@ def site_runs(slug, site, args, checkpoints):
     if site["tessera"]:
         runs.append((f"k{N_CLUSTERS}", "tessera-embedding", "embedding", k))
     return runs
+
+
+def clearest_s2_date(site, slug, args):
+    """Date of the area's clearest Sentinel-2 acquisition of the year (``--s2-single-date``).
+
+    ``agribound.survey_scenes`` (one Earth Engine request, or one per month when the
+    year is too large for one) ranks the acquisitions over the square under the area's
+    Sentinel-2 settings, as its composite selects and masks them; the table is saved
+    next to the outputs. Returns None when no acquisition covers the square.
+    """
+    config = base_config(site, slug, "sentinel2", "delineate-anything", "da", args)
+    table = agribound.survey_scenes(config)
+    path = OUTPUT_DIR / slug / f"scenes_sentinel2_{site['year']}.csv"
+    flat = table.drop(columns=["date_range"])
+    flat["image_ids"] = [";".join(ids) for ids in flat["image_ids"]]
+    flat.to_csv(path, index=False)
+    if table.empty:
+        print(f"  No Sentinel-2 acquisition of {site['year']} covers the square -> {path}")
+        return None
+    top = table.iloc[0]
+    print(
+        f"  Clearest Sentinel-2 acquisition: {top['date']}, rank 1 of {len(table)} (clear share "
+        f"{top['clear_share']:.3f}, {table.attrs['cloud_mask']}) -> {path}"
+    )
+    return str(top["date"])
 
 
 def fine_tune_on(key, engine, args):
@@ -908,17 +1033,18 @@ def spot_available(args):
         return False
 
 
-def load_reference(slug, spec, args, area, crs, min_area=MIN_AREA):
+def load_reference(slug, spec, args, area, crs, min_area=MIN_AREA, small=None):
     """Reference polygons of a study or training area (*spec*: its SITES/TRAINING_AREAS entry).
 
-    *min_area* applies to the DWR and SIGPAC maps (the RSPO polygons always use MIN_AREA).
+    *min_area* applies to the DWR and SIGPAC maps (the RSPO polygons always use MIN_AREA);
+    the polygons it drops are appended to the list *small*, when given.
     """
     kind, filters = spec["reference"]
     if kind == "rspo":
-        return load_rspo(args, area, crs, filters)
+        return load_rspo(args, area, crs, filters, small)
     if kind == "dwr":
-        return load_dwr(area, crs, min_area)
-    return load_sigpac(area, crs, slug, min_area)
+        return load_dwr(area, crs, min_area, small)
+    return load_sigpac(area, crs, slug, min_area, small)
 
 
 def fmt(value, digits=2):
@@ -960,13 +1086,69 @@ def parse_args(argv=None):
     parser.add_argument(
         "--no-dinov3", action="store_true", help="Skip the fine-tuned DINOv3 (the slowest step)."
     )
+    parser.add_argument(
+        "--s2-single-date",
+        action="store_true",
+        help=(
+            "Also run Delineate-Anything on the Sentinel-2 composite of each area's clearest "
+            "acquisition of the year (agribound.survey_scenes under the area's mask, then a "
+            "one-day date_range); off by default."
+        ),
+    )
     parser.add_argument("--bootstrap", type=int, default=N_BOOTSTRAP, help="Bootstrap resamples.")
     parser.add_argument(
         "--overwrite", action="store_true", help="Recompute outputs that already exist."
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print every run's configuration (validated); run, download and write nothing.",
+    )
     if argv is None and "ipykernel" in sys.modules:
         argv = []  # Jupyter passes its own kernel arguments in sys.argv
     return parser.parse_args(argv)
+
+
+def dry_run(slugs, args):
+    """Print every run's configuration (validated; nothing is run, downloaded or written)."""
+    print(f"\n{'=' * 70}\nDry run: configurations (nothing is run or written)\n{'=' * 70}")
+    logging.getLogger("agribound.auth").setLevel(logging.WARNING)  # one GEE-project line each
+    engines = ["delineate-anything"] + ([] if args.no_dinov3 else ["dinov3"])
+    for slug in slugs:
+        site = SITES[slug]
+        print(f"\n{site['name']} ({site['year']})")
+        checkpoints = {}  # placeholders for the fine-tuned checkpoints
+        if args.spot and not args.no_fine_tune and site["fine_tuned"]:
+            for engine in engines:
+                checkpoints[site["fine_tuned"], engine] = (
+                    f"<{engine} checkpoint fine-tuned on {site['fine_tuned']}>"
+                )
+        # --s2-single-date: the date comes from the scene survey, an Earth Engine request,
+        # which a dry run does not make; the run is validated with 1 January standing in.
+        stand_in = f"{site['year']}-01-01" if args.s2_single_date else None
+        for label, source, engine, overrides in site_runs(
+            slug, site, args, checkpoints, s2_date=stand_in
+        ):
+            config = base_config(site, slug, source, engine, label, args, **overrides)
+            path = config.output_path
+            notes = ["SAM 2"] if config.sam_refine else []
+            notes += [f"{k}={v}" for k, v in sorted(config.engine_params.items())]
+            if stand_in and label == f"da-{stand_in}":
+                label, path = "da-<date>", path.replace(stand_in, "<date>")
+                window = f"clearest date of {site['year']}"
+                notes.append(
+                    f"date_range=(<date>, <date>), <date> ranked first by "
+                    f"agribound.survey_scenes with cloud_cover_max={config.cloud_cover_max}, "
+                    f"s2_cloud_mask={config.s2_cloud_mask}"
+                )
+            elif config.date_range:
+                window = " to ".join(config.date_range)
+            else:
+                window = "FTW's two windows" if engine == "ftw" else "calendar year"
+            print(
+                f"  {source + ' ' + label:<24} {engine:<18} {window:<24} {path}"
+                + (f"\n{'':<28}({'; '.join(notes)})" if notes else "")
+            )
 
 
 def main():
@@ -977,9 +1159,13 @@ def main():
 
     args = parse_args()
     start_time = time.time()
+    slugs = args.only or list(SITES)
+    if args.dry_run:
+        args.spot = not args.no_spot  # SPOT access is not checked in a dry run
+        dry_run(slugs, args)
+        return
     REFERENCE_DIR.mkdir(parents=True, exist_ok=True)
     args.spot = not args.no_spot and spot_available(args)
-    slugs = args.only or list(SITES)
 
     checkpoints = {}  # (training area, engine) -> fine-tuned checkpoint
     failed_fine_tunes = {}  # (training area, engine) -> exception name
@@ -1010,12 +1196,18 @@ def main():
             json.dumps(square_study_area(site["lon"], site["lat"], site["side_m"], site["name"]))
         )
         area, crs = utm_square(site)
+        small = []  # the reference polygons under MIN_AREA, dropped like small predictions
         try:
-            reference_all = load_reference(slug, site, args, area, crs)
+            reference_all = load_reference(slug, site, args, area, crs, small=small)
         except Exception as exc:  # e.g. the reference service is down
             print(f"  Reference download failed: {type(exc).__name__}: {exc}; area skipped.")
             continue
         reference = rep_point_inside(reference_all, area)
+        n_small = sum(len(rep_point_inside(part, area)) for part in small)
+        print(
+            f"  Reference polygons in the square smaller than {MIN_AREA:,} m2 (the predictions' "
+            f"minimum area), dropped: {n_small}"
+        )
         references = {"reference": reference}
         if slug == "jaen":
             references["dissolved"] = rep_point_inside(dissolve_by_use(reference_all), area)
@@ -1038,7 +1230,22 @@ def main():
                 rows.append(
                     {"site": slug, "run": f"spot-pan {label}", "status": f"failed: {failure}"}
                 )
-        for label, source, engine, overrides in site_runs(slug, site, args, checkpoints):
+        s2_date = None  # --s2-single-date: the clearest acquisition of the year
+        if args.s2_single_date:
+            try:
+                s2_date = clearest_s2_date(site, slug, args)
+            except Exception as exc:  # e.g. Earth Engine refused the request
+                print(f"  Sentinel-2 scene survey failed: {type(exc).__name__}: {exc}")
+                rows.append(
+                    {
+                        "site": slug,
+                        "run": "sentinel2 da-<date>",
+                        "status": f"failed: {type(exc).__name__}",
+                    }
+                )
+        for label, source, engine, overrides in site_runs(
+            slug, site, args, checkpoints, s2_date=s2_date
+        ):
             name = f"{source} {label}"
             try:
                 config = base_config(site, slug, source, engine, label, args, **overrides)
@@ -1075,7 +1282,9 @@ def main():
                 rows.append(row)
                 metrics_path = out_dir / f"metrics_{out_path.stem}_{ref_label}.json"
                 metrics_path.write_text(
-                    json.dumps({"row": row, "metrics": metrics}, indent=2, default=str)
+                    json.dumps(
+                        to_jsonable({"row": row, "metrics": metrics}), indent=2, allow_nan=False
+                    )
                 )
 
         n_ref = len(reference)

@@ -105,12 +105,22 @@ prithvi = [
 samgeo = [
     "segment-geospatial[samgeo2]>=1.4.2",
 ]
+# Direct SAM 2.1 delineation (engine="sam-auto"), without segment-geospatial (whose patool
+# dependency is GPL-3). sam2 1.1.0 on PyPI is a third-party build of Meta's Apache-2.0 SAM 2
+# code; the engine's fast path calls predictor internals checked with that version only, so it
+# is pinned. sam2 brings torch and torchvision; OpenCV resamples the tiles and masks. Masks are
+# kept as bit-packed numpy arrays, so pycocotools is not needed.
+sam-auto = [
+    "sam2==1.1.0",
+    "huggingface-hub>=0.34,<2",
+    "opencv-python>=4.8",
+]
 # SAM 3, Meta backend (sam_backend="sam3"): needs CUDA and triton. Meta supports Linux only; on Windows
 # the community triton-windows wheel is used (unverified by agribound). segment-geospatial 1.4.2 declares
 # triton-windows under `sys_platform == "windows"`, a marker that never matches (sys.platform is "win32"
 # on Windows), so it is declared here with the correct marker. The transformers backend
 # (sam_backend="sam3-hf") needs no triton and no extra beyond transformers>=5. Weights are gated on HF.
-# Both SAM 3 backends are untested in 1.0.1 (not run end to end); a WARNING is logged when used.
+# Both SAM 3 backends are untested in 1.1.0 (not run end to end); a WARNING is logged when used.
 sam3 = [
     "segment-geospatial[samgeo3]>=1.4.2",
     "triton-windows>=3.3.0.post19; sys_platform == 'win32'",
@@ -120,6 +130,13 @@ tessera = [
 ]
 embedding = [
     "agribound[tessera,gee]",
+]
+# Crop-sequence zones (sources cdl-sequence/aci-sequence, engine crop-sequence): the stack is
+# read from Earth Engine; the engine's focal mode is skimage.filters.rank.majority (with
+# mask=), and 0.24 is the first scikit-image release built for NumPy 2.
+crop-sequence = [
+    "agribound[gee]",
+    "scikit-image>=0.24",
 ]
 agent = [
     "anthropic>=1.8,<2",
@@ -139,11 +156,11 @@ dev = [
 ]
 # Everything except `prithvi` (conflicts with `ftw`) and `sam3` (needs CUDA + triton; see above).
 all = [
-    "agribound[gee,delineate-anything,ftw,geoai,dinov3,samgeo,tessera,agent]",
+    "agribound[gee,delineate-anything,ftw,geoai,dinov3,samgeo,sam-auto,tessera,agent,crop-sequence]",
 ]
 # Geospatial-foundation-model stack: everything except `ftw` and `sam3`.
 all-gfm = [
-    "agribound[gee,delineate-anything,geoai,dinov3,prithvi,samgeo,tessera,agent]",
+    "agribound[gee,delineate-anything,geoai,dinov3,prithvi,samgeo,sam-auto,tessera,agent,crop-sequence]",
 ]
 
 [project.scripts]

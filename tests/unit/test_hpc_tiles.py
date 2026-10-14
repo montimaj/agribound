@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -18,11 +19,17 @@ import yaml
 from click.testing import CliRunner
 from shapely.geometry import box
 
+from agribound._results import results_versions
 from agribound.config import AgriboundConfig
 from agribound.hpc import regions as hpc_regions
 from agribound.hpc import tiles as hpc_tiles
 from agribound.io.crs import utm_zone_for_lon
-from agribound.provenance import config_hash, read_provenance, write_provenance
+from agribound.provenance import (
+    HASH_CONDITIONAL_FIELDS,
+    config_hash,
+    read_provenance,
+    write_provenance,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO / "examples"
@@ -257,6 +264,45 @@ class TestManifest:
         kept = hpc_tiles.write_tile_manifest(tiles, evaluated, tmp_path / "c", keep_reference=True)
         assert hpc_tiles.load_tile_config(kept, 0).reference_boundaries == str(ref)
 
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"engine": "sam-auto"},
+            {
+                "engine": "ensemble",
+                "engine_params": {"engines": ["delineate-anything", {"engine": "sam-auto"}]},
+            },
+        ],
+        ids=["engine", "ensemble-member"],
+    )
+    def test_sam_auto_is_refused(self, tmp_path, overrides):
+        """HPC tiling of engine sam-auto, directly or as an ensemble member, is refused."""
+        tiles = hpc_tiles.make_tiles(SEAM_BBOX, tile_size_m=20000, halo_m=1000)
+        base = _base_config(tmp_path, **overrides)
+        with pytest.raises(ValueError, match="'sam-auto' does not support HPC tiling"):
+            hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run")
+        assert not (tmp_path / "run").exists()
+        # Another engine on the same area still tiles.
+        other = _base_config(tmp_path)
+        assert hpc_tiles.write_tile_manifest(tiles, other, tmp_path / "run").is_file()
+
+    @pytest.mark.parametrize("method", ["greenest", "max_ndvi"])
+    def test_ndvi_composite_method_refused_for_a_source_without_nir_and_red(self, tmp_path, method):
+        """The base configuration is validated, so no tile is set up to fail later."""
+        tiles = hpc_tiles.make_tiles(SEAM_BBOX, tile_size_m=20000, halo_m=1000)
+        base = {
+            "source": "sentinel1",
+            "gee_project": "p",
+            "year": 2023,
+            "composite_method": method,
+            "study_area": SEAM_BBOX,
+            "output_path": str(tmp_path / "base" / "fields.gpkg"),
+            "lulc_filter": False,
+        }
+        with pytest.raises(ValueError, match="needs NIR and red bands, which source 'sentinel1'"):
+            hpc_tiles.write_tile_manifest(tiles, base, tmp_path / "run")
+        assert not (tmp_path / "run" / "manifest.json").exists()
+
     def test_explicit_export_crs_is_kept(self, tmp_path):
         tiles = hpc_tiles.make_tiles(SEAM_BBOX, tile_size_m=20000, halo_m=1000)
         base = _base_config(tmp_path, export_crs="EPSG:3577")
@@ -279,12 +325,17 @@ class TestManifest:
 
 
 class FakePipeline:
-    """Stand-ins for build_composite / delineate that write real files."""
+    """Stand-ins for build_composite / delineate that write real files.
+
+    The provenance record holds the results versions, as the pipeline writes
+    them, unless ``as_1_0_0`` is set (agribound 1.0.0 wrote none).
+    """
 
     def __init__(self, polygons_4326=None):
         self.composite_calls = 0
         self.delineate_calls = 0
         self.fail_delineate = False
+        self.as_1_0_0 = False
         self.polygons = polygons_4326
 
     def build_composite(self, config):
@@ -302,6 +353,9 @@ class FakePipeline:
         out = Path(config.output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         gdf.to_file(out, layer="fields", driver="GPKG")
+        facts = {"n_output": len(gdf), "raster_path": str(out)}
+        if not self.as_1_0_0:
+            facts["results_versions"] = results_versions(config)
         write_provenance(
             out,
             {
@@ -309,7 +363,7 @@ class FakePipeline:
                 "config_hash": config_hash(config),
                 "run_id": f"run{self.delineate_calls}",
                 "wall_s": 1.5,
-                "facts": {"n_output": len(gdf), "raster_path": str(out)},
+                "facts": facts,
                 "steps": [{"name": "delineate", "wall_s": 1.0}],
             },
         )
@@ -408,13 +462,11 @@ class TestRunTile:
 
     def test_output_with_other_results_versions_is_stale(self, tmp_path, fake_pipeline):
         """The pipeline's reuse test (agribound._results): a 1.0.0 SAM-refined tile is stale."""
-        from agribound._results import results_versions
-
         tiles = hpc_tiles.make_tiles(SEAM_BBOX)
         config = _base_config(tmp_path, sam_refine=True)
         m = hpc_tiles.load_manifest(hpc_tiles.write_tile_manifest(tiles, config, tmp_path / "run"))
+        fake_pipeline.as_1_0_0 = True  # the record without results_versions, as 1.0.0 wrote it
         hpc_tiles.run_tile(m, 0)
-        # The fake pipeline writes the record without results_versions, as 1.0.0 did.
         assert hpc_tiles.tile_status(m).set_index("index").loc[0, "delineate"] == "stale"
         # Not skipped (the real pipeline then asks for --overwrite, as for a changed config).
         assert hpc_tiles.run_tile(m, 0)["status"] == "done"
@@ -436,6 +488,151 @@ class TestRunTile:
             hpc_tiles.run_tile(m, len(m["tiles"]))
         with pytest.raises(ValueError):
             hpc_tiles.run_tile(m, 0, stage="bogus")
+
+
+#: A 5 km square inside MGRS tile T01KAA (Koro, Fiji), whose HLSS30 images had reversed
+#: footprints in Earth Engine, and one away from 180 degrees (Murray-Darling).
+KORO_BBOX = "bbox:179.38,-17.36,179.44,-17.30"
+MURRAY_SMALL_BBOX = "bbox:149.80,-30.50,149.86,-30.45"
+
+
+def _gee_config(tmp_path: Path, source: str, study_area: str, name: str = "run", **overrides):
+    params = {
+        "source": source,
+        "year": 2022,
+        "engine": "delineate-anything",
+        "study_area": study_area,
+        "output_path": str(tmp_path / name / "base" / "fields.gpkg"),
+        "gee_project": "p",
+        "lulc_filter": False,
+    }
+    params.update(overrides)
+    return AgriboundConfig(**params)
+
+
+def _gee_manifest(tmp_path: Path, source: str, study_area: str, name: str = "run") -> dict:
+    """A one-tile manifest for an Earth Engine source (nothing is requested)."""
+    tiles = hpc_tiles.make_tiles(study_area, tile_size_m=20000, halo_m=1000)
+    config = _gee_config(tmp_path, source, study_area, name)
+    return hpc_tiles.load_manifest(hpc_tiles.write_tile_manifest(tiles, config, tmp_path / name))
+
+
+class TestRecipeInStageMarkers:
+    """The stage markers of hls and sentinel1 tiles include the source's recipe version.
+
+    A new recipe version caches the composite under a new key, which the delineation stage
+    looks up; a marker without it would still name the composite made before.
+    """
+
+    @pytest.mark.parametrize(
+        ("source", "fields"),
+        [
+            ("hls", {}),
+            ("sentinel1", {}),
+            ("landsat", {}),
+            ("landsat-pan", {}),
+            ("sentinel2", {}),
+            ("naip", {}),
+            ("tessera-embedding", {"engine": "embedding"}),
+            ("google-embedding", {"engine": "embedding"}),
+        ],
+    )
+    def test_marker_keys(self, tmp_path, source, fields):
+        from agribound._cache import cache_key
+        from agribound.composites import gee
+
+        config = _gee_config(tmp_path, source, MURRAY_SMALL_BBOX, **fields)
+        parts = {
+            "hls": (f"hls-recipe-{gee.HLS_RECIPE_VERSION}",),
+            "sentinel1": (f"sentinel1-recipe-{gee.S1_RECIPE_VERSION}",),
+        }.get(source, ())
+        assert hpc_tiles._marker_parts(config) == parts
+        assert parts == tuple(gee._recipe_parts(source)[1:]) or source not in (
+            gee._COLLECTION_BUILDERS
+        )
+        params = json.dumps(config.engine_params, sort_keys=True, default=str)
+        stage = cache_key(config, "stage-a", *parts)
+        engine = cache_key(config, "stage-engine", config.engine, params, *parts)
+        assert hpc_tiles._stage_marker_path(config).name == f"stage_{stage}.json"
+        assert hpc_tiles._engine_marker_path(config).name == f"stage_{engine}.json"
+        no_data = hpc_tiles._no_data_marker_paths(config)
+        assert no_data["composite"].name == f"nodata_{stage}.json"
+        assert no_data["engine"].name == f"nodata_{engine}.json"
+        if not parts:  # the keys of agribound 1.0: tiles staged by it stay staged
+            assert stage == cache_key(config, "stage-a")
+            assert engine == cache_key(config, "stage-engine", config.engine, params)
+
+    def test_hls_tile_staged_before_recipe_2_is_staged_again(
+        self, tmp_path, fake_pipeline, monkeypatch
+    ):
+        m = _gee_manifest(tmp_path, "hls", MURRAY_SMALL_BBOX)
+        cfg = hpc_tiles.load_tile_config(m, 0)
+        # The composite stage of the code before HLS recipe 2 (no recipe part in its key).
+        with monkeypatch.context() as before:
+            before.setattr(hpc_tiles, "_marker_parts", lambda config: ())
+            assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "done"
+            assert hpc_tiles._staged_marker(cfg) is not None
+        assert fake_pipeline.composite_calls == 1
+
+        def no_network(*args, **kwargs):
+            raise AssertionError("Earth Engine must not be contacted")
+
+        monkeypatch.setattr("agribound.auth.ensure_gee", no_network)
+        # The staged composite is not the one the delineation stage would read, so the tile
+        # is not staged: the stage array (--list not-done --stage composite) takes it, and
+        # delineation on a node without network access stops before any request.
+        assert hpc_tiles._staged_marker(cfg) is None
+        assert hpc_tiles.tile_status(m).set_index("index").loc[0, "composite"] == "pending"
+        with pytest.raises(RuntimeError, match="has not been staged"):
+            hpc_tiles.run_tile(m, 0, stage="delineate")
+        assert fake_pipeline.delineate_calls == 0
+        assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "done"
+        assert fake_pipeline.composite_calls == 2
+        assert hpc_tiles.run_tile(m, 0, stage="delineate")["status"] == "done"
+
+    def test_hls_no_data_recorded_before_recipe_2_is_retried(
+        self, tmp_path, monkeypatch, fake_pipeline
+    ):
+        import agribound.pipeline as pipeline
+
+        m = _gee_manifest(tmp_path, "hls", KORO_BBOX)
+        cfg = hpc_tiles.load_tile_config(m, 0)
+        build = fake_pipeline.build_composite
+
+        def no_data(config):
+            fake_pipeline.composite_calls += 1
+            raise ValueError(NO_DATA_MESSAGE)
+
+        with monkeypatch.context() as before:
+            before.setattr(hpc_tiles, "_marker_parts", lambda config: ())
+            before.setattr(pipeline, "build_composite", no_data)
+            assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "no-data"
+            assert hpc_tiles._no_data_marker(cfg) is not None
+        monkeypatch.setattr(pipeline, "build_composite", build)
+        assert hpc_tiles._no_data_marker(cfg) is None
+        status = hpc_tiles.tile_status(m).set_index("index")
+        assert status.loc[0, "composite"] == "pending" and status.loc[0, "delineate"] == "pending"
+        assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "done"
+        assert fake_pipeline.composite_calls == 2
+
+    def test_hls_output_made_before_recipe_2_at_180_is_stale(self, tmp_path, fake_pipeline):
+        """The pipeline's reuse test: no AGRIBOUND_HLS_RECIPE_VERSION in the record's
+        composite tags, and a study area at the MGRS tiles at 180 degrees."""
+        koro = _gee_manifest(tmp_path, "hls", KORO_BBOX, name="koro")
+        murray = _gee_manifest(tmp_path, "hls", MURRAY_SMALL_BBOX, name="murray")
+        for m in (koro, murray):
+            assert hpc_tiles.run_tile(m, 0)["status"] == "done"  # record without the tag
+        assert hpc_tiles.tile_status(koro).set_index("index").loc[0, "delineate"] == "stale"
+        assert hpc_tiles.tile_status(murray).set_index("index").loc[0, "delineate"] == "done"
+        # Not skipped (the real pipeline then asks for --overwrite).
+        assert hpc_tiles.run_tile(koro, 0)["status"] == "done"
+        assert hpc_tiles.run_tile(murray, 0)["status"] == "skipped"
+        output = Path(koro["_root"]) / koro["tiles"][0]["output"]
+        record = read_provenance(output)
+        record["facts"]["composite"] = {"AGRIBOUND_HLS_RECIPE_VERSION": "2"}
+        write_provenance(output, record)
+        assert hpc_tiles.tile_status(koro).set_index("index").loc[0, "delineate"] == "done"
+        assert hpc_tiles.run_tile(koro, 0)["status"] == "skipped"
 
 
 class FakeFTW:
@@ -1008,7 +1205,8 @@ def test_manifest_keeps_landsat_pan_missions_and_tree_crops(tmp_path):
 
 
 #: Configuration fields added after agribound 1.0.1.
-NEW_FIELDS = ("landsat_pan_missions", "lulc_tree_crops")
+#: Configuration fields added after agribound 1.0.1 (every conditional hash field).
+NEW_FIELDS = tuple(HASH_CONDITIONAL_FIELDS)
 
 
 def _as_written_by_1_0_1(path: Path) -> str:
@@ -1016,6 +1214,8 @@ def _as_written_by_1_0_1(path: Path) -> str:
     data = json.loads(path.read_text())
     for name in NEW_FIELDS:
         del data["base_config"][name]
+    if data["base_config"]["usgs_retries"] == 5:  # 1.0.1's default was 3 (5 since 1.1.0)
+        data["base_config"]["usgs_retries"] = 3
     data["signature"] = hpc_tiles._sha1_json(
         {
             "out_dir": str(path.parent),
@@ -1395,7 +1595,7 @@ def _write_tile_output(m: dict, index: int, geoms_4326: list, run_id: str = "r")
             "config_hash": config_hash(cfg),
             "run_id": f"{run_id}{index}",
             "wall_s": 2.0,
-            "facts": {"n_output": len(gdf)},
+            "facts": {"n_output": len(gdf), "results_versions": results_versions(cfg)},
         },
     )
 
@@ -1927,9 +2127,10 @@ def test_region_driver_dry_run(tmp_path):
         ["bash", driver, *common, "--no-lulc-filter"], capture_output=True, text=True, env=env
     )
     assert proc.returncode == 1
-    assert proc.stdout.count("FAIL  ") == 2 and "local_tif_path is required" in proc.stdout
+    # delineate-anything and embedding (which accepts local feature rasters) fail for both years
+    assert proc.stdout.count("FAIL  ") == 4 and "local_tif_path is required" in proc.stdout
     assert "SKIP  2023/local__dinov3: dinov3 has no label-free weights" in proc.stdout
-    assert "(2 engine/source pairs skipped" in proc.stdout
+    assert "engine/source pairs skipped" not in proc.stdout  # no incompatible pair left
     assert not (tmp_path / "out").exists()
 
 
@@ -2546,3 +2747,317 @@ def test_namoi_script_runs_the_gfm_envs_own_agribound(tmp_path):
         c.startswith(f"run --no-capture-output -p {prefix} {prefix}/bin/agribound") for c in calls
     )
     assert not (tmp_path / "namoi").exists()
+
+
+# ---------------------------------------------------------------------------
+# TESSERA: the composite stage checks a staged raster against the store
+# ---------------------------------------------------------------------------
+
+
+class TestTesseraStagedRaster:
+    @pytest.fixture
+    def tessera_manifest(self, tmp_path, fake_pipeline, monkeypatch, sample_rgb_tif):
+        """A TESSERA manifest whose stub build writes a raster tagged with the store's stamp."""
+        pytest.importorskip("geotessera")
+        import rasterio
+
+        import agribound.pipeline as pipeline
+        from agribound.composites.local import (
+            current_tessera_stamp,
+            format_read_bbox,
+            tessera_read_bbox,
+        )
+
+        def build(config):
+            fake_pipeline.composite_calls += 1
+            bbox = tessera_read_bbox(config)
+            path = Path(config.get_working_dir()) / "tessera_embedding_stub.tif"
+            shutil.copy(sample_rgb_tif, path)
+            with rasterio.open(path, "r+") as dst:
+                dst.update_tags(
+                    TESSERA_READ_BBOX=format_read_bbox(bbox),
+                    **current_tessera_stamp(config, bbox).tags(),
+                )
+            return str(path)
+
+        monkeypatch.setattr(pipeline, "build_composite", build)
+        config = _base_config(
+            tmp_path, source="tessera-embedding", engine="embedding", local_tif_path=None
+        )
+        tiles = hpc_tiles.make_tiles(SEAM_BBOX)
+        return hpc_tiles.load_manifest(
+            hpc_tiles.write_tile_manifest(tiles, config, tmp_path / "run")
+        )
+
+    @staticmethod
+    def _stamps(monkeypatch, factory, fingerprint=None, error=None):
+        from agribound.composites import tessera_stamp
+
+        def store_stamp(store_url, bbox, year, *, client=None, **kwargs):
+            if error is not None:
+                raise tessera_stamp.StoreCheckError(error)
+            return factory(store_url, bbox, year, fingerprint=fingerprint)
+
+        monkeypatch.setattr(tessera_stamp, "store_stamp", store_stamp)
+
+    def test_composite_stage_reads_a_changed_store_again(
+        self, tessera_manifest, fake_pipeline, monkeypatch, tessera_stamp_factory, caplog
+    ):
+        from agribound.cli import main
+
+        m = tessera_manifest
+        assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "done"
+        assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "skipped"
+        assert fake_pipeline.composite_calls == 1
+        assert hpc_tiles.tile_status(m).set_index("index").loc[0, "composite"] == "done"
+
+        self._stamps(monkeypatch, tessera_stamp_factory, fingerprint="e" * 64)
+        # The status reports the staged raster as stale, so that the resume lists of
+        # submit_region.sh (--list not-done --stage composite) stage it again.
+        assert hpc_tiles.tile_status(m).set_index("index").loc[0, "composite"] == "stale"
+        res = CliRunner().invoke(
+            main,
+            [
+                "tiles",
+                "status",
+                "--manifest",
+                m["_root"],
+                "--list",
+                "not-done",
+                "--stage",
+                "composite",
+            ],
+        )
+        assert res.exit_code == 0 and res.stdout.strip().split(",")[0].split("-")[0] == "0"
+        with caplog.at_level(logging.INFO, logger="agribound.hpc.tiles"):
+            assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "done"
+        assert fake_pipeline.composite_calls == 2
+        assert any("is read again" in r.getMessage() for r in caplog.records)
+        assert hpc_tiles.tile_status(m).set_index("index").loc[0, "composite"] == "done"
+
+    def test_unverified_store_keeps_the_staged_raster(
+        self, tessera_manifest, fake_pipeline, monkeypatch, tessera_stamp_factory, caplog
+    ):
+        m = tessera_manifest
+        hpc_tiles.run_tile(m, 0, stage="composite")
+        self._stamps(monkeypatch, tessera_stamp_factory, error="no network")
+        with caplog.at_level(logging.WARNING, logger="agribound.hpc.tiles"):
+            assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "skipped"
+        assert fake_pipeline.composite_calls == 1
+        (warning,) = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert "Could not check whether the TESSERA store has changed" in warning
+        assert "no network" in warning
+
+    def test_other_sources_are_not_checked(self, tmp_path, fake_pipeline, monkeypatch):
+        from agribound.composites import tessera_stamp
+
+        calls = []
+
+        def checked(*args, **kwargs):
+            calls.append(args)
+            raise tessera_stamp.StoreCheckError("the TESSERA store was checked")
+
+        monkeypatch.setattr(tessera_stamp, "store_stamp", checked)
+        m = _make_manifest(tmp_path)
+        hpc_tiles.run_tile(m, 0, stage="composite")
+        assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "skipped"
+        hpc_tiles.run_tile(m, 0, stage="delineate")
+        hpc_tiles.tile_status(m)
+        assert calls == []
+
+
+class TesseraWorld:
+    """The store's state and counters of :func:`tessera_world`."""
+
+    def __init__(self):
+        self.fingerprint = "1" * 64
+        self.online = True
+        self.builds = 0
+        self.runs = 0
+
+
+@pytest.fixture
+def tessera_world(tmp_path, monkeypatch, sample_rgb_tif, tessera_stamp_factory):
+    """A TESSERA manifest whose builder and pipeline follow agribound's cache and reuse rules.
+
+    ``build_composite`` writes the raster at the builder's path
+    (:func:`agribound.composites.local.tessera_raster_path`) and reuses it as
+    ``build_tessera_embedding`` does (``check_tessera_raster``: current or
+    unverified); ``delineate`` runs the pipeline's reuse check
+    (``_load_existing_output``) and records the raster's tags. ``world.online``
+    switches the store check; ``world.fingerprint`` is the store's state.
+    """
+    pytest.importorskip("geotessera")
+    import rasterio
+
+    import agribound.pipeline as pipeline
+    from agribound.composites import tessera_stamp
+    from agribound.composites.local import (
+        check_tessera_raster,
+        current_tessera_stamp,
+        format_read_bbox,
+        tessera_raster_path,
+        tessera_read_bbox,
+    )
+
+    world = TesseraWorld()
+
+    def store_stamp(store_url, bbox, year, *, client=None, **kwargs):
+        if not world.online:
+            raise tessera_stamp.StoreCheckError(
+                "GET https://data.source.coop/... failed: gaierror", unreachable=True
+            )
+        return tessera_stamp_factory(store_url, bbox, year, fingerprint=world.fingerprint)
+
+    monkeypatch.setattr(tessera_stamp, "store_stamp", store_stamp)
+
+    def build(config):
+        path = tessera_raster_path(config)
+        if path.exists() and check_tessera_raster(path, config).state != "stale":
+            return str(path)
+        world.builds += 1
+        path.parent.mkdir(parents=True, exist_ok=True)
+        bbox = tessera_read_bbox(config)
+        try:
+            tags = current_tessera_stamp(config, bbox).tags()
+        except tessera_stamp.StoreCheckError:
+            tags = {}
+        shutil.copy(sample_rgb_tif, path)
+        with rasterio.open(path, "r+") as dst:
+            dst.update_tags(
+                AGRIBOUND_SOURCE="tessera-embedding",
+                TESSERA_READ_BBOX=format_read_bbox(bbox),
+                **tags,
+            )
+        return str(path)
+
+    def delineate(config=None, **_):
+        existing = pipeline._load_existing_output(config)
+        if existing is not None:
+            return existing
+        world.runs += 1
+        raster = build(config)
+        gdf = gpd.GeoDataFrame({"score": np.arange(0)}, geometry=[], crs=4326)
+        out = Path(config.output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        gdf.to_file(out, layer="fields", driver="GPKG")
+        write_provenance(
+            out,
+            {
+                "status": "success",
+                "config_hash": config_hash(config),
+                "run_id": f"run{world.runs}",
+                "wall_s": 1.0,
+                "facts": {
+                    "n_output": 0,
+                    "raster_path": raster,
+                    "results_versions": results_versions(config),
+                    "composite": pipeline._composite_tags(raster),
+                },
+                "steps": [],
+            },
+        )
+        return gdf
+
+    monkeypatch.setattr(pipeline, "build_composite", build)
+    monkeypatch.setattr(pipeline, "delineate", delineate)
+    config = _base_config(
+        tmp_path, source="tessera-embedding", engine="embedding", local_tif_path=None
+    )
+    tiles = hpc_tiles.make_tiles(SEAM_BBOX)
+    m = hpc_tiles.load_manifest(hpc_tiles.write_tile_manifest(tiles, config, tmp_path / "run"))
+    return m, world
+
+
+def _states(m, index=0):
+    row = hpc_tiles.tile_status(m).set_index("index").loc[index]
+    return row["composite"], row["delineate"]
+
+
+class TestTesseraTwoPhase:
+    """The documented two-phase flow (stage online, delineate offline) after a store rewrite."""
+
+    def test_restage_online_then_overwrite_offline_converges(self, tessera_world):
+        m, world = tessera_world
+        assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "done"
+        world.online = False
+        assert hpc_tiles.run_tile(m, 0, stage="delineate")["status"] == "done"
+        world.online = True
+        assert _states(m) == ("done", "done")
+
+        world.fingerprint = "2" * 64  # upstream rewrites the store
+        assert _states(m) == ("stale", "stale")
+        # Re-stage online (the stage array of submit_region.sh --resume): read again.
+        assert hpc_tiles.run_tile(m, 0, stage="composite")["status"] == "done"
+        assert world.builds == 2
+
+        # The GPU array (offline): the staged raster holds another stamp than the output's
+        # record, so the output is not reused; without --overwrite the run stops.
+        world.online = False
+        with pytest.raises(FileExistsError, match="another state of the TESSERA store"):
+            hpc_tiles.run_tile(m, 0, stage="delineate")
+        assert world.runs == 1
+        result = hpc_tiles.run_tile(m, 0, stage="delineate", overwrite=True)
+        assert result["status"] == "done" and world.runs == 2 and world.builds == 2
+        record = read_provenance(result["output"])
+        assert record["facts"]["composite"]["TESSERA_STORE_FINGERPRINT"] == "2" * 64
+        assert hpc_tiles.run_tile(m, 0, stage="delineate")["status"] == "skipped"
+        world.online = True
+        assert _states(m) == ("done", "done")
+
+    def test_overwrite_offline_without_restaging_stays_stale(self, tessera_world):
+        """Offline, a stale staged raster cannot be told apart: it is delineated as it is."""
+        m, world = tessera_world
+        hpc_tiles.run_tile(m, 0, stage="composite")
+        hpc_tiles.run_tile(m, 0, stage="delineate")
+        world.fingerprint = "2" * 64
+        world.online = False
+        assert hpc_tiles.run_tile(m, 0, stage="delineate")["status"] == "skipped"
+        assert hpc_tiles.run_tile(m, 0, stage="delineate", overwrite=True)["status"] == "done"
+        world.online = True
+        assert _states(m) == ("stale", "stale") and world.builds == 1
+
+    def test_offline_status_and_merge_report_unchecked_tiles_once(self, tessera_world, caplog):
+        m, world = tessera_world
+        n = len(m["tiles"])
+        for i in range(n):
+            hpc_tiles.run_tile(m, i, stage="composite")
+            hpc_tiles.run_tile(m, i, stage="delineate")
+        world.online = False
+        with caplog.at_level(logging.WARNING):
+            status = hpc_tiles.tile_status(m)
+        assert set(status["composite"]) == {"done"} and set(status["delineate"]) == {"done"}
+        assert status.attrs["tessera_unverified"] == sorted(e["tile_id"] for e in m["tiles"])
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings) == 1 and warnings[0].name == "agribound.hpc.tiles"
+        assert f"Could not check the TESSERA store for {n} of {n} tiles" in warnings[0].getMessage()
+        summary = hpc_tiles.merge_tiles(m).attrs["merge_summary"]
+        (note,) = [w for w in summary["warnings"] if "could not be checked against" in w]
+        assert note.startswith(f"{n} TESSERA tile output(s)")
+
+
+@needs_posix_bash
+def test_offline_jobs_turn_the_tessera_check_off():
+    """common.sh: AGB_OFFLINE=1 (submit_region.sh --offline-gpu) skips the store requests."""
+    script = (
+        "agribound() { :; }\n"
+        "agb_setup_env gpu\n"
+        'echo "check=${AGRIBOUND_TESSERA_STORE_CHECK:-unset}"'
+    )
+    env = {k: v for k, v in os.environ.items() if k != "AGRIBOUND_TESSERA_STORE_CHECK"}
+    common = EXAMPLES / "hpc" / "common.sh"
+
+    def run(extra):
+        return subprocess.run(
+            ["bash", "-c", f"source {common}\n{script}"],
+            capture_output=True,
+            text=True,
+            env={**env, "AGB_CONDA_ENV": "", **extra},
+        )
+
+    offline = run({"AGB_OFFLINE": "1"})
+    assert offline.returncode == 0, offline.stderr
+    assert offline.stdout.strip() == "check=0"
+    online = run({"AGB_OFFLINE": "0"})
+    assert online.returncode == 0, online.stderr
+    assert online.stdout.strip() == "check=unset"

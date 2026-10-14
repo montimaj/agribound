@@ -43,13 +43,14 @@ Data: Sentinel-2 L2A 2024, Delineate-Anything (``large_v2``). The LULC crop
 filter (Dynamic World here, ``lulc_mode="raster"``) is on by default;
 ``--no-lulc-filter`` skips it.
 
-Runtime (tests on 2026-09-27, Apple MPS): about 1 minute with
-``--no-lulc-filter`` (4 tiles: ~9 s of composite download and ~5 s of
-inference per tile) and about 80 s with the LULC filter (1,181 tile
-polygons, 304 after the merge). A second run skips every finished stage
-and takes about a second. In the LULC test the delineate stage was also
-re-run with all network access blocked (weights already cached,
-``HF_HUB_OFFLINE=1``) and gave the same tile outputs.
+Runtime: 81 s with the LULC filter in the development run of agribound 1.1
+(2026-10-09, Apple MPS): per tile 10-17 s to stage the composite and 5-9 s
+to delineate; 1,161 tile polygons, 293 after the merge. In tests on
+2026-09-27: about 1 minute with ``--no-lulc-filter`` (4 tiles: ~9 s of
+composite download and ~5 s of inference per tile). A second run skips every
+finished stage and takes about a second. In a test with the LULC filter the
+delineate stage was also re-run with all network access blocked (weights
+already cached, ``HF_HUB_OFFLINE=1``) and gave the same tile outputs.
 
 Prerequisites:
     pip install "agribound[gee,delineate-anything]"
@@ -73,7 +74,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

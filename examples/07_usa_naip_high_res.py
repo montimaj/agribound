@@ -17,7 +17,10 @@ Data:
 The LULC crop filter is on (NLCD is selected in the conterminous US) and
 needs Earth Engine, like the NAIP composite.
 
-Estimated runtime (not measured for 1.0): ~20-40 minutes (1 m raster, GPU).
+Runtime: 3.4 minutes (202 s) in the development run of agribound 1.1
+(2026-10-09, Apple M2 Max with MPS; the model weights already cached): 1.8
+minutes to download the NAIP mosaic, 1.4 minutes for Delineate-Anything, the
+post-processing and the crop filter.
 
 Prerequisites:
     pip install "agribound[gee,delineate-anything]"
@@ -41,7 +44,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

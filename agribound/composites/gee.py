@@ -2,9 +2,9 @@
 Google Earth Engine composite builder and Earth Engine download helpers.
 
 :class:`GEECompositeBuilder` builds a composite for ``landsat``,
-``landsat-pan``, ``sentinel2``, ``hls``, ``naip``, ``spot`` and ``spot-pan`` on Google Earth
-Engine and downloads it as one local GeoTIFF with geedim 2 (the
-``ee.Image.gd`` accessor).
+``landsat-pan``, ``sentinel2``, ``hls``, ``naip``, ``spot``, ``spot-pan`` and
+``sentinel1`` on Google Earth Engine and downloads it as one local GeoTIFF with
+geedim 2 (the ``ee.Image.gd`` accessor).
 
 Radiometry of the written composites (``value_scale`` in
 :mod:`agribound.registry`):
@@ -30,12 +30,27 @@ Radiometry of the written composites (``value_scale`` in
   ``config.naip_resolution_m``. Only 4-band images are used (some early years
   are RGB only). Without ``date_range``, images from ``year - 1`` to
   ``year + 1`` are mosaicked with the exact-year images on top and the newest
-  image on top within each group.
+  image on top within each group. ``AGRIBOUND_IMAGE_YEARS`` lists the years
+  whose images show in the mosaic, judged by image footprint
+  (:func:`naip_year_areas`); ``AGRIBOUND_IMAGE_YEARS_UNDERNEATH`` lists those
+  whose images intersect the extent but lie under the exact-year images.
 - **SPOT 6/7** (``AIRBUS/SPOT6_7``, restricted): per-band medians (or
   greenest-pixel selections) of the scenes' raw integer digital numbers,
   exported as float32 (a median of an even number of scenes can be a
   half-integer). The radiometry of these DN has not been verified, so they
   are treated as uncalibrated (value scale ``"dn"``).
+- **Sentinel-1** (``COPERNICUS/S1_GRD``, C-band SAR sigma0 in dB): IW-mode GRD
+  images at 10 m with both VV and VH, of one orbit pass (the pass with more
+  acquisitions over the export grid in the window, ``DESCENDING`` on a tie; see
+  :func:`sentinel1_orbit_pass`). Earth Engine stores each acquisition as GRD
+  slices of about 25 s, so images are counted as acquisitions
+  (:func:`sentinel1_acquisitions`). Per image, pixels with VV below
+  :data:`S1_EDGE_MASK_DB` are masked (border noise and invalid edges),
+  ``VV_VH`` = VV - VH (dB) is added, and each band is mapped from its fixed dB
+  range (:data:`S1_DB_RANGES`) to 1-255 (:func:`prepare_sentinel1_image`); the
+  per-band median, rounded to whole values, is exported as uint8 with nodata 0
+  (value scale ``"uint8"``). There is no cloud filter or mask, and no speckle
+  filter, terrain flattening or incidence-angle normalisation.
 
 Float composites are written as float32 with NaN nodata. Masked pixels
 (clouds, cloud shadows, no valid observation) are NaN. After download, the
@@ -43,23 +58,45 @@ share of valid pixels inside the study-area polygons is written to the
 ``AGRIBOUND_VALID_FRACTION`` tag; the builder raises when it is 0 and logs a
 WARNING when it is below :data:`LOW_VALID_FRACTION`.
 
+Image dates: the tags of every composite list the images it was made from
+(``AGRIBOUND_IMAGE_LIST``: asset ID, UTC date and scene cloud cover, at most
+:data:`IMAGE_LIST_MAX` images, sorted by date), with the number of distinct
+dates and the first and last date; they come from the image-count request
+(:func:`collection_summary`). :mod:`agribound.composites.scenes` ranks the
+acquisitions of a window and downloads per-pixel date layers.
+
 Cloud masks: Landsat ``QA_PIXEL`` bits 0-4 (fill, dilated cloud, cirrus,
 cloud, cloud shadow); HLS ``Fmask`` bits 1-3 (cloud, adjacent to
 cloud/shadow, cloud shadow); Sentinel-2 either the scene classification
 (``SCL`` classes 3 cloud shadow, 8 cloud medium probability, 9 cloud high
 probability, 10 thin cirrus) or Cloud Score+ (``cs_cdf >=
-config.cloud_score_threshold``). Scenes are pre-filtered on their scene
-cloud-cover property (``<= config.cloud_cover_max``).
+config.cloud_score_threshold``). Scenes of ``landsat``, ``landsat-pan``,
+``sentinel2``, ``hls``, ``spot`` and ``spot-pan`` are pre-filtered on their
+scene cloud-cover property (``<= config.cloud_cover_max``); ``naip`` and
+``sentinel1`` ignore ``cloud_cover_max``, and ``sentinel1`` also ignores
+``s2_cloud_mask``.
 
 Extent: the export pixel grid covers the bounding box of the study area in
 ``config.export_crs`` (``"utm"`` = WGS 84 / UTM zone of the study-area
 centroid, used for the whole study area), with pixel edges on multiples of the
 resolution, so composites of the same study area, CRS and resolution (e.g.
 FTW's two date windows) share one grid. Images are selected with
-``filterBounds`` on the outline of that grid. Pixels are **not** masked to the
+``filterBounds`` on the outline of that grid (:func:`grid_footprint_4326`;
+:func:`ee_geometry` splits it at 180 degrees when the grid reaches across
+180 degrees). Pixels are **not** masked to the
 study-area polygons: when the study area is a set of field polygons (for
 example the reference boundaries), masking would imprint their outlines on the
 engine input.
+
+HLS footprints: HLSS30 images of the MGRS tiles at 180 degrees have footprint
+rings that run clockwise in Earth Engine, which reads them as the globe except
+the tile (:data:`HLS_ANTIMERIDIAN_MARGIN_DEG`). ``hls`` composites therefore
+exclude the images whose footprint meets one of two points on the far side of
+the Earth (:func:`hls_far_points`, :func:`hls_footprint_filter`), and, when the
+grid outline comes within :data:`HLS_ANTIMERIDIAN_MARGIN_DEG` of 180 degrees,
+add the affected images whose tile meets the outline, loaded by ID
+(:func:`hls_antimeridian_images`; HLSL30 and HLSS30 alike, although only
+HLSS30 had such images).
 
 Download: component images are resampled to the grid by Earth Engine (nearest
 neighbour, the Earth Engine default). Grids larger than ``config.tile_size``
@@ -78,7 +115,7 @@ import os
 import re
 import time
 import warnings
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -129,6 +166,46 @@ HLS_BANDS = list(SOURCE_REGISTRY["hls"]["all_bands"])
 HLSS30_SOURCE_BANDS = ["B1", "B2", "B3", "B4", "B8A", "B11", "B12"]
 #: Fmask bits 1-3: cloud, adjacent to cloud/shadow, cloud shadow.
 HLS_FMASK_MASK = 0b1110
+#: Margin (degrees of longitude) around 180 degrees within which ``hls`` composites
+#: also load the images of the MGRS tiles at 180 degrees that have reversed footprints
+#: by ID (:func:`hls_antimeridian_images`). In Earth Engine (checked 2026-10-09), 10,324
+#: ``NASA/HLS/HLSS30/v002`` images of 31 tiles that straddle 180 degrees (acquired
+#: 2015-12-22 to 2025-05-30) have a footprint ring that runs clockwise. Earth Engine
+#: reads such a ring as the whole globe except the tile, so ``filterBounds`` with a
+#: polygon selects these images everywhere except over their own tile. Every affected
+#: tile reaches at most 3.0006 degrees from 180.
+HLS_ANTIMERIDIAN_MARGIN_DEG = 5.0
+#: Latitude ranges (degrees) of the 31 MGRS tiles whose HLSS30 images had reversed
+#: footprints (:data:`HLS_ANTIMERIDIAN_MARGIN_DEG`; Earth Engine, 2026-10-09). All 31
+#: straddle 180 degrees (unwrapped longitudes 176.9994 to 181.2856). In order: 3 tiles
+#: (T01FBE, T01FBF, T01GBH; Antipodes and Bounty Islands), 9 tiles (T01KAU, T01KAV,
+#: T01KAA, T01KAB, T01LAC, T01LAD, T01LAE, T01LAJ, T01LAK; Fiji and Tuvalu), 4 tiles
+#: (T01UBS, T01UBT, T60UXB, T60UXC; Aleutian Islands) and 15 tiles (T01VCK, T01VCL,
+#: T01WCM to T01WCV, T60VXQ, T60VXR, T60WWD, T60WWE; Chukotka). Gaps between the tiles
+#: of a range are included. Used by :func:`near_hls_reversed_footprint_tiles`.
+HLS_REVERSED_FOOTPRINT_LATITUDES = (
+    (-50.6084, -46.8854),
+    (-19.9628, -9.0282),
+    (50.3874, 52.3414),
+    (62.0859, 72.0996),
+)
+#: Short collection names: keys of the listing request and of the ``*_images_by_id`` notes.
+_HLS_NAMES = {HLSL30_COLLECTION: "HLSL30", HLSS30_COLLECTION: "HLSS30"}
+#: Image property set by :func:`hls_antimeridian_images`: 1 when the image's geometry
+#: is unbounded and its footprint ring, read with the even-odd rule, meets the region.
+_HLS_REAL_FOOTPRINT_PROPERTY = "agribound_real_footprint"
+#: Bump when the ``hls`` recipe changes (image selection, masks or scaling). It is part
+#: of the cache key of ``hls`` composites only (:func:`_recipe_parts`), so the cached
+#: composites of the other sources stay valid. ``"2"``: images whose footprint meets a
+#: far point of the region are excluded (:func:`hls_footprint_filter`) and, near 180
+#: degrees, the affected images are loaded by ID; the recipe before had no version
+#: part in the key. The HPC stage markers of ``hls`` tiles include it too
+#: (``agribound.hpc.tiles._marker_parts``). Output reuse
+#: (:func:`agribound.provenance.reuse_mismatch`) compares the configuration hash and
+#: :data:`agribound._results.RESULTS_VERSIONS`, and refuses an ``hls`` output whose
+#: composite has no ``AGRIBOUND_HLS_RECIPE_VERSION`` tag (made before ``"2"``) when its
+#: study area lies near the affected tiles (:func:`near_hls_reversed_footprint_tiles`).
+HLS_RECIPE_VERSION = "2"
 
 NAIP_COLLECTION = "USDA/NAIP/DOQQ"
 NAIP_BANDS = list(SOURCE_REGISTRY["naip"]["all_bands"])
@@ -137,6 +214,50 @@ SPOT_COLLECTION = "AIRBUS/SPOT6_7"
 SPOT_BANDS = list(SOURCE_REGISTRY["spot"]["all_bands"])
 SPOT_PAN_BANDS = list(SOURCE_REGISTRY["spot-pan"]["all_bands"])
 SPOT_CLOUD_PROPERTY = "cloud_coverage_percentage"
+
+#: Sentinel-1 GRD scenes, calibrated and terrain-corrected sigma0 in dB (computed by
+#: Earth Engine from the linear-power ``COPERNICUS/S1_GRD_FLOAT``); checked 2026-10-07.
+S1_COLLECTION = "COPERNICUS/S1_GRD"
+#: Output bands: VV, VH and VV - VH (dB), each scaled to 1-255.
+S1_BANDS = list(SOURCE_REGISTRY["sentinel1"]["all_bands"])
+#: Scene filters of ``sentinel1`` composites: the instrument mode, the pixel spacing
+#: (``resolution_meters``) and the polarisations every image must have
+#: (``transmitterReceiverPolarisation``).
+S1_INSTRUMENT_MODE = "IW"
+S1_RESOLUTION_METERS = 10
+S1_POLARISATIONS = ("VV", "VH")
+#: ``orbitProperties_pass`` values; a composite uses one (:func:`sentinel1_orbit_pass`).
+S1_ORBIT_PASSES = ("ASCENDING", "DESCENDING")
+#: Image properties shared by the GRD slices of one acquisition: the satellite and the
+#: absolute orbit. Earth Engine stores each acquisition as slices of about 25 s, so a
+#: study area that crosses a slice boundary has several images of one acquisition;
+#: counts of ``sentinel1`` images count each acquisition once
+#: (:func:`sentinel1_acquisitions`).
+S1_ACQUISITION_PROPERTIES = ("platform_number", "orbitNumber_start")
+#: Pixels with VV below this value (dB) are masked in every band: GRD border noise and
+#: invalid swath edges (the mask of the Earth Engine catalogue example).
+S1_EDGE_MASK_DB = -30.0
+#: Fixed dB range ``(lo, hi)`` of each output band, mapped to 1-255 by
+#: :func:`prepare_sentinel1_image` (values beyond the range are clamped; 0 is
+#: nodata). Every ``sentinel1`` composite records them in ``AGRIBOUND_S1_DB_RANGES``.
+S1_DB_RANGES: dict[str, tuple[float, float]] = {
+    "VV": (-25.0, 0.0),
+    "VH": (-32.0, -8.0),
+    "VV_VH": (0.0, 15.0),
+}
+#: ``platform_number`` -> satellite, in the order of the ``AGRIBOUND_SENSORS`` tag
+#: (Earth Engine, 2026-10-07: S1B ended 2021-12-23, S1C from 2025-03-27, S1D from
+#: 2026-04-15, S1A until 2026-06-29).
+S1_PLATFORMS = {"A": "S1A", "B": "S1B", "C": "S1C", "D": "S1D"}
+#: Bump when the ``sentinel1`` recipe changes (scene filters, orbit-pass rule, edge
+#: mask, dB ranges or scaling). It is part of the cache key of ``sentinel1``
+#: composites only, so the cached composites of the other sources stay valid
+#: (:data:`COMPOSITE_RECIPE_VERSION` applies to every source). It invalidates only
+#: the cached composites: output reuse (:func:`agribound.provenance.reuse_mismatch`)
+#: compares the configuration hash and :data:`agribound._results.RESULTS_VERSIONS`,
+#: so a bump that should also re-delineate existing outputs needs a results-version
+#: component that applies when ``source == "sentinel1"``.
+S1_RECIPE_VERSION = "1"
 
 #: Metres per degree used to convert a metre scale for geographic export CRSs.
 METRES_PER_DEGREE = 111_319.490_793_273_57
@@ -157,6 +278,12 @@ _GEEDIM_NO_STAC_FOR_NONE = re.compile(r"^Couldn't find STAC entry for: '?None'?\
 #: Below this share of valid pixels inside the study area a WARNING is logged
 #: for imagery composites (see :func:`raster_valid_fraction`).
 LOW_VALID_FRACTION = 0.95
+
+#: Most images listed in a composite's ``AGRIBOUND_IMAGE_LIST`` tag: the first ones by
+#: acquisition time. With more images, ``AGRIBOUND_IMAGE_LIST_TRUNCATED`` says how many
+#: were left out; ``AGRIBOUND_IMAGE_DATES`` and the first and last date still cover all
+#: of them. 1,000 rows of Sentinel-2 asset IDs take about 90 KB.
+IMAGE_LIST_MAX = 1000
 
 #: Earth Engine task states for which a recorded batch export is reused
 #: instead of starting a new task (``ee.data.getTaskStatus``).
@@ -403,6 +530,15 @@ def grid_footprint_4326(grid: ExportGrid, points_per_side: int = 32) -> Any:
     segments per side) before it is transformed, so the polygon follows the
     curved edges of a projected rectangle in longitude/latitude.
 
+    A grid can reach across 180 degrees although its study area does not: its
+    edges are rounded outwards to whole pixels, and away from the equator the
+    edges of a UTM grid are not meridians, so a study area that ends at 180
+    degrees, or up to about 10 km short of it at high latitudes, can get such
+    a grid. The longitudes of its outline then jump from 180 to -180 where it
+    crosses 180 degrees (pyproj returns them in [-180, 180]), and its bounds
+    run from about -180 to 180. :func:`ee_geometry` splits such an outline at
+    180 degrees (:func:`split_at_antimeridian`) before it selects images.
+
     Parameters
     ----------
     grid : ExportGrid
@@ -431,6 +567,109 @@ def grid_footprint_4326(grid: ExportGrid, points_per_side: int = 32) -> Any:
     dense = shapely.segmentize(rect, max_segment_length=side)
     to_4326 = pyproj.Transformer.from_crs(src, "EPSG:4326", always_xy=True)
     return shapely_transform(to_4326.transform, dense)
+
+
+def _max_longitude_step(geometry: Any) -> float:
+    """The largest change of longitude between consecutive vertices of *geometry*."""
+    import shapely
+
+    step = 0.0
+    for part in shapely.get_parts(geometry):
+        lines = shapely.get_rings(part) if part.geom_type == "Polygon" else [part]
+        for line in lines:
+            if line.geom_type in ("LineString", "LinearRing") and not line.is_empty:
+                x = np.asarray(line.coords, dtype=float)[:, 0]
+                if x.size > 1:
+                    step = max(step, float(np.abs(np.diff(x)).max()))
+    return step
+
+
+def _unwrap_antimeridian(geometry_4326: Any) -> Any:
+    """*geometry_4326* with 360 added to its negative longitudes if they wrap at 180 degrees.
+
+    Longitudes wrap when they span more than 180 degrees, the shift brings the
+    span to 180 degrees or less, and the geometry either has parts at both
+    -180 and 180 (it is split there) or has consecutive vertices more than
+    270 degrees of longitude apart (it jumps from 180 to -180 where it
+    crosses 180 degrees, as a projected outline does). Any other geometry is
+    returned unchanged (the same object), including a valid planar geometry
+    wider than 180 degrees.
+    """
+    import shapely
+
+    minx, _, maxx, _ = geometry_4326.bounds
+    if not maxx - minx > 180.0:  # also an empty geometry (NaN bounds)
+        return geometry_4326
+    split_there = minx <= -180.0 + 1e-9 and maxx >= 180.0 - 1e-9
+    if not (split_there or _max_longitude_step(geometry_4326) > 270.0):
+        return geometry_4326
+
+    def shift(xy: np.ndarray) -> np.ndarray:
+        out = np.array(xy, dtype=float)
+        out[:, 0] = np.where(out[:, 0] < 0.0, out[:, 0] + 360.0, out[:, 0])
+        return out
+
+    shifted = shapely.transform(geometry_4326, shift)
+    sminx, _, smaxx, _ = shifted.bounds
+    if smaxx - sminx > 180.0 or (geometry_4326.area > 0.0 and not shifted.area > 0.0):
+        return geometry_4326  # e.g. a band from -180 to 180 with corners only
+    return shifted
+
+
+def _polygons(geometry: Any) -> list[Any]:
+    """The non-empty polygons of *geometry*, nested collections included."""
+    if geometry.is_empty:
+        return []
+    if geometry.geom_type == "Polygon":
+        return [geometry]
+    return [p for part in getattr(geometry, "geoms", ()) for p in _polygons(part)]
+
+
+def split_at_antimeridian(geometry_4326: Any) -> Any:
+    """*geometry_4326* with its longitudes in [-180, 180], split at 180 degrees.
+
+    A Polygon or MultiPolygon whose longitudes wrap at 180 degrees (they span
+    more than 180 degrees, adding 360 to the negative ones brings the span to
+    180 degrees or less, and the geometry has parts at both -180 and 180 or
+    jumps from 180 to -180 between two vertices) or reach beyond -180 or 180
+    is cut at 180 degrees, and the parts beyond are moved by 360 degrees: a
+    MultiPolygon with parts on either side of 180 degrees, as GeoJSON
+    (RFC 7946) splits such a geometry. Any other geometry is returned
+    unchanged (the same object), so the outline of a grid away from 180
+    degrees stays the transformed rectangle.
+
+    Parameters
+    ----------
+    geometry_4326 : shapely geometry
+        Geometry in EPSG:4326 (for example a grid outline,
+        :func:`grid_footprint_4326`). Only one narrower than 180 degrees of
+        longitude (once unwrapped) is split.
+
+    Returns
+    -------
+    shapely geometry
+    """
+    import shapely
+    from shapely.affinity import translate
+    from shapely.geometry import MultiPolygon, box
+
+    if geometry_4326.geom_type not in ("Polygon", "MultiPolygon"):
+        return geometry_4326
+    unwrapped = _unwrap_antimeridian(geometry_4326)
+    minx, _, maxx, _ = unwrapped.bounds
+    if not (minx < -180.0 or maxx > 180.0):
+        return geometry_4326
+    if not unwrapped.is_valid:
+        unwrapped = shapely.make_valid(unwrapped)
+    parts = []
+    for k in (-1, 0, 1):
+        window = box(-180.0 + 360.0 * k, -90.0, 180.0 + 360.0 * k, 90.0)
+        piece = unwrapped.intersection(window)
+        if not piece.is_empty:
+            parts.extend(_polygons(translate(piece, xoff=-360.0 * k)))
+    if not parts:
+        return geometry_4326
+    return parts[0] if len(parts) == 1 else MultiPolygon(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -590,6 +829,9 @@ def assemble_tiles(
         "predictor": 3 if is_float else 2,
         "BIGTIFF": "IF_SAFER",
         "interleave": "band",
+        # GDAL tags the 4th band of a 4-band uint8 GeoTIFF as alpha unless told
+        # otherwise; NAIP's band 4 is NIR, not transparency.
+        "ALPHA": "UNSPECIFIED",
     }
     rows_per_chunk = 1024
     try:
@@ -946,11 +1188,16 @@ def ee_geometry(geometry_4326: Any) -> Any:
 
     Edges are straight lines in longitude/latitude (``geodesic=False``), as in
     GeoJSON and shapely, so the Earth Engine geometry matches the shapely one.
+    A polygonal geometry whose longitudes wrap at 180 degrees, or reach beyond
+    -180 or 180, is split at 180 degrees first (:func:`split_at_antimeridian`):
+    read as one planar polygon, the outline of an export grid that reaches
+    across 180 degrees (:func:`grid_footprint_4326`) would cover a band around
+    the globe, and ``filterBounds`` would select images all along it.
     """
     import ee
     from shapely.geometry import mapping
 
-    return ee.Geometry(mapping(geometry_4326), None, False)
+    return ee.Geometry(mapping(split_at_antimeridian(geometry_4326)), None, False)
 
 
 def study_area_geometry_4326(config: AgriboundConfig) -> Any:
@@ -990,19 +1237,75 @@ def _years_of(collection: Any) -> Any:
     )
 
 
+def _dates_of(collection: Any) -> Any:
+    """The distinct UTC dates (``"YYYY-MM-DD"``) of the images in *collection*, sorted."""
+    import ee
+
+    return (
+        ee.List(collection.aggregate_array("system:time_start"))
+        .map(lambda t: ee.Date(t).format("YYYY-MM-dd"))
+        .distinct()
+        .sort()
+    )
+
+
+def _image_row(cloud_property: str | None) -> Any:
+    """Per-image function of the image list: ``[image ID, system:time_start, scene cloud]``.
+
+    The image ID is ``system:id`` (the asset ID, which ``ImageCollection.merge``
+    keeps, unlike ``system:index``), else ``system:index``. The scene cloud is
+    the value of *cloud_property*, or -1 when the image does not have it (or no
+    property is given).
+    """
+    import ee
+
+    def row(image: Any) -> Any:  # one argument: ee.List.map passes one element
+        image = ee.Image(image)
+        cloud = (
+            ee.Dictionary(image.toDictionary([cloud_property])).get(cloud_property, -1)
+            if cloud_property
+            else -1
+        )
+        image_id = ee.Algorithms.If(
+            image.get("system:id"), image.get("system:id"), image.get("system:index")
+        )
+        return ee.List([image_id, image.get("system:time_start"), cloud])
+
+    return row
+
+
 def collection_summary(
-    collection: Any, context: str = "collection", count_property: str | None = None
+    collection: Any,
+    context: str = "collection",
+    count_property: str | None = None,
+    *,
+    image_list: bool = False,
+    cloud_property: str | None = None,
 ) -> dict[str, Any]:
     """Return ``{"n_images": int, "years": [int, ...]}`` for a collection (one request).
 
     With *count_property*, the result also has ``"counts"``: the number of
     images per value of that image property (``aggregate_histogram``).
+
+    With *image_list*, the same request also returns ``"images"``: the first
+    :data:`IMAGE_LIST_MAX` images by ``system:time_start``, each as ``[image ID,
+    system:time_start in ms, scene cloud cover or -1]`` (the value of
+    *cloud_property*; -1 when it is missing), and ``"dates"``: the sorted
+    distinct UTC dates of all images. :func:`_image_list_tags` turns them into
+    the ``AGRIBOUND_IMAGE_*`` tags. Without it the request is unchanged.
     """
     import ee
 
     query = {"n": collection.size(), "years": _years_of(collection)}
     if count_property:
         query["counts"] = collection.aggregate_histogram(count_property)
+    if image_list:
+        query["images"] = (
+            collection.sort("system:time_start")
+            .toList(IMAGE_LIST_MAX)
+            .map(_image_row(cloud_property))
+        )
+        query["dates"] = _dates_of(collection)
     with ee_warning_monitor(context):
         info = ee.Dictionary(query).getInfo()
     summary: dict[str, Any] = {
@@ -1011,7 +1314,78 @@ def collection_summary(
     }
     if count_property:
         summary["counts"] = {str(k): int(v) for k, v in (info.get("counts") or {}).items()}
+    if image_list:
+        summary["images"] = [list(row) for row in (info.get("images") or [])]
+        summary["dates"] = sorted(str(d) for d in (info.get("dates") or []))
     return summary
+
+
+def _utc_date(time_ms: Any) -> str | None:
+    """``"YYYY-MM-DD"`` (UTC) of an Earth Engine ``system:time_start`` in milliseconds.
+
+    *None* when the value is missing or not a finite number.
+    """
+    try:
+        seconds = float(time_ms) / 1000.0
+        return _dt.datetime.fromtimestamp(seconds, _dt.UTC).date().isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _scene_cloud(value: Any) -> float | None:
+    """A scene cloud cover rounded to 2 decimals; *None* when missing, negative or not finite."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    return round(number, 2)
+
+
+def _image_list_tags(
+    images: Sequence[Sequence[Any]], n_images: int, dates: Sequence[str] | None = None
+) -> dict[str, Any]:
+    """``AGRIBOUND_IMAGE_LIST``, ``_IMAGE_DATES``, ``_IMAGE_DATE_FIRST``/``_LAST`` (``_TRUNCATED``).
+
+    Parameters
+    ----------
+    images : sequence of [image ID, system:time_start (ms), scene cloud or -1]
+        The rows of :func:`collection_summary` (``"images"``).
+    n_images : int
+        The number of images the composite counts (``AGRIBOUND_N_IMAGES``).
+    dates : sequence of str or None
+        The distinct UTC dates of all *n_images* images (``"dates"`` of
+        :func:`collection_summary`); *None* uses the dates of *images*.
+
+    Returns
+    -------
+    dict
+        ``AGRIBOUND_IMAGE_LIST``: compact JSON of ``[image ID, "YYYY-MM-DD",
+        scene cloud % rounded to 2 decimals or null]`` sorted by date and ID;
+        ``AGRIBOUND_IMAGE_DATES``: the number of distinct UTC dates;
+        ``AGRIBOUND_IMAGE_DATE_FIRST`` and ``AGRIBOUND_IMAGE_DATE_LAST`` (when
+        there is a date); ``AGRIBOUND_IMAGE_LIST_TRUNCATED`` only when the list
+        holds fewer rows than *n_images* (``"first 1000 of 1500 by date"``).
+    """
+    import json
+
+    rows = []
+    for row in images:
+        image_id, time_ms, cloud = (list(row) + [None, None, None])[:3]
+        rows.append([str(image_id), _utc_date(time_ms), _scene_cloud(cloud)])
+    rows.sort(key=lambda r: (r[1] or "", r[0]))
+    all_dates = sorted(set(dates)) if dates else sorted({r[1] for r in rows if r[1]})
+    tags: dict[str, Any] = {
+        "AGRIBOUND_IMAGE_LIST": json.dumps(rows, separators=(",", ":")),
+        "AGRIBOUND_IMAGE_DATES": len(all_dates),
+    }
+    if all_dates:
+        tags["AGRIBOUND_IMAGE_DATE_FIRST"] = all_dates[0]
+        tags["AGRIBOUND_IMAGE_DATE_LAST"] = all_dates[-1]
+    if int(n_images) > len(rows):
+        tags["AGRIBOUND_IMAGE_LIST_TRUNCATED"] = f"first {len(rows)} of {int(n_images)} by date"
+    return tags
 
 
 def available_years(collection: Any, context: str = "collection") -> list[int]:
@@ -1084,6 +1458,94 @@ def mask_s2_cloud_score(image: Any, threshold: float) -> Any:
     return _keep_time(image.select(S2_BANDS).updateMask(clear), image)
 
 
+def prepare_sentinel1_image(image: Any) -> Any:
+    """Mask the edges of one Sentinel-1 GRD image and scale VV, VH and VV - VH to 1-255.
+
+    Pixels with VV below :data:`S1_EDGE_MASK_DB` (-30 dB) are masked in every
+    band: GRD border noise and invalid swath edges, as in the Earth Engine
+    catalogue example. ``VV_VH`` is VV - VH in dB, the VV/VH ratio of this
+    image in dB. Each band is then mapped from its dB range
+    ``(lo, hi)`` in :data:`S1_DB_RANGES` to
+    ``1 + round(254 * clamp((dB - lo) / (hi - lo), 0, 1))``, so valid pixels
+    are 1-255 and 0 is left for nodata in the uint8 export
+    (:func:`sentinel1_db_to_uint8` is the same mapping in numpy,
+    :func:`sentinel1_uint8_to_db` its inverse). ``system:time_start`` and
+    ``system:index`` are kept.
+    """
+    vv = image.select("VV")
+    vh = image.select("VH")
+    db = vv.addBands(vh).addBands(vv.subtract(vh).rename("VV_VH"))
+    scaled = None
+    for band in S1_BANDS:
+        lo, hi = S1_DB_RANGES[band]
+        mapped = db.select(band).unitScale(lo, hi).clamp(0, 1).multiply(254).round().add(1)
+        scaled = mapped if scaled is None else scaled.addBands(mapped)
+    return _keep_time(scaled.updateMask(vv.gte(S1_EDGE_MASK_DB)), image)
+
+
+def sentinel1_db_to_uint8(db: Any, band: str) -> np.ndarray:
+    """Map Sentinel-1 dB values of *band* to the 1-255 scale of ``sentinel1`` composites.
+
+    The numpy form of the per-image mapping of :func:`prepare_sentinel1_image`:
+    ``1 + round(254 * clamp((dB - lo) / (hi - lo), 0, 1))`` with
+    ``(lo, hi) = S1_DB_RANGES[band]``, halves rounded up as by Earth Engine's
+    ``round``.
+
+    Parameters
+    ----------
+    db : array_like
+        Backscatter in dB (for ``"VV_VH"``, VV - VH in dB).
+    band : str
+        ``"VV"``, ``"VH"`` or ``"VV_VH"``.
+
+    Returns
+    -------
+    numpy.ndarray
+        uint8 values 1-255; 0 where *db* is not finite (nodata).
+    """
+    lo, hi = S1_DB_RANGES[band]
+    values = np.asarray(db, dtype=np.float64)
+    finite = np.isfinite(values)
+    fraction = np.clip((np.where(finite, values, lo) - lo) / (hi - lo), 0.0, 1.0)
+    return np.where(finite, 1.0 + np.floor(254.0 * fraction + 0.5), 0.0).astype(np.uint8)
+
+
+def sentinel1_uint8_to_db(
+    values: Any, band: str, db_ranges: Mapping[str, Sequence[float]] | str | None = None
+) -> np.ndarray:
+    """Convert values of a ``sentinel1`` composite band back to dB.
+
+    ``dB = lo + (value - 1) * (hi - lo) / 254``, the inverse of
+    :func:`sentinel1_db_to_uint8`, with 0 (nodata) as NaN. The result is the
+    centre of the value's dB step (0.06-0.10 dB wide). The scaling clamps,
+    so 1 and 255 also stand for everything below ``lo`` and above ``hi``.
+
+    Parameters
+    ----------
+    values : array_like
+        Composite values (0-255), e.g. one band read with rasterio.
+    band : str
+        ``"VV"``, ``"VH"`` or ``"VV_VH"``.
+    db_ranges : mapping, str or None
+        The dB ranges the composite was made with: its ``AGRIBOUND_S1_DB_RANGES``
+        tag (a JSON string) or the mapping that tag holds. *None* uses
+        :data:`S1_DB_RANGES`.
+
+    Returns
+    -------
+    numpy.ndarray
+        float64 dB values; NaN where *values* is 0 or not finite.
+    """
+    import json
+
+    ranges = json.loads(db_ranges) if isinstance(db_ranges, str) else db_ranges
+    lo, hi = (float(v) for v in (ranges or S1_DB_RANGES)[band])
+    arr = np.asarray(values, dtype=np.float64)
+    with np.errstate(invalid="ignore"):
+        valid = arr > 0
+    return np.where(valid, lo + (arr - 1.0) * (hi - lo) / 254.0, np.nan)
+
+
 # ---------------------------------------------------------------------------
 # Collection builders
 # ---------------------------------------------------------------------------
@@ -1097,7 +1559,7 @@ class CollectionSpec:
     ----------
     raw : ee.ImageCollection
         Filtered by date, bounds and scene cloud cover, before masking (used
-        to count images).
+        to count images unless *counted* is given).
     prepared : ee.ImageCollection
         Masked and scaled images with the output band names.
     history : ee.ImageCollection
@@ -1123,6 +1585,22 @@ class CollectionSpec:
     count_labels : dict
         Property value -> label in those tags (e.g. ``"LANDSAT_8"`` -> ``"LC08"``),
         in the order the tags list them.
+    counted : ee.ImageCollection or None
+        The images counted for ``AGRIBOUND_N_IMAGES`` and the sensor tags, when
+        they are not those of *raw*: for ``sentinel1``, one image per
+        acquisition (:func:`sentinel1_acquisitions`).
+    count_unit : str
+        What the counts count, in log messages and errors: ``"image"``, or
+        ``"acquisition"`` for ``sentinel1``.
+    round_composite : bool
+        Round the composite to whole values before the export. ``sentinel1``:
+        the median of an even number of values is the mean of the middle two,
+        which the uint8 export would truncate.
+    scene_cloud_property : str or None
+        Image property of *raw* holding the scene cloud cover in percent (the
+        property ``cloud_cover_max`` filters on), listed in
+        ``AGRIBOUND_IMAGE_LIST`` and by the scene survey. *None* for ``naip``
+        and ``sentinel1``, which have no scene cloud filter.
     """
 
     raw: Any
@@ -1136,6 +1614,10 @@ class CollectionSpec:
     history_all_bands: Any = None
     count_property: str | None = None
     count_labels: dict[str, str] = field(default_factory=dict)
+    counted: Any = None
+    count_unit: str = "image"
+    round_composite: bool = False
+    scene_cloud_property: str | None = None
 
 
 def export_resolution_m(config: AgriboundConfig) -> float:
@@ -1185,6 +1667,7 @@ def _build_landsat(config: AgriboundConfig, region: Any) -> CollectionSpec:
         dtype="float32",
         collections=ids,
         notes={"cloud_mask": "QA_PIXEL bits 0-4", "scaling": "SR*2.75e-5-0.2, >=0, x10000"},
+        scene_cloud_property="CLOUD_COVER",
     )
 
 
@@ -1316,6 +1799,7 @@ def _build_landsat_pan(config: AgriboundConfig, region: Any) -> CollectionSpec:
         notes=notes,
         count_property="SPACECRAFT_ID",
         count_labels=dict(LANDSAT_PAN_SPACECRAFT),
+        scene_cloud_property="CLOUD_COVER",
     )
 
 
@@ -1357,25 +1841,282 @@ def _build_sentinel2(config: AgriboundConfig, region: Any) -> CollectionSpec:
         dtype="float32",
         collections=ids,
         notes={"cloud_mask": mask_note, "scaling": "as stored (SR x10000)"},
+        scene_cloud_property="CLOUDY_PIXEL_PERCENTAGE",
     )
 
 
+def _wrap_longitude(lon: float) -> float:
+    """*lon* (degrees) wrapped to [-180, 180)."""
+    return (float(lon) + 180.0) % 360.0 - 180.0
+
+
+def hls_far_points(geometry_4326: Any) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Two points on the far side of the Earth from a region, as ``(lon, lat)``.
+
+    ``p1`` is the antipode of the centroid of *geometry_4326*, ``p2`` is ``p1``
+    moved 90 degrees east; longitudes are in [-180, 180). ``p1`` is 20,015 km
+    from the centroid and ``p2`` at least 10,007 km (``arccos(-sin^2 lat)`` times
+    the Earth's radius), so the footprint of an image that covers part of a
+    region of agribound's size (an HLS granule is about 110 km wide) meets
+    neither. The two points are ``arccos(sin^2 lat)`` times the Earth's radius
+    apart (2,792 km at 72.1 degrees, the latitude reached by the most northerly
+    affected tile), so the tile of a reversed HLSS30 footprint (the globe except
+    the tile, :data:`HLS_ANTIMERIDIAN_MARGIN_DEG`) holds at most one of them and
+    the footprint meets the other.
+
+    The centroid is planar (longitude/latitude). For a geometry whose
+    longitudes wrap at 180 degrees (the outline of a grid that reaches across
+    180 degrees, as :func:`grid_footprint_4326` returns it or as
+    :func:`ee_geometry` splits it), it is taken after 360 is added to the
+    negative longitudes, so it lies near 180 degrees.
+
+    Parameters
+    ----------
+    geometry_4326 : shapely geometry
+        Region in EPSG:4326 (for example the export grid outline).
+
+    Returns
+    -------
+    tuple
+        ``((lon1, lat1), (lon2, lat2))``.
+    """
+    centroid = _unwrap_antimeridian(geometry_4326).centroid
+    lon, lat = float(centroid.x), float(centroid.y)
+    return (_wrap_longitude(lon + 180.0), -lat), (_wrap_longitude(lon + 270.0), -lat)
+
+
+def near_antimeridian(geometry_4326: Any, margin_deg: float = HLS_ANTIMERIDIAN_MARGIN_DEG) -> bool:
+    """True when the longitudes of *geometry_4326* come within *margin_deg* of 180 degrees.
+
+    Parameters
+    ----------
+    geometry_4326 : shapely geometry
+        Region in EPSG:4326, longitudes in [-180, 180].
+    margin_deg : float
+        Margin in degrees of longitude (default :data:`HLS_ANTIMERIDIAN_MARGIN_DEG`).
+    """
+    minx, _, maxx, _ = geometry_4326.bounds
+    return minx <= -180.0 + margin_deg or maxx >= 180.0 - margin_deg
+
+
+def near_hls_reversed_footprint_tiles(geometry_4326: Any, margin_deg: float = 0.5) -> bool:
+    """True when *geometry_4326* may meet an MGRS tile whose HLSS30 images had reversed footprints.
+
+    That is, it comes within :data:`HLS_ANTIMERIDIAN_MARGIN_DEG` of 180
+    degrees (:func:`near_antimeridian`; every such tile reaches at most
+    3.0006 degrees from it) and its latitudes come within *margin_deg* of one
+    of :data:`HLS_REVERSED_FOOTPRINT_LATITUDES`. Only there can an ``hls``
+    composite selected before :data:`HLS_RECIPE_VERSION` ``"2"`` differ from
+    one selected now (elsewhere the images it no longer selects hold no
+    pixel of the export grid), so
+    :func:`agribound.provenance.reuse_mismatch` refuses to reuse such outputs
+    there. The margins cover the difference between a study area and its
+    export grid.
+
+    Parameters
+    ----------
+    geometry_4326 : shapely geometry
+        Study area in EPSG:4326.
+    margin_deg : float
+        Margin in degrees of latitude.
+    """
+    if not near_antimeridian(geometry_4326):
+        return False
+    _, miny, _, maxy = geometry_4326.bounds
+    return any(
+        miny <= north + margin_deg and maxy >= south - margin_deg
+        for south, north in HLS_REVERSED_FOOTPRINT_LATITUDES
+    )
+
+
+def hls_footprint_filter(geometry_4326: Any) -> Any:
+    """``ee.Filter`` that keeps the images whose footprint meets neither far point.
+
+    The points are those of :func:`hls_far_points` for *geometry_4326*. After
+    ``filterBounds`` with the region, it drops the HLSS30 images whose reversed
+    footprint (the globe except their tile, :data:`HLS_ANTIMERIDIAN_MARGIN_DEG`)
+    matched a region away from their tile, and keeps every image whose
+    footprint is bounded. It filters on the stored footprints, without a
+    per-image computation.
+    """
+    import ee
+
+    p1, p2 = hls_far_points(geometry_4326)
+    far = ee.Filter.Or(
+        ee.Filter.bounds(ee.Geometry.Point(list(p1))),
+        ee.Filter.bounds(ee.Geometry.Point(list(p2))),
+    )
+    return far.Not()
+
+
+def hls_antimeridian_images(
+    region: Any,
+    geometry_4326: Any,
+    *,
+    collection: str = HLSS30_COLLECTION,
+    cloud_cover_max: float | None = None,
+    window: tuple[str, str] | None = None,
+) -> Any:
+    """HLS images with a reversed footprint whose tile meets *region*.
+
+    The images of *collection* whose footprint meets the first far point of
+    *geometry_4326* (:func:`hls_far_points`; every reversed footprint does
+    when the region lies near 180 degrees), optionally with
+    ``CLOUD_COVERAGE <= cloud_cover_max`` and in *window*, that have an
+    unbounded geometry (a reversed footprint) and whose footprint ring, read
+    with the even-odd rule (the tile itself), intersects *region* (1 m maximum
+    error).
+
+    Taken from the collection, these images give counts and dates, but their
+    pixels depend on the extent of the pixel request (none when it lies inside
+    their tile), so :func:`_build_hls` loads them by ID for the composite.
+    On 2026-10-09 only ``NASA/HLS/HLSS30/v002`` had such images; HLSL30 is
+    listed the same way, so that the far-point exclusion
+    (:func:`hls_footprint_filter`), which applies to both collections, never
+    drops images of a tile at 180 degrees that are not added back.
+
+    Parameters
+    ----------
+    region : ee.Geometry
+        The region (EPSG:4326).
+    geometry_4326 : shapely geometry
+        The same region, for :func:`hls_far_points`.
+    collection : str
+        :data:`HLSS30_COLLECTION` (default) or :data:`HLSL30_COLLECTION`.
+    cloud_cover_max : float or None
+        Scene cloud filter (``CLOUD_COVERAGE``); *None* applies none.
+    window : tuple of str or None
+        ``(start, end_exclusive)`` dates; *None* applies no date filter.
+
+    Returns
+    -------
+    ee.ImageCollection
+    """
+    import ee
+
+    p1, _ = hls_far_points(geometry_4326)
+    images = ee.ImageCollection(collection).filterBounds(ee.Geometry.Point(list(p1)))
+    if cloud_cover_max is not None:
+        images = images.filter(ee.Filter.lte("CLOUD_COVERAGE", cloud_cover_max))
+    if window is not None:
+        images = images.filterDate(*window)
+
+    def flag(image: Any) -> Any:
+        ring = ee.Geometry(image.get("system:footprint"))
+        tile = ee.Geometry.Polygon(ee.List([ring.coordinates()]), None, True, None, True)
+        meets = ee.Algorithms.If(tile.intersects(region, 1), 1, 0)
+        return image.set(
+            _HLS_REAL_FOOTPRINT_PROPERTY,
+            ee.Algorithms.If(image.geometry().isUnbounded(), meets, 0),
+        )
+
+    return images.map(flag).filter(ee.Filter.eq(_HLS_REAL_FOOTPRINT_PROPERTY, 1))
+
+
+def _region_geometry_4326(region: Any) -> Any:
+    """The shapely geometry of an EPSG:4326 ``ee.Geometry``.
+
+    A geometry made from coordinates (as :func:`ee_geometry` makes it) is read
+    on the client (``toGeoJSON``); a computed geometry needs one request.
+    """
+    from shapely.geometry import shape
+
+    try:
+        geojson = region.toGeoJSON()
+    except Exception:  # a computed geometry has no client-side coordinates
+        with ee_warning_monitor("hls region"):
+            geojson = region.getInfo()
+    return shape(geojson)
+
+
 def _build_hls(config: AgriboundConfig, region: Any) -> CollectionSpec:
+    """HLSL30 and HLSS30 images over *region*, without the reversed HLSS30 footprints.
+
+    Both collections are filtered by bounds, ``CLOUD_COVERAGE`` and date, and
+    the images whose footprint meets a far point of the region are dropped
+    (:func:`hls_footprint_filter`), in *raw* and in *history*. When the region
+    comes within :data:`HLS_ANTIMERIDIAN_MARGIN_DEG` of 180 degrees
+    (:func:`near_antimeridian`), the images of each collection with a
+    reversed footprint whose tile meets the region
+    (:func:`hls_antimeridian_images`) are listed with one request for both
+    collections and loaded by ID (``ee.Image`` needs a constant ID) into that
+    collection's *raw*, before the per-image recipe (:func:`prepare_hls_image`);
+    *history* takes them from the collection (dates only). *region* is an
+    ``ee.Geometry`` in EPSG:4326 (:func:`_region_geometry_4326`).
+    """
     import ee
 
     window = date_window(config)
+    label = f"{config.source} {config.year}"
+    geometry = _region_geometry_4326(region)
+    keep = hls_footprint_filter(geometry)
+    near = near_antimeridian(geometry)
+    collections = ((HLSL30_COLLECTION, HLS_BANDS), (HLSS30_COLLECTION, HLSS30_SOURCE_BANDS))
+    by_id: dict[str, list[str]] = {}
+    if near:
+        listing = ee.Dictionary(
+            {
+                _HLS_NAMES[cid]: hls_antimeridian_images(
+                    region,
+                    geometry,
+                    collection=cid,
+                    cloud_cover_max=config.cloud_cover_max,
+                    window=window,
+                ).aggregate_array("system:index")
+                for cid, _ in collections
+            }
+        )
+        with ee_warning_monitor(f"{label} HLS images at 180 degrees"):
+            listed = listing.getInfo() or {}
+        by_id = {
+            cid: sorted(str(i) for i in listed.get(_HLS_NAMES[cid]) or []) for cid, _ in collections
+        }
+        logger.info(
+            "%s: the export grid lies within %g degrees of 180 degrees; %d HLSL30 and %d HLSS30 "
+            "image(s) of the MGRS tiles there (whose Earth Engine footprints are reversed) are "
+            "loaded by ID",
+            label,
+            HLS_ANTIMERIDIAN_MARGIN_DEG,
+            len(by_id[HLSL30_COLLECTION]),
+            len(by_id[HLSS30_COLLECTION]),
+        )
     parts = []
-    for collection_id, src in (
-        (HLSL30_COLLECTION, HLS_BANDS),
-        (HLSS30_COLLECTION, HLSS30_SOURCE_BANDS),
-    ):
+    for collection_id, src in collections:
         base = (
             ee.ImageCollection(collection_id)
             .filterBounds(region)
             .filter(ee.Filter.lte("CLOUD_COVERAGE", config.cloud_cover_max))
+            .filter(keep)
         )
-        raw = base.filterDate(*window)
-        parts.append((base, raw, raw.map(lambda img, src=src: prepare_hls_image(img, src))))
+        raw, history = base.filterDate(*window), base
+        if near:
+            if by_id[collection_id]:
+                raw = raw.merge(
+                    ee.ImageCollection(
+                        [ee.Image(f"{collection_id}/{i}") for i in by_id[collection_id]]
+                    )
+                )
+            history = history.merge(
+                hls_antimeridian_images(
+                    region,
+                    geometry,
+                    collection=collection_id,
+                    cloud_cover_max=config.cloud_cover_max,
+                )
+            )
+        parts.append((history, raw, raw.map(lambda img, src=src: prepare_hls_image(img, src))))
+    notes: dict[str, Any] = {
+        "cloud_mask": "Fmask bits 1-3",
+        "scaling": "x10000",
+        "footprint_filter": (
+            "images whose footprint meets the antipode of the grid outline's centroid or that "
+            "point moved 90 degrees east are excluded"
+        ),
+        "hls_recipe_version": HLS_RECIPE_VERSION,
+    }
+    if near:
+        for cid, _ in collections:
+            notes[f"{_HLS_NAMES[cid].lower()}_images_by_id"] = len(by_id[cid])
     return CollectionSpec(
         raw=_merge([p[1] for p in parts]),
         prepared=_merge([p[2] for p in parts]),
@@ -1384,7 +2125,8 @@ def _build_hls(config: AgriboundConfig, region: Any) -> CollectionSpec:
         resolution_m=export_resolution_m(config),
         dtype="float32",
         collections=[HLSL30_COLLECTION, HLSS30_COLLECTION],
-        notes={"cloud_mask": "Fmask bits 1-3", "scaling": "x10000"},
+        notes=notes,
+        scene_cloud_property="CLOUD_COVERAGE",
     )
 
 
@@ -1397,6 +2139,93 @@ def naip_order_key(image: Any, year: int) -> Any:
     return ee.Image(
         image.set(_NAIP_ORDER_PROPERTY, t.add(exact.multiply(_NAIP_EXACT_YEAR_BONUS_MS)))
     )
+
+
+def naip_year_areas(raw: Any, region: Any, year: int, other: Sequence[int]) -> dict[str, float]:
+    """Where each year's NAIP images show in the mosaic of *year*, by image footprint.
+
+    *raw* is the NAIP collection of the image-count request (the 4-band images over
+    the export grid from ``year - 1`` to ``year + 1``) and *region* the export grid's
+    outline. The *year* images are on top; the *other* years' images lie under them,
+    the newest year on top (:func:`naip_order_key`). A year therefore shows where its
+    footprints meet the part of *region* that the years above it leave uncovered. One
+    request; geodesic areas in m², with a 1 m error margin for the geometry operations.
+
+    Returns
+    -------
+    dict
+        ``"area_m2"``: the area of *region*; ``"uncovered_m2"``: its area outside the
+        *year* footprints; and, per year of *other* (a string key such as ``"2021"``),
+        the area where that year's images show.
+    """
+    import ee
+
+    def footprints(y: int) -> Any:
+        return raw.filterDate(f"{y}-01-01", f"{y + 1}-01-01").geometry(1)
+
+    remaining = region.difference(footprints(year), 1)
+    query = {"area_m2": region.area(1), "uncovered_m2": remaining.area(1)}
+    for y in sorted(other, reverse=True):
+        under = footprints(y)
+        query[str(y)] = remaining.intersection(under, 1).area(1)
+        remaining = remaining.difference(under, 1)
+    with ee_warning_monitor(f"naip {year} footprint coverage"):
+        info = ee.Dictionary(query).getInfo()
+    return {key: float(info[key]) for key in query}
+
+
+def _naip_years_shown(
+    spec: CollectionSpec, region: Any, year: int, years: list[int]
+) -> tuple[list[int], list[int]]:
+    """Split the NAIP image *years* into those that show in the mosaic and those under it.
+
+    Called when images from years other than *year* intersect the export extent
+    (``date_range`` unset). A year shows when its images fill more than one export pixel
+    of the extent (:func:`naip_year_areas`): then a WARNING gives their share of the
+    extent. Otherwise an INFO line says they lie under the *year* images. When the
+    request fails, every year is taken to show and the WARNING says the share is unknown.
+
+    Returns
+    -------
+    tuple
+        ``(shown, underneath)``, each sorted.
+    """
+    other = [y for y in years if y != year]
+    try:
+        areas = naip_year_areas(spec.raw, region, year, other)
+    except Exception as exc:  # the message is not needed for the mosaic; keep the build
+        logger.warning(
+            "NAIP mosaic for %d: %d images are on top; images from %s may fill gaps (their "
+            "share of the study-area extent was not measured: %s).",
+            year,
+            year,
+            other,
+            exc,
+        )
+        return sorted(years), []
+    pixel_m2 = float(spec.resolution_m) ** 2
+    filling = [y for y in other if areas[str(y)] > pixel_m2]
+    underneath = [y for y in other if y not in filling]
+    if not filling:
+        logger.info(
+            "NAIP mosaic for %d: images from %s intersect the study-area extent but lie under "
+            "the %d images.",
+            year,
+            other,
+            year,
+        )
+        return [year], sorted(underneath)
+    share = 100.0 * sum(areas[str(y)] for y in filling) / areas["area_m2"]
+    logger.warning(
+        "NAIP mosaic for %d: %d images are on top; images from %s fill %.3g %% of the "
+        "study-area extent%s.",
+        year,
+        year,
+        filling,
+        share,
+        f"; images from {underneath} lie under them" if underneath else "",
+    )
+    return sorted([year, *filling]), sorted(underneath)
 
 
 def _build_naip(config: AgriboundConfig, region: Any) -> CollectionSpec:
@@ -1445,6 +2274,151 @@ def _build_spot(config: AgriboundConfig, region: Any) -> CollectionSpec:
         dtype="float32",
         collections=[SPOT_COLLECTION],
         notes={"scaling": "raw DN (uncalibrated)", "cloud_filter": SPOT_CLOUD_PROPERTY},
+        scene_cloud_property=SPOT_CLOUD_PROPERTY,
+    )
+
+
+def sentinel1_collection(region: Any) -> Any:
+    """The Sentinel-1 GRD images over *region* that ``sentinel1`` composites can use.
+
+    ``COPERNICUS/S1_GRD`` filtered to :data:`S1_INSTRUMENT_MODE` (IW),
+    ``resolution_meters`` :data:`S1_RESOLUTION_METERS` (10) and images that
+    have both polarisations of :data:`S1_POLARISATIONS` (VV and VH), of both
+    orbit passes and every date. The composite builder and the agent's live
+    availability check count the acquisitions of these images
+    (:func:`sentinel1_acquisitions`).
+    """
+    import ee
+
+    collection = (
+        ee.ImageCollection(S1_COLLECTION)
+        .filterBounds(region)
+        .filter(ee.Filter.eq("instrumentMode", S1_INSTRUMENT_MODE))
+        .filter(ee.Filter.eq("resolution_meters", S1_RESOLUTION_METERS))
+    )
+    for polarisation in S1_POLARISATIONS:
+        collection = collection.filter(
+            ee.Filter.listContains("transmitterReceiverPolarisation", polarisation)
+        )
+    return collection
+
+
+def sentinel1_acquisitions(collection: Any) -> Any:
+    """One image per acquisition of a Sentinel-1 GRD *collection*, for counting.
+
+    Earth Engine stores each acquisition as GRD slices of about 25 s, so a
+    study area that crosses a slice boundary has two or more images of one
+    acquisition. The slices of an acquisition share the satellite and the
+    absolute orbit (:data:`S1_ACQUISITION_PROPERTIES`), and ``distinct`` on
+    them keeps one image of each. The composites use every slice; this
+    collection only counts acquisitions.
+    """
+    return collection.distinct(list(S1_ACQUISITION_PROPERTIES))
+
+
+def sentinel1_orbit_pass(counts: Mapping[str, int]) -> str:
+    """Return the orbit pass that a ``sentinel1`` composite uses.
+
+    Ascending and descending acquisitions look at the ground from opposite
+    sides at different times of day, so one composite uses one pass: the one
+    with more acquisitions. One pass can still combine several relative
+    orbits, which view the area at different incidence angles; no
+    incidence-angle normalisation is applied.
+
+    Parameters
+    ----------
+    counts : mapping
+        Number of acquisitions per ``orbitProperties_pass`` value
+        (``"ASCENDING"``, ``"DESCENDING"``; :func:`sentinel1_pass_counts`); a
+        missing pass has none.
+
+    Returns
+    -------
+    str
+        ``"ASCENDING"`` when it has more acquisitions than ``"DESCENDING"``,
+        else ``"DESCENDING"`` (also on a tie and when neither has any).
+    """
+    ascending = int(counts.get("ASCENDING") or 0)
+    descending = int(counts.get("DESCENDING") or 0)
+    return "ASCENDING" if ascending > descending else "DESCENDING"
+
+
+def sentinel1_pass_counts(collection: Any, context: str = "sentinel1") -> dict[str, int]:
+    """Number of acquisitions of *collection* per ``orbitProperties_pass`` value (one request).
+
+    The GRD slices of one acquisition count once (:func:`sentinel1_acquisitions`).
+    """
+    with ee_warning_monitor(f"{context} orbit pass counts"):
+        info = (
+            sentinel1_acquisitions(collection).aggregate_histogram("orbitProperties_pass").getInfo()
+        )
+    return {str(k): int(v) for k, v in (info or {}).items()}
+
+
+def _build_sentinel1(config: AgriboundConfig, region: Any) -> CollectionSpec:
+    """IW VV+VH GRD images of one orbit pass, edge-masked and scaled to 1-255.
+
+    The acquisitions of :func:`sentinel1_collection` in the date window are
+    counted per orbit pass (one request) and the pass with more of them is
+    used (:func:`sentinel1_orbit_pass`); each image of that pass is prepared
+    with :func:`prepare_sentinel1_image`, and the composite counts its
+    acquisitions (:func:`sentinel1_acquisitions`) and is rounded before the
+    uint8 export. The history used to list the years with images covers both
+    passes.
+    """
+    import json
+
+    import ee
+
+    window = date_window(config)
+    label = f"{config.source} {config.year}"
+    base = sentinel1_collection(region)
+    dated = base.filterDate(*window)
+    counts = sentinel1_pass_counts(dated, context=label)
+    orbit_pass = sentinel1_orbit_pass(counts)
+    per_pass = {p: int(counts.get(p, 0)) for p in S1_ORBIT_PASSES}
+    logger.info(
+        "%s: acquisitions per orbit pass: %s; the composite uses %s (more acquisitions; "
+        "DESCENDING on a tie)",
+        label,
+        ", ".join(f"{p} {n}" for p, n in per_pass.items()),
+        orbit_pass,
+    )
+    raw = dated.filter(ee.Filter.eq("orbitProperties_pass", orbit_pass))
+    db_ranges = {band: [float(v) for v in S1_DB_RANGES[band]] for band in S1_BANDS}
+    return CollectionSpec(
+        raw=raw,
+        prepared=raw.map(prepare_sentinel1_image),
+        history=base,
+        bands=list(S1_BANDS),
+        resolution_m=export_resolution_m(config),
+        dtype="uint8",
+        collections=[S1_COLLECTION],
+        notes={
+            "instrument_mode": S1_INSTRUMENT_MODE,
+            "polarisation": "+".join(S1_POLARISATIONS),
+            "orbit_pass": orbit_pass,
+            "orbit_pass_acquisitions": ",".join(f"{p}:{n}" for p, n in per_pass.items()),
+            "image_counts": (
+                "acquisitions: the GRD slices with the same "
+                f"{' and '.join(S1_ACQUISITION_PROPERTIES)} count once"
+            ),
+            "edge_mask": f"VV < {S1_EDGE_MASK_DB:g} dB masked in every band",
+            "rgb_mapping": "R=VV, G=VH, B=VV_VH (VV - VH, dB)",
+            "s1_db_ranges": json.dumps(db_ranges),
+            "scaling": (
+                "per image, value = 1 + round(254 * clamp((dB - lo) / (hi - lo), 0, 1)) with "
+                "(lo, hi) from AGRIBOUND_S1_DB_RANGES, then the median, rounded (halves up); "
+                "0 = nodata; dB = lo + (value - 1) * (hi - lo) / 254"
+            ),
+            "cloud_filter": "none (cloud_cover_max and s2_cloud_mask are ignored)",
+            "s1_recipe_version": S1_RECIPE_VERSION,
+        },
+        count_property="platform_number",
+        count_labels=dict(S1_PLATFORMS),
+        counted=sentinel1_acquisitions(raw),
+        count_unit="acquisition",
+        round_composite=True,
     )
 
 
@@ -1456,7 +2430,26 @@ _COLLECTION_BUILDERS = {
     "naip": _build_naip,
     "spot": _build_spot,
     "spot-pan": _build_spot,
+    "sentinel1": _build_sentinel1,
 }
+
+
+def _ndvi_bands(source: str, method: str) -> tuple[str, str]:
+    """Return the canonical NIR and red bands of *source* for *method* (``greenest``).
+
+    Raises
+    ------
+    ValueError
+        If the source lacks either band (``landsat-pan``, ``spot-pan``, ``sentinel1``).
+    """
+    canonical = SOURCE_REGISTRY[source].get("canonical_bands") or {}
+    nir, red = canonical.get("NIR"), canonical.get("R")
+    if not nir or not red or nir == red:
+        raise ValueError(
+            f"composite_method={method!r} needs NIR and red bands, which source "
+            f"{source!r} does not have. Use composite_method='median'."
+        )
+    return nir, red
 
 
 def apply_composite_method(collection: Any, method: str, source: str) -> Any:
@@ -1483,13 +2476,7 @@ def apply_composite_method(collection: Any, method: str, source: str) -> Any:
     if method == "median":
         return collection.median()
     if method in ("greenest", "max_ndvi"):
-        canonical = SOURCE_REGISTRY[source].get("canonical_bands") or {}
-        nir, red = canonical.get("NIR"), canonical.get("R")
-        if not nir or not red or nir == red:
-            raise ValueError(
-                f"composite_method={method!r} needs NIR and red bands, which source "
-                f"{source!r} does not have. Use composite_method='median'."
-            )
+        nir, red = _ndvi_bands(source, method)
         bands = list(SOURCE_REGISTRY[source]["all_bands"])
 
         def add_ndvi(image):
@@ -1504,7 +2491,14 @@ def apply_composite_method(collection: Any, method: str, source: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _coverage_advice(source: str) -> str:
+def _coverage_advice(config: AgriboundConfig, tags: Mapping[str, Any] | None = None) -> str:
+    """What to try when a composite has too few valid pixels in the study area.
+
+    *tags* are the composite's ``AGRIBOUND_*`` tags; for ``sentinel1`` the
+    advice quotes the orbit pass used and the acquisitions of each pass from
+    them.
+    """
+    source = config.source
     if source == "naip":
         return "NAIP has no image there for the years used; try another year."
     if source in ("spot", "spot-pan"):
@@ -1513,10 +2507,45 @@ def _coverage_advice(source: str) -> str:
             "No selected SPOT scene covers the rest; consider a wider date window or a higher "
             "cloud_cover_max."
         )
+    if source == "sentinel1":
+        # Radar: no cloud filter or mask. A composite uses one orbit pass, and a
+        # calendar year already holds every relative orbit of it.
+        tags = tags or {}
+        used = tags.get("AGRIBOUND_ORBIT_PASS")
+        orbit_pass = f"the {used} pass" if used else "the orbit pass used"
+        per_pass = tags.get("AGRIBOUND_ORBIT_PASS_ACQUISITIONS")
+        counts = f" (acquisitions per pass: {per_pass})" if per_pass else ""
+        advice = (
+            f"The rest has no acquisition of {orbit_pass} or is masked (VV below "
+            f"{S1_EDGE_MASK_DB:g} dB: swath edges, border noise, or very smooth surfaces such as "
+            f"calm water). The other orbit pass may cover it{counts}, but a composite uses one "
+            "pass; split the study area (for example into HPC tiles) so that each part uses the "
+            "pass with more acquisitions over it."
+        )
+        if config.date_range is not None:
+            advice += (
+                " A wider date_range can add acquisitions of this pass (and can change the pass)."
+            )
+        return advice
     return (
         "The rest is masked (clouds, shadows) or has no observation; consider a wider date "
         "window or a higher cloud_cover_max."
     )
+
+
+def _recipe_parts(source: str) -> tuple[str, ...]:
+    """Recipe parts of a composite's cache key (its file name and ``AGRIBOUND_CACHE_KEY``).
+
+    :data:`COMPOSITE_RECIPE_VERSION` for every source, for ``sentinel1`` also
+    :data:`S1_RECIPE_VERSION` and for ``hls`` also :data:`HLS_RECIPE_VERSION`,
+    so a change of the Sentinel-1 or HLS recipe leaves the cached composites of
+    the other sources valid.
+    """
+    if source == "sentinel1":
+        return (COMPOSITE_RECIPE_VERSION, f"sentinel1-recipe-{S1_RECIPE_VERSION}")
+    if source == "hls":
+        return (COMPOSITE_RECIPE_VERSION, f"hls-recipe-{HLS_RECIPE_VERSION}")
+    return (COMPOSITE_RECIPE_VERSION,)
 
 
 def _warn_low_coverage(fraction: float, what: str, advice: str) -> None:
@@ -1532,19 +2561,24 @@ def _warn_low_coverage(fraction: float, what: str, advice: str) -> None:
 
 
 def _sensor_tags(
-    config: AgriboundConfig, label: str, counts: dict[str, int], labels: dict[str, str]
+    config: AgriboundConfig,
+    label: str,
+    counts: dict[str, int],
+    labels: dict[str, str],
+    unit: str = "image",
 ) -> dict[str, str]:
     """``AGRIBOUND_SENSORS`` and ``AGRIBOUND_SENSOR_IMAGES`` from per-property image counts.
 
     The tags name only the sensors with images that passed the bounds, date and
-    scene cloud filters. For ``landsat-pan``, a WARNING is logged when both PAN
-    bandpasses contribute, and ``AGRIBOUND_SPECTRAL_RESPONSE`` names the
-    bandpasses of those sensors.
+    scene cloud filters. *unit* names what *counts* count in the log message
+    (``"acquisition"`` for ``sentinel1``). For ``landsat-pan``, a WARNING is
+    logged when both PAN bandpasses contribute, and
+    ``AGRIBOUND_SPECTRAL_RESPONSE`` names the bandpasses of those sensors.
     """
     named = {labels.get(key, key): n for key, n in counts.items() if n > 0}
     order = [v for v in labels.values() if v in named] + sorted(set(named) - set(labels.values()))
     images = ", ".join(f"{m} {named[m]}" for m in order)
-    logger.info("%s: images per sensor: %s", label, images or "none")
+    logger.info("%s: %ss per sensor: %s", label, unit, images or "none")
     tags = {
         "AGRIBOUND_SENSORS": ",".join(order),
         "AGRIBOUND_SENSOR_IMAGES": ",".join(f"{m}:{named[m]}" for m in order),
@@ -1571,6 +2605,11 @@ def _years_error(
         filters.append(f"scene cloud cover <= {config.cloud_cover_max}%")
     if config.source == "naip":
         filters.append("4-band (R, G, B, N) images")
+    if config.source == "sentinel1":
+        filters.append(
+            f"{S1_INSTRUMENT_MODE} mode, {S1_RESOLUTION_METERS} m, "
+            f"{' and '.join(S1_POLARISATIONS)} polarisations"
+        )
     where = f" ({', '.join(filters)})" if filters else ""
     if config.source == "naip" and config.date_range is None:
         period = f"{int(config.year) - 1}-{int(config.year) + 1}"
@@ -1631,8 +2670,8 @@ class GEECompositeBuilder(CompositeBuilder):
     """Composite builder for the Earth Engine imagery sources.
 
     Handles ``landsat``, ``landsat-pan``, ``sentinel2``, ``hls``, ``naip``,
-    ``spot`` and ``spot-pan`` (see the module docstring for masks, radiometry
-    and the export grid). The result is cached under
+    ``spot``, ``spot-pan`` and ``sentinel1`` (see the module docstring for
+    masks, radiometry and the export grid). The result is cached under
     ``cache_path(config, f"{source}_composite", ".tif", ...)``, whose key
     includes the study area, year, date range, compositing and export
     settings, so different windows (e.g. FTW's two windows) get different
@@ -1682,6 +2721,21 @@ class GEECompositeBuilder(CompositeBuilder):
         polygons that are valid in every band is written to the
         ``AGRIBOUND_VALID_FRACTION`` tag (:func:`raster_valid_fraction`); a
         WARNING is logged when it is below :data:`LOW_VALID_FRACTION`.
+
+        The image-count request also lists the images counted
+        (``AGRIBOUND_IMAGE_LIST``, ``AGRIBOUND_IMAGE_DATES``,
+        ``AGRIBOUND_IMAGE_DATE_FIRST``, ``AGRIBOUND_IMAGE_DATE_LAST`` and,
+        above :data:`IMAGE_LIST_MAX` images, ``AGRIBOUND_IMAGE_LIST_TRUNCATED``;
+        for ``sentinel1`` one row per acquisition). A composite cached before
+        these tags existed is reused without them.
+
+        For ``naip`` without ``date_range``, when images from ``year - 1`` or
+        ``year + 1`` intersect the study-area extent, one more request
+        (:func:`naip_year_areas`) finds where they show under the ``year``
+        images. A WARNING names the years that fill more than one export pixel
+        and their share of the extent, and ``AGRIBOUND_IMAGE_YEARS`` lists
+        ``year`` and those years; the others are logged at INFO and listed in
+        ``AGRIBOUND_IMAGE_YEARS_UNDERNEATH``.
         """
         from agribound._cache import cache_key, cache_path
         from agribound.auth import ensure_gee
@@ -1694,9 +2748,15 @@ class GEECompositeBuilder(CompositeBuilder):
                 f"composite_method={config.composite_method!r} does not apply. Use the default "
                 "composite_method='median' (ignored for NAIP)."
             )
+        if config.composite_method in ("greenest", "max_ndvi"):
+            # Sources without NIR and red bands (landsat-pan, spot-pan, sentinel1) are
+            # refused when the configuration is validated; this guards configurations
+            # changed after validation, before any Earth Engine request.
+            _ndvi_bands(config.source, config.composite_method)
 
         stem = f"{config.source}_composite"
-        out_path = cache_path(config, stem, ".tif", COMPOSITE_RECIPE_VERSION)
+        recipe = _recipe_parts(config.source)
+        out_path = cache_path(config, stem, ".tif", *recipe)
         if out_path.exists():
             logger.info("Using cached composite: %s", out_path)
             self.last_metadata = read_composite_tags(out_path)
@@ -1705,7 +2765,7 @@ class GEECompositeBuilder(CompositeBuilder):
                 _warn_low_coverage(
                     float(cached_fraction),
                     f"The cached {config.source} composite",
-                    _coverage_advice(config.source),
+                    _coverage_advice(config, self.last_metadata),
                 )
             return str(out_path)
 
@@ -1720,8 +2780,13 @@ class GEECompositeBuilder(CompositeBuilder):
         window = date_window(config)
 
         label = f"{config.source} {config.year}"
+        # One request: the count, the years, the sensor counts and the image list.
         summary = collection_summary(
-            spec.raw, context=f"{label} image count", count_property=spec.count_property
+            spec.raw if spec.counted is None else spec.counted,
+            context=f"{label} {spec.count_unit} count",
+            count_property=spec.count_property,
+            image_list=True,
+            cloud_property=spec.scene_cloud_property,
         )
         if summary["n_images"] == 0:
             years = available_years(spec.history, context=f"{label} available years")
@@ -1743,13 +2808,15 @@ class GEECompositeBuilder(CompositeBuilder):
                     error = NoDataError(f"{error} Years with RGB-only NAIP: {rgb_only}.")
             raise error
         logger.info(
-            "%s: %d image(s) in %s..%s from years %s",
+            "%s: %d %s(s) in %s..%s from years %s",
             label,
             summary["n_images"],
+            spec.count_unit,
             window[0],
             window[1],
             summary["years"],
         )
+        image_years, years_underneath = list(summary["years"]), []
         if config.source == "naip":
             year = int(config.year)
             other = [y for y in summary["years"] if y != year]
@@ -1761,17 +2828,18 @@ class GEECompositeBuilder(CompositeBuilder):
                     other,
                 )
             elif config.date_range is None and other:
-                logger.warning(
-                    "NAIP mosaic for %d: %d images are on top; images from %s fill gaps.",
-                    year,
-                    year,
-                    other,
+                # One more request: do the other years' images show anywhere?
+                image_years, years_underneath = _naip_years_shown(
+                    spec, region, year, summary["years"]
                 )
             composite = spec.prepared.mosaic()
             method = "mosaic"
         else:
             method = config.composite_method
             composite = apply_composite_method(spec.prepared, method, config.source)
+            if spec.round_composite:
+                # Halves up, as in the per-image scaling; the uint8 export would truncate.
+                composite = composite.round()
             if method == "max_ndvi":
                 method = "greenest"  # documented alias
         from agribound._version import __version__
@@ -1785,19 +2853,28 @@ class GEECompositeBuilder(CompositeBuilder):
             "AGRIBOUND_DATE_END_EXCLUSIVE": window[1],
             "AGRIBOUND_COMPOSITE_METHOD": method,
             "AGRIBOUND_N_IMAGES": summary["n_images"],
-            "AGRIBOUND_IMAGE_YEARS": ",".join(str(y) for y in summary["years"]),
+            "AGRIBOUND_IMAGE_YEARS": ",".join(str(y) for y in image_years),
             "AGRIBOUND_COLLECTIONS": ",".join(spec.collections),
             "AGRIBOUND_CLOUD_COVER_MAX": config.cloud_cover_max,
             "AGRIBOUND_EXPORT_CRS": crs,
             "AGRIBOUND_RESOLUTION_M": spec.resolution_m,
-            "AGRIBOUND_CACHE_KEY": cache_key(config, COMPOSITE_RECIPE_VERSION),
+            "AGRIBOUND_CACHE_KEY": cache_key(config, *recipe),
             "AGRIBOUND_RECIPE_VERSION": COMPOSITE_RECIPE_VERSION,
         }
+        if years_underneath:  # NAIP: years whose images intersect the extent but show nowhere
+            tags["AGRIBOUND_IMAGE_YEARS_UNDERNEATH"] = ",".join(str(y) for y in years_underneath)
         for key, value in spec.notes.items():
             if isinstance(value, str | int | float):
                 tags[f"AGRIBOUND_{key.upper()}"] = value
         if spec.count_property:
-            tags.update(_sensor_tags(config, label, summary.get("counts", {}), spec.count_labels))
+            tags.update(
+                _sensor_tags(
+                    config, label, summary.get("counts", {}), spec.count_labels, spec.count_unit
+                )
+            )
+        tags.update(
+            _image_list_tags(summary.get("images") or [], summary["n_images"], summary.get("dates"))
+        )
         self.last_metadata = dict(tags)
 
         if config.export_method != "local":
@@ -1818,12 +2895,12 @@ class GEECompositeBuilder(CompositeBuilder):
         fraction = raster_valid_fraction(out_path, geom, require=require)
         if fraction <= 0.0:
             out_path.unlink(missing_ok=True)
-            advice = _coverage_advice(config.source)
+            advice = _coverage_advice(config, tags)
             if config.source == "sentinel2" and config.s2_cloud_mask == "cloud_score_plus":
                 advice += " A lower cloud_score_threshold keeps more pixels."
             raise NoDataError(
                 f"The {label} composite has no valid pixel inside the study area although "
-                f"{summary['n_images']} image(s) matched the filters. {advice}"
+                f"{summary['n_images']} {spec.count_unit}(s) matched the filters. {advice}"
             )
         import rasterio
 
@@ -1831,7 +2908,7 @@ class GEECompositeBuilder(CompositeBuilder):
             dst.update_tags(AGRIBOUND_VALID_FRACTION=str(round(fraction, 6)))
         tags["AGRIBOUND_VALID_FRACTION"] = round(fraction, 6)
         self.last_metadata = dict(tags)
-        _warn_low_coverage(fraction, f"The {label} composite", _coverage_advice(config.source))
+        _warn_low_coverage(fraction, f"The {label} composite", _coverage_advice(config, tags))
         return str(out_path)
 
     def _batch_export(
@@ -1923,6 +3000,7 @@ __all__ = [
     "ExportGrid",
     "ExportTaskStartedError",
     "GEECompositeBuilder",
+    "IMAGE_LIST_MAX",
     "LOW_VALID_FRACTION",
     "apply_composite_method",
     "assemble_tiles",
@@ -1936,18 +3014,32 @@ __all__ = [
     "export_resolution_m",
     "export_task_marker",
     "grid_footprint_4326",
+    "hls_antimeridian_images",
+    "hls_far_points",
+    "hls_footprint_filter",
     "landsat_pan_bandpass",
     "landsat_pan_missions_for_window",
     "mask_s2_cloud_score",
     "mask_s2_scl",
     "naip_order_key",
+    "naip_year_areas",
+    "near_antimeridian",
+    "near_hls_reversed_footprint_tiles",
     "prepare_hls_image",
     "prepare_landsat_image",
     "prepare_landsat_pan_image",
+    "prepare_sentinel1_image",
     "raster_valid_fraction",
     "read_composite_tags",
     "recorded_export_task",
     "resolve_export_crs",
+    "sentinel1_acquisitions",
+    "sentinel1_collection",
+    "sentinel1_db_to_uint8",
+    "sentinel1_orbit_pass",
+    "sentinel1_pass_counts",
+    "sentinel1_uint8_to_db",
+    "split_at_antimeridian",
     "split_grid",
     "start_batch_export",
     "study_area_geometry_4326",

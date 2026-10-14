@@ -28,7 +28,21 @@ from agribound.provenance import (
 )
 
 #: Configuration fields added after agribound 1.0.1.
-NEW_FIELDS = ("landsat_pan_missions", "lulc_tree_crops")
+NEW_FIELDS = (
+    "landsat_pan_missions",
+    "lulc_tree_crops",
+    "vhr_sar_collect_ids",
+    "vhr_sar_max_collects",
+    "vhr_sar_polarization",
+    "vhr_sar_resolution_m",
+    "vhr_sar_coregister",
+    "vhr_sar_coregister_base",
+    "vhr_sar_bands",
+    "vhr_sar_calibration",
+    "vhr_sar_max_download_gb",
+    "vhr_sar_cache_dir",
+    "crop_sequence_years",
+)
 #: The AgriboundConfig fields of agribound 1.0.1 (the same as in 1.0.0).
 FIELDS_1_0_1 = frozenset(
     {
@@ -236,8 +250,14 @@ class TestConditionalHashFields:
             assert config_hash(config.to_dict()) == config_hash(config)
 
     def test_record_hashed_without_the_missions_is_not_reused_for_landsat_pan(self):
+        from agribound._results import results_versions
+
         def record(config):
-            return {"status": "success", "config_hash": _hash_without_new_fields(config)}
+            return {
+                "status": "success",
+                "config_hash": _hash_without_new_fields(config),
+                "facts": {"results_versions": results_versions(config)},
+            }
 
         landsat_pan = _gee("landsat-pan")
         reason = reuse_mismatch(record(landsat_pan), landsat_pan)
@@ -260,7 +280,64 @@ class TestConditionalHashFields:
         assert provenance._conditional_field_defaults() == {
             "landsat_pan_missions": "auto",
             "lulc_tree_crops": False,
+            "vhr_sar_collect_ids": None,
+            "vhr_sar_max_collects": 6,
+            "vhr_sar_polarization": "auto",
+            "vhr_sar_resolution_m": 1.0,
+            "vhr_sar_coregister": "auto",
+            "vhr_sar_coregister_base": None,
+            "vhr_sar_bands": "median",
+            "vhr_sar_calibration": "any",
+            "vhr_sar_max_download_gb": 5.0,
+            "vhr_sar_cache_dir": None,
+            "crop_sequence_years": 8,
         }
+
+    def test_crop_sequence_years_applies_only_to_the_crop_map_sources(self):
+        """Hashed at any value for cdl-sequence/aci-sequence; never for another source."""
+        for source in ("sentinel2", "landsat-pan", "hls"):
+            config = _gee(source)
+            assert "crop_sequence_years" not in canonical_config(config)
+            for n in (2, 5, 20):
+                assert config_hash(config.merged(crop_sequence_years=n)) == config_hash(config)
+            if source != "landsat-pan":  # landsat-pan always hashes its missions
+                assert config_hash(config) == _hash_without_new_fields(config)
+        local = AgriboundConfig(source="local", local_tif_path="/tmp/x.tif", lulc_filter=False)
+        assert config_hash(local.merged(crop_sequence_years=3)) == config_hash(local)
+        for source in ("cdl-sequence", "aci-sequence"):
+            stack = _gee(source, engine="crop-sequence", lulc_filter=False)
+            assert canonical_config(stack)["crop_sequence_years"] == 8
+            hashes = {config_hash(stack.merged(crop_sequence_years=n)) for n in (2, 5, 8)}
+            assert len(hashes) == 3
+        # Tile manifests and plan directories: unchanged while the field holds its default.
+        s2 = _gee("sentinel2").to_dict()
+        assert "crop_sequence_years" not in drop_inapplicable_fields(s2, keep_non_default=True)
+        cdl = _gee("cdl-sequence", engine="crop-sequence").to_dict()
+        assert drop_inapplicable_fields(cdl, keep_non_default=True)["crop_sequence_years"] == 8
+
+    def test_vhr_sar_fields_apply_only_to_their_sources(self):
+        """vhr_sar_* fields enter the hash for umbra/capella only (calibration: capella only);
+        the download cap and the cache directory never do, but keep plan identities when set."""
+        umbra = AgriboundConfig(
+            source="umbra", study_area=BBOX, year=2024, lulc_filter=False
+        ).to_dict()
+        kept = drop_inapplicable_fields(umbra)
+        assert {k for k in NEW_FIELDS if k in kept} == {
+            "vhr_sar_collect_ids",
+            "vhr_sar_max_collects",
+            "vhr_sar_polarization",
+            "vhr_sar_resolution_m",
+            "vhr_sar_coregister",
+            "vhr_sar_coregister_base",
+            "vhr_sar_bands",
+        }
+        capella = {**umbra, "source": "capella"}
+        assert "vhr_sar_calibration" in drop_inapplicable_fields(capella)
+        cap = {**umbra, "vhr_sar_max_download_gb": 20.0, "vhr_sar_cache_dir": "/x"}
+        assert "vhr_sar_max_download_gb" not in drop_inapplicable_fields(cap)
+        both = drop_inapplicable_fields(cap, keep_non_default=True)
+        assert both["vhr_sar_max_download_gb"] == 20.0 and both["vhr_sar_cache_dir"] == "/x"
+        assert config_hash(cap) == config_hash(umbra)
 
     def test_drop_inapplicable_fields(self):
         assert "drop_inapplicable_fields" in provenance.__all__
@@ -274,8 +351,9 @@ class TestConditionalHashFields:
         tree = _gee("sentinel2", lulc_tree_crops=True).to_dict()
         assert drop_inapplicable_fields(tree)["lulc_tree_crops"] is True
         assert drop_inapplicable_fields(tree, keep_non_default=True)["lulc_tree_crops"] is True
-        # A dictionary written before the fields existed passes through unchanged.
-        old = {k: v for k, v in sentinel2.items() if k not in NEW_FIELDS}
+        # A dictionary written before the fields existed passes through unchanged (1.0.1
+        # wrote its default usgs_retries, 3).
+        old = {k: v for k, v in sentinel2.items() if k not in NEW_FIELDS} | {"usgs_retries": 3}
         assert drop_inapplicable_fields(old) == old
         assert drop_inapplicable_fields(old, keep_non_default=True) == old
 
@@ -302,6 +380,163 @@ class TestConditionalHashFields:
         expected = {k: to_jsonable(v) for k, v in data.items() if k not in HASH_EXCLUDED_FIELDS}
         assert canonical_config(config) == expected
         assert list(canonical_config(config)) == sorted(expected)
+
+
+#: Configurations recorded by agribound 1.0.1 for the tree-crop example (provenance records of
+#: outputs/examples_1.0/outputs/tree_crops/), with their config_hash, study-area fingerprint and
+#: composite cache key (AGRIBOUND_CACHE_KEY). They must stay reproducible: fields added since
+#: (crop_sequence_years among them) may not change them.
+_TWIFO_S2_DA_2020 = {
+    "aoi_selection": "representative_point", "bands": None, "cache_dir": None,
+    "cloud_cover_max": 80, "cloud_score_threshold": 0.6, "composite_method": "median",
+    "date_range": None, "device": "auto", "embedding_cache_dir": None,
+    "engine": "delineate-anything", "engine_params": {"max_detections": 1000},
+    "export_crs": "utm", "export_method": "local", "fine_tune": False,
+    "fine_tune_block_size_m": 5000.0, "fine_tune_epochs": 20, "fine_tune_split": "block",
+    "fine_tune_split_column": None, "fine_tune_val_split": 0.2, "gcs_bucket": None,
+    "gee_high_volume": False, "gee_max_requests": 8, "gee_project": "irrigation-status-474718",
+    "gee_service_account_key": None, "gee_workload_tag": None, "google_embedding_backend": "gee",
+    "landsat_pan_missions": "auto", "local_tif_path": None, "lulc_batch_size": 200,
+    "lulc_crop_threshold": 0.3, "lulc_dataset": "auto", "lulc_filter": False,
+    "lulc_mode": "server", "lulc_nodata_policy": "keep", "lulc_on_error": "raise",
+    "lulc_tree_crops": False, "min_field_area_m2": 2500.0, "n_workers": 4,
+    "naip_resolution_m": 1.0, "output_format": "gpkg",
+    "output_path": "outputs/tree_crops/twifo/fields_sentinel2_da_2020.gpkg", "overwrite": False,
+    "provenance": True, "reference_boundaries": None, "s2_cloud_mask": "cloud_score_plus",
+    "sam_backend": "sam2", "sam_crop_padding": 0.15, "sam_min_crop_px": 64, "sam_model": None,
+    "sam_refine": False, "seed": 42, "simplify_tolerance": 2.0, "source": "sentinel2",
+    "study_area": "outputs/tree_crops/twifo/study_area.geojson", "tessera_variant": None,
+    "tessera_version": "v1", "tile_size": 10000, "usgs_allow_year_fallback": False,
+    "usgs_retries": 3,
+    "usgs_service_url": (
+        "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer"
+    ),
+    "usgs_state": None, "usgs_timeout_s": 120, "year": 2020,
+}  # fmt: skip
+GOLDEN_1_0_1 = {
+    "twifo sentinel2 da 2020": (
+        _TWIFO_S2_DA_2020,
+        "0a98f4a46a39",
+        "f78e64763c12ede972d3111e8183a99e51e4d0f1",
+        "e2c329c1855c",
+    ),
+    "oro sentinel2 da 2021": (
+        {
+            **_TWIFO_S2_DA_2020,
+            "year": 2021,
+            "output_path": "outputs/tree_crops/oro/fields_sentinel2_da_2021.gpkg",
+            "study_area": "outputs/tree_crops/oro/study_area.geojson",
+        },
+        "022062e63d78",
+        "d767a270d6580cc35c8bf48092bedb7f67de9345",
+        "24daf529b64a",
+    ),
+    "twifo sentinel2 ftw 2020": (
+        {
+            **_TWIFO_S2_DA_2020,
+            "engine": "ftw",
+            "engine_params": {"window_dates": ["2020-01-15", "2020-08-15"]},
+            "output_path": "outputs/tree_crops/twifo/fields_sentinel2_ftw_2020.gpkg",
+        },
+        "0a98f4a46a39",
+        "3b689611b3eace06682ebe1f49705bcded9acd62",
+        "e2c329c1855c",
+    ),
+    "twifo landsat-pan da 2020": (
+        {
+            **_TWIFO_S2_DA_2020,
+            "source": "landsat-pan",
+            "cloud_cover_max": 20,
+            "s2_cloud_mask": "scl",
+            "output_path": "outputs/tree_crops/twifo/fields_landsat-pan_da_2020.gpkg",
+        },
+        "0a98f4a46a39",
+        "54fe63ae1a496a959e4e4840fb8c8320bf0f5985",
+        "cb79d2e12c3e",
+    ),
+}
+
+
+#: Defaults of every AgriboundConfig field of agribound 1.0.1 (tag v1.0.1), in JSON form.
+DEFAULTS_1_0_1 = {
+    "aoi_selection": "representative_point", "bands": None, "cache_dir": None,
+    "cloud_cover_max": 20, "cloud_score_threshold": 0.6, "composite_method": "median",
+    "date_range": None, "device": "auto", "embedding_cache_dir": None,
+    "engine": "delineate-anything", "engine_params": {}, "export_crs": "utm",
+    "export_method": "local", "fine_tune": False, "fine_tune_block_size_m": 5000.0,
+    "fine_tune_epochs": 20, "fine_tune_split": "block", "fine_tune_split_column": None,
+    "fine_tune_val_split": 0.2, "gcs_bucket": None, "gee_high_volume": False,
+    "gee_max_requests": 8, "gee_project": None, "gee_service_account_key": None,
+    "gee_workload_tag": None, "google_embedding_backend": "gee", "local_tif_path": None,
+    "lulc_batch_size": 200, "lulc_crop_threshold": 0.3, "lulc_dataset": "auto",
+    "lulc_filter": True, "lulc_mode": "server", "lulc_nodata_policy": "keep",
+    "lulc_on_error": "raise", "min_field_area_m2": 2500.0, "n_workers": 4,
+    "naip_resolution_m": 1.0, "output_format": "gpkg", "output_path": "fields.gpkg",
+    "overwrite": False, "provenance": True, "reference_boundaries": None,
+    "s2_cloud_mask": "scl", "sam_backend": "sam2", "sam_crop_padding": 0.15,
+    "sam_min_crop_px": 64, "sam_model": None, "sam_refine": False, "seed": 42,
+    "simplify_tolerance": 2.0, "source": "sentinel2", "study_area": "",
+    "tessera_variant": None, "tessera_version": "v1", "tile_size": 10000,
+    "usgs_allow_year_fallback": False, "usgs_retries": 3,
+    "usgs_service_url": (
+        "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer"
+    ),
+    "usgs_state": None, "usgs_timeout_s": 120, "year": 2024,
+}  # fmt: skip
+
+
+def test_defaults_changed_since_1_0_1_are_listed():
+    """A field whose default differs from 1.0.1's is in DEFAULTS_OF_1_0_1, with 1.0.1's value.
+
+    Otherwise the tile-manifest signatures and agent plan directories of every 1.0.1
+    configuration would change (they sign the whole configuration dictionary).
+    """
+    import dataclasses
+
+    from agribound.provenance import DEFAULTS_OF_1_0_1, HASH_EXCLUDED_FIELDS
+
+    current = {
+        f.name: to_jsonable(
+            f.default if f.default is not dataclasses.MISSING else f.default_factory()
+        )
+        for f in dataclasses.fields(AgriboundConfig)
+        if f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING
+    }
+    changed = {k: v for k, v in DEFAULTS_1_0_1.items() if current.get(k, v) != v}
+    assert changed == DEFAULTS_OF_1_0_1
+    assert set(DEFAULTS_OF_1_0_1) <= HASH_EXCLUDED_FIELDS  # they do not change the result
+
+
+def test_identities_of_a_1_0_1_record_are_kept():
+    """A configuration that 1.0.1 recorded, made again now, keeps 1.0.1's identity dictionary."""
+    data = dict(_TWIFO_S2_DA_2020)  # written by 1.0.1: usgs_retries 3, its default then
+    now = AgriboundConfig.from_dict({k: v for k, v in data.items() if k != "usgs_retries"})
+    assert now.usgs_retries == 5  # today's default
+    kept = drop_inapplicable_fields(now.to_dict(), keep_non_default=True)
+    assert kept == drop_inapplicable_fields(data, keep_non_default=True)
+    assert config_hash(now) == GOLDEN_1_0_1["twifo sentinel2 da 2020"][2]
+    # An explicit value other than both defaults is still signed.
+    other = drop_inapplicable_fields(now.merged(usgs_retries=7).to_dict(), keep_non_default=True)
+    assert other["usgs_retries"] == 7
+    # The configuration hash form is not affected (usgs_retries is not hashed).
+    assert drop_inapplicable_fields(now.to_dict())["usgs_retries"] == 5
+
+
+@pytest.mark.parametrize("name", sorted(GOLDEN_1_0_1))
+def test_golden_hashes_and_cache_keys_of_1_0_1_records(name, monkeypatch):
+    """The config hashes and composite cache keys recorded by agribound 1.0.1 are unchanged."""
+    from agribound import _cache
+    from agribound.composites.gee import _recipe_parts
+
+    data, aoi, recorded_hash, recorded_key = GOLDEN_1_0_1[name]
+    config = AgriboundConfig.from_dict(data)
+    assert config_hash(config) == recorded_hash
+    assert config_hash(config.merged(crop_sequence_years=3)) == recorded_hash
+    # The study-area files are not in the repository: use the recorded fingerprint.
+    monkeypatch.setattr(_cache, "aoi_fingerprint", lambda c: aoi)
+    assert _cache.cache_key(config, *_recipe_parts(config.source)) == recorded_key
+    key = _cache.cache_key(config.merged(crop_sequence_years=3), *_recipe_parts(config.source))
+    assert key == recorded_key
 
 
 class TestJsonable:
@@ -350,9 +585,46 @@ class TestRunRecorder:
         assert step["wall_s"] >= 0.009 and step["detail"] == "x"
         assert d["wall_s"] >= step["wall_s"]
         assert d["started_utc"].endswith("Z") and d["finished_utc"].endswith("Z")
+        assert d["elapsed_utc_s"] >= step["wall_s"]
         assert d["peak_rss_mb"] is None or d["peak_rss_mb"] > 0
         for key in ("platform", "python", "hostname", "git", "environment", "torch_max_memory_mb"):
             assert key in d
+
+    def test_elapsed_utc_s_counts_the_time_the_computer_slept(self, cfg, monkeypatch):
+        """wall_s comes from perf_counter, which stops while macOS sleeps: example 12's
+        GeoAI run of 2026-10-09 recorded 9,175 s from started_utc to finished_utc and a
+        wall_s 4,680 s shorter. elapsed_utc_s records the clock time beside it."""
+        import datetime as dt
+        import types
+
+        from agribound import provenance
+
+        start = dt.datetime(2026, 10, 9, 21, 0, 0, 250000, tzinfo=dt.UTC)
+        clock = iter([start, start + dt.timedelta(seconds=9175.375)])
+
+        class FakeDateTime(dt.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return next(clock)
+
+        counter = iter([100.0, 4595.5])  # perf_counter at the start and the end
+        monkeypatch.setattr(
+            provenance,
+            "_dt",
+            types.SimpleNamespace(datetime=FakeDateTime, date=dt.date, UTC=dt.UTC),
+        )
+        monkeypatch.setattr(
+            provenance, "time", types.SimpleNamespace(perf_counter=lambda: next(counter))
+        )
+        with RunRecorder(cfg) as rec:
+            pass
+        d = rec.to_dict()
+        assert (d["started_utc"], d["finished_utc"]) == (
+            "2026-10-09T21:00:00Z",
+            "2026-10-09T23:32:55Z",
+        )
+        assert d["wall_s"] == 4495.5
+        assert d["elapsed_utc_s"] == 9175.375  # not rounded to the whole seconds of the timestamps
 
     def test_failed_step_and_run(self, cfg):
         rec = RunRecorder(cfg)

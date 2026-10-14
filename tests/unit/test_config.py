@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import warnings
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -341,9 +342,12 @@ class TestEngineSourceCompatibility:
         with pytest.raises(ValueError, match="sentinel2"):
             AgriboundConfig(source="google-embedding", engine="ftw")
 
-    def test_embedding_engine_rejects_imagery(self):
-        with pytest.raises(ValueError, match="does not support source"):
-            _local(engine="embedding")
+    def test_embedding_engine_accepts_local_feature_rasters(self):
+        assert _local(engine="embedding").engine == "embedding"
+
+    def test_embedding_engine_rejects_gee_imagery(self):
+        with pytest.raises(ValueError, match="does not support source 'sentinel2'"):
+            AgriboundConfig(source="sentinel2", engine="embedding", gee_project="p", year=2023)
 
     def test_delineate_anything_accepts_spot_pan_and_usgs(self):
         with pytest.warns(UserWarning):
@@ -394,6 +398,134 @@ class TestEngineSourceCompatibility:
         assert cfg.engine == "ensemble"
 
 
+class TestCropSequence:
+    """crop_sequence_years and the settings of cdl-sequence, aci-sequence and crop-sequence."""
+
+    BBOX = "bbox:-93.6,42.0,-93.5,42.1"
+
+    def _cfg(self, source="cdl-sequence", **kwargs):
+        kwargs.setdefault("year", 2023)
+        kwargs.setdefault("engine", "crop-sequence")
+        return AgriboundConfig(source=source, study_area=self.BBOX, gee_project="p", **kwargs)
+
+    def test_defaults(self):
+        cfg = self._cfg()
+        assert cfg.crop_sequence_years == 8 and _local().crop_sequence_years == 8
+        assert cfg.requires_gee() and not cfg.is_gee_source()
+        fields = AgriboundConfig.field_names()
+        assert fields.index("crop_sequence_years") == fields.index("landsat_pan_missions") + 1
+
+    def test_window_bounds(self):
+        assert self._cfg(year=2015).year == 2015  # 2008-2015
+        with pytest.raises(ValueError, match="needs the maps of 2007-2014.*starts in 2008"):
+            self._cfg(year=2014)
+        assert self._cfg(year=2010, crop_sequence_years=3).crop_sequence_years == 3
+        assert self._cfg("aci-sequence", year=2018).year == 2018  # 2011-2018
+        with pytest.raises(ValueError, match="starts in 2011. Use year >= 2018"):
+            self._cfg("aci-sequence", year=2017)
+        for n in (1, 21):
+            with pytest.raises(ValueError, match=r"crop_sequence_years must be in \[2, 20\]"):
+                self._cfg(crop_sequence_years=n)
+        # The field is checked for every source, so a stale value cannot hide.
+        with pytest.raises(ValueError, match="crop_sequence_years"):
+            _local(crop_sequence_years=0)
+        with pytest.raises(TypeError, match="crop_sequence_years"):
+            _local(crop_sequence_years=True)
+        assert _local(crop_sequence_years="5").crop_sequence_years == 5
+
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"date_range": ("2023-04-01", "2023-10-31")}, "date_range does not apply"),
+            ({"composite_method": "greenest"}, "not composited"),
+            ({"export_method": "gdrive"}, "export_method='gdrive' is not supported"),
+            ({"export_method": "gcs", "gcs_bucket": "b"}, "export_method='gcs' is not supported"),
+            ({"sam_refine": True}, "sam_refine does not apply"),
+            ({"bands": {"R": 1}}, "bands does not apply"),
+            ({"export_crs": "EPSG:4326"}, "geographic"),
+            # New York State Plane (US survey feet): the grid would be 30 ft (9.144 m).
+            ({"export_crs": "EPSG:2263"}, "has axes in US survey foot.*projected CRS in metres"),
+            ({"export_crs": "EPSG:4978"}, "projected CRS in metres"),  # geocentric
+        ],
+    )
+    def test_refused_settings(self, kwargs, match):
+        with pytest.raises(ValueError, match=match):
+            self._cfg(**kwargs)
+
+    def test_projected_export_crs_is_accepted(self):
+        assert self._cfg(export_crs="EPSG:5070").export_crs == "EPSG:5070"
+        assert self._cfg("aci-sequence", export_crs="EPSG:3978").export_crs == "EPSG:3978"
+
+    def test_the_crs_rule_applies_to_the_two_sources_only(self):
+        from agribound.config import crop_sequence_crs_problem
+
+        for crs in ("utm", "EPSG:32615", "EPSG:5070"):
+            assert crop_sequence_crs_problem(crs, "cdl-sequence") is None
+        assert "US survey foot" in crop_sequence_crs_problem("EPSG:2263", "cdl-sequence")
+        assert "geographic" in crop_sequence_crs_problem("EPSG:4326", "aci-sequence")
+        # Other sources keep accepting a CRS in feet.
+        assert _local(export_crs="EPSG:2263").export_crs == "EPSG:2263"
+
+    def test_only_engine_crop_sequence(self):
+        with pytest.raises(ValueError, match="does not support source 'cdl-sequence'"):
+            self._cfg(engine="delineate-anything")
+        with pytest.raises(ValueError, match="does not support source 'aci-sequence'"):
+            self._cfg("aci-sequence", engine="embedding")
+
+    def test_other_sources_ignore_crop_sequence_years(self):
+        cfg = _local(crop_sequence_years=3)
+        assert cfg.crop_sequence_years == 3
+
+    def test_local_stack_needs_value_scale_and_classes(self):
+        with pytest.raises(ValueError, match=r"value_scale'\]='categorical'"):
+            _local(engine="crop-sequence")
+        with pytest.raises(ValueError, match="'dataset'.*'classes' and 'barrier_classes'"):
+            _local(engine="crop-sequence", engine_params={"value_scale": "categorical"})
+        with pytest.raises(ValueError, match="'barrier_classes'"):
+            _local(
+                engine="crop-sequence",
+                engine_params={"value_scale": "categorical", "classes": [1, 5]},
+            )
+        with pytest.raises(ValueError, match=r"dataset'\] must be one of"):
+            _local(
+                engine="crop-sequence",
+                engine_params={"value_scale": "categorical", "dataset": "csb"},
+            )
+        ok = _local(
+            engine="crop-sequence",
+            engine_params={"value_scale": "Categorical", "classes": [1], "barrier_classes": []},
+        )
+        assert ok.engine == "crop-sequence"
+        assert _local(
+            engine="crop-sequence", engine_params={"value_scale": "categorical", "dataset": "ACI"}
+        )
+
+    def test_gee_project_is_resolved_for_the_crop_map_sources(self):
+        env = _env_without_project()
+        with (
+            patch.dict("os.environ", env, clear=True),
+            patch("agribound.auth._get_gcloud_project", return_value=None),
+            patch("agribound.auth.project_from_credentials", return_value=None),
+            pytest.raises(ValueError, match="gee_project is required"),
+        ):
+            AgriboundConfig(
+                source="cdl-sequence", engine="crop-sequence", year=2023, study_area=self.BBOX
+            )
+        with patch.dict("os.environ", _env_without_project(GEE_PROJECT="env-project"), clear=True):
+            cfg = AgriboundConfig(
+                source="aci-sequence", engine="crop-sequence", year=2023, study_area=self.BBOX
+            )
+        assert cfg.gee_project == "env-project"
+
+    def test_yaml_round_trip(self, tmp_path):
+        cfg = self._cfg(crop_sequence_years=6)
+        path = tmp_path / "run.yaml"
+        cfg.to_yaml(path)
+        assert AgriboundConfig.from_yaml(path).crop_sequence_years == 6
+        keys = list(yaml.safe_load(path.read_text()))
+        assert keys.index("crop_sequence_years") == keys.index("landsat_pan_missions") + 1
+
+
 class TestYearValidation:
     """Year ranges come from registry.source_year_range."""
 
@@ -432,6 +564,94 @@ class TestYearValidation:
 
     def test_local_has_no_year_constraint(self):
         assert _local(year=1900).year == 1900
+
+
+class TestSentinel1:
+    """source='sentinel1': an Earth Engine SAR source; it adds no configuration field."""
+
+    def test_accepted_for_the_rgb_engines_without_an_access_warning(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # unlike SPOT 6/7, no restricted-access warning
+            cfg = AgriboundConfig(source="sentinel1", gee_project="p", year=2023)
+        assert cfg.engine == "delineate-anything"
+        assert cfg.is_gee_source() and cfg.requires_gee() and not cfg.is_embedding_source()
+        for engine in ("geoai", "dinov3"):
+            assert AgriboundConfig(source="sentinel1", engine=engine, gee_project="p").engine == (
+                engine
+            )
+
+    @pytest.mark.parametrize("engine", ["ftw", "prithvi", "embedding"])
+    def test_optical_and_embedding_engines_rejected(self, engine):
+        with pytest.raises(ValueError, match="does not support source 'sentinel1'"):
+            AgriboundConfig(source="sentinel1", engine=engine, gee_project="p", year=2023)
+
+    def test_ensemble_needs_explicit_members(self):
+        with pytest.raises(ValueError, match=r"'ftw' \(a default member\)"):
+            AgriboundConfig(source="sentinel1", engine="ensemble", gee_project="p", year=2023)
+        cfg = AgriboundConfig(
+            source="sentinel1",
+            engine="ensemble",
+            gee_project="p",
+            year=2023,
+            engine_params={"engines": ["delineate-anything", "dinov3"]},
+        )
+        assert cfg.engine == "ensemble"
+
+    def test_year_range(self):
+        assert AgriboundConfig(source="sentinel1", gee_project="p", year=2015).year == 2015
+        with pytest.raises(ValueError, match="2015-present"):
+            AgriboundConfig(source="sentinel1", gee_project="p", year=2014)
+
+    def test_requires_a_project(self):
+        with (
+            patch.dict("os.environ", _env_without_project(), clear=True),
+            patch("agribound.auth._get_gcloud_project", return_value=None),
+            pytest.raises(ValueError, match="gee_project is required for source='sentinel1'"),
+        ):
+            AgriboundConfig(source="sentinel1", year=2023)
+
+    def test_optical_settings_are_validated_but_not_used(self):
+        """cloud_cover_max and s2_cloud_mask stay ordinary fields; the builder ignores them."""
+        cfg = AgriboundConfig(
+            source="sentinel1",
+            gee_project="p",
+            year=2023,
+            cloud_cover_max=90,
+            s2_cloud_mask="cloud_score_plus",
+            date_range=("2023-04-01", "2023-09-30"),
+        )
+        assert cfg.cloud_cover_max == 90 and cfg.s2_cloud_mask == "cloud_score_plus"
+        with pytest.raises(ValueError, match="cloud_cover_max must be in"):
+            cfg.merged(cloud_cover_max=101)
+
+
+class TestNdviCompositeMethods:
+    """greenest/max_ndvi need NIR and red bands: rejected when the configuration is created."""
+
+    @pytest.mark.filterwarnings("ignore:SPOT 6/7 imagery:UserWarning")
+    @pytest.mark.parametrize("method", ["greenest", "max_ndvi", " Greenest "])
+    @pytest.mark.parametrize("source", ["landsat-pan", "spot-pan", "sentinel1"])
+    def test_rejected_for_sources_without_nir_and_red(self, source, method):
+        with pytest.raises(ValueError) as info:
+            AgriboundConfig(source=source, gee_project="p", year=2023, composite_method=method)
+        assert str(info.value) == (
+            f"composite_method={method.strip().lower()!r} needs NIR and red bands, which source "
+            f"{source!r} does not have. Use composite_method='median'."
+        )
+        cfg = AgriboundConfig(source=source, gee_project="p", year=2023)
+        with pytest.raises(ValueError, match="needs NIR and red bands"):
+            cfg.merged(composite_method=method)
+
+    @pytest.mark.filterwarnings("ignore:SPOT 6/7 imagery:UserWarning")
+    @pytest.mark.parametrize("source", ["sentinel2", "landsat", "hls", "spot"])
+    def test_accepted_for_sources_with_nir_and_red(self, source):
+        cfg = AgriboundConfig(
+            source=source, gee_project="p", year=2023, composite_method="greenest"
+        )
+        assert cfg.composite_method == "greenest"
+
+    def test_ignored_by_sources_not_composited_on_earth_engine(self):
+        assert _local(composite_method="max_ndvi").composite_method == "max_ndvi"
 
 
 class TestDateRange:
@@ -945,7 +1165,7 @@ class TestAgriboundConfigHelpers:
 
     def test_merged_revalidates(self):
         with pytest.raises(ValueError, match="does not support source"):
-            _local().merged(engine="embedding")
+            _local(engine="embedding").merged(source="sentinel2", gee_project="p")
 
     def test_merged_unknown_key(self):
         with pytest.raises(ValueError, match="Unknown configuration key"):

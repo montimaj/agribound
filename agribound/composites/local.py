@@ -3,8 +3,11 @@ Local GeoTIFF and embedding builders.
 
 - :class:`LocalCompositeBuilder` (``source="local"``): validates a user
   GeoTIFF and, when a study area is configured, crops it to the study area's
-  bounding box (pixel values unchanged). Its radiometry is unknown to
-  Agribound (value scale ``"unknown"``).
+  bounding box (pixel values unchanged; for the ``crop-sequence`` engine with
+  a margin of 10 pixels). Its radiometry is unknown to Agribound (value scale
+  ``"unknown"``), except that a file tagged
+  ``AGRIBOUND_VALUE_SCALE=categorical`` (a stack of crop-type map codes) keeps
+  that value scale.
 - :class:`EmbeddingCompositeBuilder`: pre-computed embeddings.
 
   - ``tessera-embedding``: TESSERA embeddings streamed from the public Zarr
@@ -14,7 +17,10 @@ Local GeoTIFF and embedding builders.
     zone that holds the centre of the requested box; each zone is read on its
     native 10 m grid and resampled (nearest neighbour) onto one grid in
     ``config.export_crs`` (for ``"utm"``, the zone of the study-area centroid,
-    whose pixels are copied without resampling).
+    whose pixels are copied without resampling). The raster's tags record the
+    state of the store's objects that were read (a store stamp,
+    :mod:`agribound.composites.tessera_stamp`), and a cached raster is read
+    again when the store has changed since (:func:`check_tessera_raster`).
   - ``google-embedding``: Google Satellite Embedding V1 (AlphaEarth
     Foundations, 64 bands ``A00``-``A63``, 2017-2025) from Earth Engine
     (``google_embedding_backend="gee"``, default) or from the Source
@@ -40,7 +46,9 @@ from __future__ import annotations
 import logging
 import math
 import os
+import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +76,9 @@ _TESSERA_ZARR_STORES = {
     ("v2", "2B-L~beta1"): "v2-2B-L~beta1",
     ("v2", "2B-L~beta2"): "v2-2B-L~beta2",
 }
+
+#: Tag of a TESSERA raster: the EPSG:4326 box that was read (``minx,miny,maxx,maxy``).
+TESSERA_READ_BBOX_TAG = "TESSERA_READ_BBOX"
 
 #: Below this valid-pixel fraction inside the study area a WARNING is logged.
 LOW_COVERAGE_FRACTION = 0.5
@@ -107,7 +118,10 @@ def validate_local_raster(path: str | Path, bands: dict[str, int] | None = None)
     Notes
     -----
     A raster without a nodata value is accepted with a WARNING (zeros are
-    then treated as valid data by the engines); fewer than 3 bands without a
+    then treated as valid data, except that the embedding engine and
+    Delineate-Anything (native and reference backends) skip pixels whose bands
+    are all zero);
+    fewer than 3 bands without a
     *bands* mapping is accepted with a WARNING (RGB engines need 3 bands).
     """
     import rasterio
@@ -147,7 +161,11 @@ def validate_local_raster(path: str | Path, bands: dict[str, int] | None = None)
         )
     if info["nodata"] is None:
         logger.warning(
-            "%s has no nodata value: every pixel (including zeros) is treated as valid data", path
+            "%s has no nodata value: zeros are treated as valid data, except that "
+            "engine='embedding' and Delineate-Anything (native and reference backends) "
+            "skip every pixel whose bands are all zero (a one-band feature raster loses "
+            "every 0 value)",
+            path,
         )
     return info
 
@@ -157,13 +175,18 @@ def crop_to_extent(
     dst_path: str | Path,
     geometry_4326: Any,
     tags: dict[str, Any] | None = None,
+    *,
+    margin_px: int = 0,
 ) -> str | None:
     """Crop a raster to the bounding box of a geometry, without masking any pixel.
 
     The geometry is densified, transformed to the raster CRS, and the raster
     window covering its bounding box (rounded outwards to whole pixels) is
     copied to *dst_path* with the same data type, nodata value, band
-    descriptions and dataset tags. Pixel values are copied unchanged.
+    descriptions, colour interpretation and dataset tags. Pixel values are
+    copied unchanged. (Without the colour interpretation, GDAL would tag
+    band 4 of a 4-band uint8 copy as alpha, which its warper then uses as
+    transparency.)
 
     Parameters
     ----------
@@ -175,6 +198,9 @@ def crop_to_extent(
         Area in EPSG:4326.
     tags : dict or None
         Extra dataset tags to write.
+    margin_px : int
+        Pixels added to the window on every side, as far as the raster
+        reaches (default 0).
 
     Returns
     -------
@@ -196,6 +222,8 @@ def crop_to_extent(
     from rasterio.windows import Window
     from shapely.geometry import box, mapping
 
+    from agribound.io.raster import _copy_color_interpretation
+
     src_path, dst_path = Path(src_path), Path(dst_path)
     minx, miny, maxx, maxy = geometry_4326.bounds
     step = max(maxx - minx, maxy - miny, 1e-6) / 64.0
@@ -211,6 +239,15 @@ def crop_to_extent(
         )
         if window.width < 1 or window.height < 1:
             raise NoDataError(f"the study-area extent does not overlap {src_path}")
+        margin = int(margin_px)
+        if margin < 0:
+            raise ValueError(f"margin_px must be >= 0, got {margin_px}")
+        if margin:
+            col0 = max(0, int(window.col_off) - margin)
+            row0 = max(0, int(window.row_off) - margin)
+            col1 = min(src.width, int(window.col_off) + int(window.width) + margin)
+            row1 = min(src.height, int(window.row_off) + int(window.height) + margin)
+            window = Window(col0, row0, col1 - col0, row1 - row0)
         if (window.col_off, window.row_off, window.width, window.height) == (
             0,
             0,
@@ -232,12 +269,15 @@ def crop_to_extent(
             "compress": "deflate",
             "predictor": 3 if is_float else 2,
             "BIGTIFF": "IF_SAFER",
+            # GDAL's default for 4 uint8 bands is RGBA; the source's own tags are set below.
+            "ALPHA": "UNSPECIFIED",
         }
         if window.width >= 256 and window.height >= 256:
             profile.update(tiled=True, blockxsize=256, blockysize=256)
         part = dst_path.with_name(dst_path.name + ".part")
         try:
             with rasterio.open(part, "w", **profile) as dst:
+                _copy_color_interpretation(src, dst)  # before any pixel is written
                 for i, desc in enumerate(src.descriptions, start=1):
                     if desc:
                         dst.set_band_description(i, desc)
@@ -269,10 +309,28 @@ class LocalCompositeBuilder(CompositeBuilder):
     a study area, or when the bounding box contains the whole raster, the file
     itself is returned.
 
+    For the engines of :data:`agribound.registry.CATEGORICAL_ENGINES`
+    (``crop-sequence``), the crop keeps a margin of
+    :data:`agribound.composites.crop_sequence.CROP_SEQUENCE_PAD_PX` pixels
+    around the bounding box, as far as the raster reaches, as the
+    ``cdl-sequence`` and ``aci-sequence`` stacks are padded: the engine's focal
+    windows are then complete at the edge of the study area, and its zones are
+    selected by the pipeline afterwards. That crop has a cache-key part of its
+    own (``margin_px=10``), so the crops of other engines keep their keys, and
+    its tags and :attr:`last_metadata` record ``AGRIBOUND_LOCAL_CROP_MARGIN_PX``.
+
+    The value scale is ``"unknown"``, except for a file whose own
+    ``AGRIBOUND_VALUE_SCALE`` tag is ``"categorical"`` (class codes of crop-type
+    maps, e.g. a stack written by the ``cdl-sequence`` or ``aci-sequence``
+    builder): it keeps ``"categorical"``, so that the engines that read imagery
+    refuse it (:func:`agribound.io.raster.refuse_categorical`) in the cropped
+    copy too.
+
     Attributes
     ----------
     last_metadata : dict
-        Facts about the most recent :meth:`build` (value scale ``"unknown"``).
+        Facts about the most recent :meth:`build` (``AGRIBOUND_VALUE_SCALE``
+        ``"unknown"`` or ``"categorical"``).
     """
 
     #: Version of the crop recipe (part of the cache key).
@@ -295,41 +353,63 @@ class LocalCompositeBuilder(CompositeBuilder):
             If ``local_tif_path`` does not exist.
         """
         from agribound._cache import cache_path
+        from agribound.io.raster import raster_value_scale
 
         if config.local_tif_path is None:
             raise ValueError("local_tif_path must be set when source='local'")
         src_path = Path(config.local_tif_path).expanduser()
         info = validate_local_raster(src_path, config.bands)
+        # Only "categorical" is carried over from the file's own tag: the other
+        # engines must keep refusing a stack of class codes after it is cropped.
+        categorical = raster_value_scale(src_path) == "categorical"
+        value_scale = "categorical" if categorical else SOURCE_REGISTRY["local"]["value_scale"]
         self.last_metadata = {
             "AGRIBOUND_SOURCE": "local",
-            "AGRIBOUND_VALUE_SCALE": SOURCE_REGISTRY["local"]["value_scale"],
+            "AGRIBOUND_VALUE_SCALE": value_scale,
             "AGRIBOUND_LOCAL_SOURCE_PATH": str(src_path.resolve()),
             "AGRIBOUND_LOCAL_CRS": info["crs"],
             "AGRIBOUND_LOCAL_BAND_COUNT": info["count"],
             "AGRIBOUND_LOCAL_DTYPE": info["dtype"],
         }
         logger.info(
-            "Local GeoTIFF %s: %d band(s), %s, %s, nodata=%s (value scale unknown)",
+            "Local GeoTIFF %s: %d band(s), %s, %s, nodata=%s (value scale %s)",
             src_path,
             info["count"],
             info["dtype"],
             info["crs"],
             info["nodata"],
+            value_scale,
         )
         if not config.study_area:
             return str(src_path)
 
         from agribound.composites.gee import study_area_geometry_4326
 
-        cropped = cache_path(config, f"local_crop_{src_path.stem}", ".tif", self.CROP_VERSION)
+        margin = self.crop_margin_px(config)
+        parts: tuple[Any, ...] = (self.CROP_VERSION,)
+        if margin:
+            # Only these crops get the extra part: the keys of other crops are unchanged.
+            parts += (f"margin_px={margin}",)
+            self.last_metadata["AGRIBOUND_LOCAL_CROP_MARGIN_PX"] = margin
+        cropped = cache_path(config, f"local_crop_{src_path.stem}", ".tif", *parts)
         if cropped.exists():
             logger.info("Using cached cropped raster: %s", cropped)
             return str(cropped)
 
         geometry = study_area_geometry_4326(config)
-        logger.info("Cropping %s to the study-area extent", src_path)
+        if margin:
+            logger.info(
+                "Cropping %s to the study-area extent plus %d px (engine %s)",
+                src_path,
+                margin,
+                config.engine,
+            )
+        else:
+            logger.info("Cropping %s to the study-area extent", src_path)
         try:
-            result = crop_to_extent(src_path, cropped, geometry, tags=self.last_metadata)
+            result = crop_to_extent(
+                src_path, cropped, geometry, tags=self.last_metadata, margin_px=margin
+            )
         except ValueError as exc:
             # A study area outside the raster is a no-data condition (NoDataError).
             error_type = NoDataError if isinstance(exc, NoDataError) else ValueError
@@ -341,6 +421,22 @@ class LocalCompositeBuilder(CompositeBuilder):
             logger.info("The study-area extent contains the whole raster; using %s", src_path)
             return str(src_path)
         return result
+
+    @staticmethod
+    def crop_margin_px(config: AgriboundConfig) -> int:
+        """Pixels kept around the study area's bounding box when *config*'s raster is cropped.
+
+        :data:`agribound.composites.crop_sequence.CROP_SEQUENCE_PAD_PX` (10) for
+        the engines of :data:`agribound.registry.CATEGORICAL_ENGINES`, whose
+        focal windows reach beyond each pixel; 0 for every other engine.
+        """
+        from agribound.registry import CATEGORICAL_ENGINES
+
+        if config.engine in CATEGORICAL_ENGINES:
+            from agribound.composites.crop_sequence import CROP_SEQUENCE_PAD_PX
+
+            return int(CROP_SEQUENCE_PAD_PX)
+        return 0
 
     def get_band_mapping(self, source: str) -> dict[str, str]:
         """Return the positional band mapping assumed for local files.
@@ -601,7 +697,10 @@ def write_embedding_geotiff(
     import rasterio
 
     path = Path(path)
-    part = path.with_name(path.name + ".part")
+    # A name of its own per writer: two processes that build the same raster at once
+    # (both found it missing or stale) each write a complete file, and the last
+    # rename wins, so the file at *path* is always complete.
+    part = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.part")
     profile = {
         "driver": "GTiff",
         "dtype": "float32",
@@ -627,8 +726,7 @@ def write_embedding_geotiff(
             dst.update_tags(**{k: str(v) for k, v in tags.items()})
         os.replace(part, path)
     except BaseException:
-        if part.exists():
-            part.unlink()
+        part.unlink(missing_ok=True)
         raise
     return str(path)
 
@@ -748,6 +846,211 @@ def _read_tessera_zones(
     return reads
 
 
+def format_read_bbox(bbox: Sequence[float]) -> str:
+    """``"minx,miny,maxx,maxy"`` with every digit of the floats (:data:`TESSERA_READ_BBOX_TAG`)."""
+    return ",".join(repr(float(v)) for v in bbox)
+
+
+def parse_read_bbox(text: Any) -> tuple[float, float, float, float] | None:
+    """Inverse of :func:`format_read_bbox`; *None* for a missing or malformed value."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    try:
+        values = tuple(float(v) for v in text.split(","))
+    except ValueError:
+        return None
+    if len(values) != 4 or not all(math.isfinite(v) for v in values):
+        return None
+    return values  # type: ignore[return-value]
+
+
+def tessera_read_bbox(config: AgriboundConfig) -> tuple[float, float, float, float]:
+    """The EPSG:4326 box :func:`build_tessera_embedding` reads for *config*.
+
+    The box covering the export grid of the study area
+    (:func:`read_bbox_for_grid`); reading the study area may need Earth Engine
+    for a GEE-asset study area without a local copy.
+    """
+    from agribound.composites.gee import resolve_export_crs, study_area_geometry_4326
+
+    geom = study_area_geometry_4326(config)
+    return read_bbox_for_grid(geom, resolve_export_crs(config.export_crs, geom))
+
+
+def tessera_raster_path(config: AgriboundConfig) -> Path:
+    """Path of the cached TESSERA raster of *config* (:func:`build_tessera_embedding`).
+
+    ``<working dir>/tessera_embedding_<key>.tif``, keyed by
+    :func:`agribound._cache.cache_key` of the configuration,
+    :data:`EMBEDDING_RECIPE_VERSION`, the store URL and the variant (the
+    working directory is ``cache_dir``, else ``.agribound_cache`` next to the
+    output). No directory is created.
+    """
+    from agribound._cache import cache_key
+
+    store_url, variant = resolve_tessera_store(config.tessera_version, config.tessera_variant)
+    key = cache_key(config, EMBEDDING_RECIPE_VERSION, store_url, variant)
+    if config.cache_dir:
+        working_dir = Path(config.cache_dir).expanduser()
+    else:
+        working_dir = Path(config.output_path).parent / ".agribound_cache"
+    return working_dir / f"tessera_embedding_{key}.tif"
+
+
+def cached_tessera_tags(
+    config: AgriboundConfig, fallback_path: str | Path | None = None
+) -> tuple[Path, dict[str, str]] | None:
+    """The cached TESSERA raster of *config* and its ``AGRIBOUND_*``/``TESSERA_*`` tags.
+
+    The raster is :func:`tessera_raster_path` of *config* or, when that file
+    does not exist (or its path cannot be computed), *fallback_path* (such as
+    the ``raster_path`` recorded with an output). *None* when neither exists
+    or the tags of the file found cannot be read. Nothing is requested from
+    the store.
+    """
+    candidates: list[Path] = []
+    try:
+        candidates.append(tessera_raster_path(config))
+    except Exception as exc:  # geotessera missing or an unreadable study area
+        logger.debug("No TESSERA raster path for the configuration: %s", exc)
+    if fallback_path:
+        candidates.append(Path(fallback_path))
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            return path, _read_all_tags(path)
+        except Exception as exc:  # a broken file shows nothing
+            logger.debug("Could not read the tags of %s: %s", path, exc)
+            return None
+    return None
+
+
+def current_tessera_stamp(config: AgriboundConfig, read_bbox: Sequence[float] | None = None):
+    """The store stamp of the TESSERA read for *config*, from the store as it is now.
+
+    Parameters
+    ----------
+    config : AgriboundConfig
+        Configuration (``tessera_version``, ``tessera_variant``, ``year`` and,
+        when *read_bbox* is *None*, the study area and ``export_crs``).
+    read_bbox : sequence of float or None
+        The box that was read (the ``TESSERA_READ_BBOX`` tag); *None* computes
+        it with :func:`tessera_read_bbox`.
+
+    Returns
+    -------
+    agribound.composites.tessera_stamp.StoreStamp
+
+    Raises
+    ------
+    agribound.composites.tessera_stamp.StoreCheckError
+        If the stamp cannot be computed (see
+        :func:`agribound.composites.tessera_stamp.store_stamp`).
+    """
+    from agribound.composites import tessera_stamp
+
+    store_url, _variant = resolve_tessera_store(config.tessera_version, config.tessera_variant)
+    bbox = tuple(read_bbox) if read_bbox is not None else tessera_read_bbox(config)
+    return tessera_stamp.store_stamp(store_url, bbox, int(config.year))
+
+
+@dataclass(frozen=True)
+class TesseraRasterCheck:
+    """Result of :func:`check_tessera_raster`.
+
+    Attributes
+    ----------
+    state : str
+        ``"current"`` (the store's objects under the raster are those it was
+        read from), ``"stale"`` (they changed, or the raster has no store
+        stamp) or ``"unverified"`` (the store's state cannot be determined now).
+    detail : str
+        Why, for log messages (empty when current).
+    stamp : StoreStamp or None
+        The store's current stamp, when it was computed.
+    """
+
+    state: str
+    detail: str
+    stamp: Any = None
+
+
+def check_tessera_raster(path: str | Path, config: AgriboundConfig) -> TesseraRasterCheck:
+    """Compare the store stamp in a TESSERA raster's tags with the store as it is now.
+
+    The current stamp is computed for the box recorded in the raster
+    (``TESSERA_READ_BBOX``; for a raster without it, the box *config* reads).
+    A raster without ``TESSERA_STORE_FINGERPRINT`` (cached before agribound
+    recorded the store's state, or when the state could not be determined at
+    the time) is ``"stale"`` whenever the current stamp can be computed, and
+    so is a file whose tags cannot be read. Nothing is logged.
+    """
+    from agribound.composites import tessera_stamp
+
+    try:
+        tags = _read_all_tags(path)
+    except Exception as exc:  # a broken file: read the store again
+        return TesseraRasterCheck("stale", f"its tags cannot be read ({type(exc).__name__}: {exc})")
+    recorded = tags.get(tessera_stamp.TAG_FINGERPRINT) or None
+    try:
+        stamp = current_tessera_stamp(config, parse_read_bbox(tags.get(TESSERA_READ_BBOX_TAG)))
+    except tessera_stamp.StoreCheckError as exc:
+        return TesseraRasterCheck("unverified", str(exc))
+    except Exception as exc:  # the study area or the store cannot be resolved now
+        return TesseraRasterCheck("unverified", f"{type(exc).__name__}: {exc}")
+    if recorded is None:
+        return TesseraRasterCheck(
+            "stale",
+            "it has no record of the store's state (it was cached before agribound recorded "
+            f"it, or when the store could not be checked); the store now: {stamp.describe()}",
+            stamp,
+        )
+    if recorded != stamp.fingerprint:
+        before = tags.get(tessera_stamp.TAG_LAST_MODIFIED) or "unknown"
+        return TesseraRasterCheck(
+            "stale",
+            f"the store's objects under it have changed since it was read (fingerprint "
+            f"{recorded[:12]}, newest modified {before}; the store now: {stamp.describe()})",
+            stamp,
+        )
+    return TesseraRasterCheck("current", "", stamp)
+
+
+def _geotessera_cache(store_url: str, cache_dir: str | None, stamp: Any) -> tuple[Any, dict | None]:
+    """The store to read *store_url* through, with the on-disk cache *cache_dir*.
+
+    Returns ``(store or URL to pass to GeoTesseraZarr, ETags to record after
+    the read)``. With *cache_dir*, the read goes through
+    :func:`agribound.composites.tessera_stamp.geotessera_store`, which keeps
+    only metadata and coordinate chunks on disk, after the cached copies of
+    the read's objects that changed in the store have been deleted; when that
+    cannot be checked (no stamp, or a failed request), the read bypasses the
+    cache.
+    """
+    from agribound.composites import tessera_stamp
+
+    if not cache_dir:
+        return store_url, None
+    if stamp is None:
+        logger.info(
+            "Reading TESSERA without the cache %s: its copies cannot be checked against the "
+            "store without the store's state",
+            cache_dir,
+        )
+        return store_url, None
+    try:
+        current = tessera_stamp.refresh_local_cache(cache_dir, stamp)
+        return tessera_stamp.geotessera_store(store_url, cache_dir), current
+    except (tessera_stamp.StoreCheckError, OSError, ImportError) as exc:
+        logger.warning(
+            "Could not check the cache %s against the TESSERA store (%s); reading without it",
+            cache_dir,
+            exc,
+        )
+        return store_url, None
+
+
 def build_tessera_embedding(config: AgriboundConfig) -> tuple[str, dict[str, Any]]:
     """Read TESSERA embeddings for the study area into a cached GeoTIFF.
 
@@ -757,13 +1060,40 @@ def build_tessera_embedding(config: AgriboundConfig) -> tuple[str, dict[str, Any
     :func:`composite_zone_reads`). A WARNING is logged when fewer than half of
     the pixels inside the study-area polygons have an embedding.
 
+    The state of the store's objects that are read (a store stamp, computed
+    right before the read with
+    :func:`agribound.composites.tessera_stamp.store_stamp`, without answers
+    remembered in the process) is written to the raster's tags. A cached raster
+    (:func:`tessera_raster_path`: the file name is keyed by the configuration,
+    :data:`EMBEDDING_RECIPE_VERSION`, the store URL and the variant) is checked
+    with :func:`check_tessera_raster` before it is reused:
+
+    - the store's objects under it are those it was read from: reused;
+    - they changed, or the raster has no store stamp (cached before agribound
+      recorded it): read again and replaced (written to a temporary file of
+      its own, ``<file>.<pid>.<random>.part``, and renamed), with an INFO
+      message;
+    - the store's state cannot be determined (no network, an HTTP error,
+      ``AGRIBOUND_TESSERA_STORE_CHECK=0``): reused with a WARNING.
+
+    With ``config.embedding_cache_dir``, the read goes through
+    :func:`agribound.composites.tessera_stamp.geotessera_store`, which keeps
+    the store's metadata documents and coordinate chunks on disk (not the
+    shards); the copies that changed in the store (or that have no recorded
+    ETag) are deleted before the read
+    (:func:`agribound.composites.tessera_stamp.refresh_local_cache`), and the
+    read bypasses the cache when that cannot be checked.
+
     Returns
     -------
     tuple[str, dict]
         Path to the 128-band float32 GeoTIFF and its metadata tags
         (``AGRIBOUND_VALID_FRACTION`` = share of the pixels inside the
         study-area polygons that have an embedding; ``TESSERA_DATASET_VERSION``,
-        ``TESSERA_DATASET_VARIANT``, ``TESSERA_YEAR``).
+        ``TESSERA_DATASET_VARIANT``, ``TESSERA_YEAR``, ``TESSERA_READ_BBOX``
+        (the EPSG:4326 box read) and, when the store's state was determined,
+        ``TESSERA_STORE_FINGERPRINT``, ``TESSERA_STORE_LAST_MODIFIED`` and
+        ``TESSERA_STORE_OBJECTS``).
 
     Raises
     ------
@@ -777,7 +1107,6 @@ def build_tessera_embedding(config: AgriboundConfig) -> tuple[str, dict[str, Any
         If the year is not in the store (a dataset-wide condition, not
         specific to the study area).
     """
-    from agribound._cache import cache_path
     from agribound._version import __version__
     from agribound.composites.gee import resolve_export_crs, study_area_geometry_4326
 
@@ -789,20 +1118,52 @@ def build_tessera_embedding(config: AgriboundConfig) -> tuple[str, dict[str, Any
             '"agribound[tessera]"'
         ) from None
 
+    from agribound.composites import tessera_stamp
+
     version = config.tessera_version
     store_url, variant = resolve_tessera_store(version, config.tessera_variant)
     year = int(config.year)
-    out_path = cache_path(
-        config, "tessera_embedding", ".tif", EMBEDDING_RECIPE_VERSION, store_url, variant
-    )
+    out_path = tessera_raster_path(config)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.exists():
-        logger.info("Using cached TESSERA embeddings: %s", out_path)
-        return str(out_path), _read_all_tags(out_path)
+        check = check_tessera_raster(out_path, config)
+        if check.state == "current":
+            logger.info(
+                "Using cached TESSERA embeddings: %s (store unchanged: %s)",
+                out_path,
+                check.stamp.describe(),
+            )
+            return str(out_path), _read_all_tags(out_path)
+        if check.state == "unverified":
+            logger.warning(
+                "Could not check whether the TESSERA store has changed since %s was read (%s). "
+                "Using the cached raster: if the store has been rewritten since (as the v1 store "
+                "was on 2026-10-06/08), it holds data that the store no longer has. Run again "
+                "with network access, or delete the file, to read the store again.",
+                out_path,
+                check.detail,
+            )
+            return str(out_path), _read_all_tags(out_path)
+        logger.info("Reading the cached TESSERA embeddings %s again: %s", out_path, check.detail)
 
     geom = study_area_geometry_4326(config)
     target_crs = resolve_export_crs(config.export_crs, geom)
     bbox = read_bbox_for_grid(geom, target_crs)
-    store = GeoTesseraZarr(store_url, cache_dir=config.embedding_cache_dir)
+    # Computed right before the read, from the store as it is now (not from answers
+    # remembered in this process): a rewrite during the read changes the stamp, so the
+    # next check reads the store again.
+    try:
+        stamp = tessera_stamp.store_stamp(store_url, bbox, year, fresh=True)
+    except tessera_stamp.StoreCheckError as exc:
+        stamp = None
+        logger.warning(
+            "Could not record the state of the TESSERA store for %s (%s): the raster gets no "
+            "store stamp, so it is read again the next time it is used with network access.",
+            out_path,
+            exc,
+        )
+    source, cached_etags = _geotessera_cache(store_url, config.embedding_cache_dir, stamp)
+    store = GeoTesseraZarr(source)
     advice = tessera_coverage_advice(version, year)
     if store.years and year not in store.years:
         raise ValueError(
@@ -834,14 +1195,27 @@ def build_tessera_embedding(config: AgriboundConfig) -> tuple[str, dict[str, Any
         "TESSERA_YEAR": year,
         "TESSERA_MODEL": getattr(store, "model_version", "") or "",
         "TESSERA_STORE": store_url,
+        TESSERA_READ_BBOX_TAG: format_read_bbox(bbox),
     }
+    if stamp is not None:
+        tags.update(stamp.tags())
     write_embedding_geotiff(out_path, data, grid, TESSERA_BANDS, tags)
+    if cached_etags is not None:
+        try:
+            tessera_stamp.record_local_cache(config.embedding_cache_dir, store_url, cached_etags)
+        except (OSError, tessera_stamp.StoreCheckError) as exc:  # checked again next time
+            logger.warning(
+                "Could not record the ETags of the TESSERA cache %s: %s",
+                config.embedding_cache_dir,
+                exc,
+            )
     logger.info(
-        "TESSERA embeddings: %s (%d x %d px, %.1f%% valid)",
+        "TESSERA embeddings: %s (%d x %d px, %.1f%% valid; store %s)",
         out_path,
         grid.width,
         grid.height,
         100 * fraction,
+        stamp.describe() if stamp is not None else "state unknown",
     )
     return str(out_path), tags
 
@@ -1446,7 +1820,9 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
     ``google_embedding_backend="source_coop"``,
     :func:`build_google_embedding_source_coop`. Outputs are cached with
     :func:`agribound._cache.cache_path` (keyed by study area, year, export
-    CRS, dataset version/variant and backend).
+    CRS, dataset version/variant and backend); a cached TESSERA raster is
+    also checked against the store's current state
+    (:func:`check_tessera_raster`).
 
     Attributes
     ----------
@@ -1485,25 +1861,34 @@ class EmbeddingCompositeBuilder(CompositeBuilder):
 
 __all__ = [
     "AEF_INDEX_URL",
+    "TESSERA_READ_BBOX_TAG",
     "EmbeddingCompositeBuilder",
     "LocalCompositeBuilder",
+    "TesseraRasterCheck",
     "aef_index_path",
     "aef_tile_url",
     "build_google_embedding_gee",
     "build_google_embedding_source_coop",
     "build_tessera_embedding",
+    "cached_tessera_tags",
+    "check_tessera_raster",
     "composite_zone_reads",
     "crop_to_extent",
+    "current_tessera_stamp",
     "dequantize_aef",
     "embedding_grid",
+    "format_read_bbox",
     "load_aef_index",
     "order_reads_for_target",
+    "parse_read_bbox",
     "plan_aef_reads",
     "read_aef_window",
     "read_bbox_for_grid",
     "resolve_tessera_store",
     "tessera_coverage",
     "tessera_coverage_advice",
+    "tessera_raster_path",
+    "tessera_read_bbox",
     "validate_local_raster",
     "valid_fraction_in_geometry",
     "write_embedding_geotiff",

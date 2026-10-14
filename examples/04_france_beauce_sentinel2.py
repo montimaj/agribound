@@ -16,7 +16,9 @@ Other models: ``engine_params={"model": ...}`` (``agribound list-ftw-models``).
 The LULC crop filter is on (Dynamic World is selected outside the US) and
 needs Earth Engine, like the Sentinel-2 composites.
 
-Estimated runtime (not measured for 1.0): ~15-30 minutes (1 year, GPU).
+Runtime: 2.4 minutes (141 s) in the development run of agribound 1.1
+(2026-10-09, Apple M2 Max with MPS; three Sentinel-2 composites, the year's
+and FTW's two windows, and FTW's checkpoint downloaded).
 
 Prerequisites:
     pip install "agribound[gee,ftw]"
@@ -40,7 +42,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

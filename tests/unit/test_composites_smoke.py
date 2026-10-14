@@ -252,6 +252,46 @@ def test_naip_iowa_4band_uint8(out_dir):
     assert (data[3] > 0).mean() > 0.99  # NIR present everywhere
 
 
+#: About 2 x 2 km in Story County, Iowa (UTM 15N), for the crop-type map stack.
+IOWA_2KM = "bbox:-93.62,41.99,-93.596,42.008"
+
+
+@pytest.mark.gee
+@pytest.mark.slow
+def test_cdl_sequence_iowa_stack_and_zones(out_dir):
+    """cdl-sequence: one uint8 band of CDL codes per year, 2016-2023, on the padded UTM grid."""
+    import json
+
+    from agribound.composites import get_composite_builder
+    from agribound.composites.crop_sequence import CROP_SEQUENCE_PAD_PX
+
+    cfg = _cfg(out_dir, "cdl-sequence", engine="crop-sequence", year=2023, study_area=IOWA_2KM)
+    builder = get_composite_builder("cdl-sequence")
+    path = builder.build(cfg)
+    tags = builder.last_metadata
+    with rasterio.open(path) as src:
+        data = src.read()
+        print(f"\ncdl-sequence: {src.crs} {src.shape} {src.res} tags={tags}")
+        assert src.count == 8 and src.dtypes[0] == "uint8" and src.nodata == 0
+        assert src.descriptions == tuple(f"CDL{y}" for y in range(2016, 2024))
+        assert src.res == (30.0, 30.0) and src.crs.to_epsg() == 32615
+    assert tags["AGRIBOUND_VALUE_SCALE"] == "categorical"
+    assert int(tags["AGRIBOUND_PAD_PX"]) == CROP_SEQUENCE_PAD_PX
+    assert json.loads(tags["AGRIBOUND_IMAGE_IDS"])["2023"] == "USDA/NASS/CDL/2023"
+    legend = json.loads(tags["AGRIBOUND_LEGEND"])
+    assert legend["1"] == "Corn" and legend["5"] == "Soybeans"
+    assert float(tags["AGRIBOUND_VALID_FRACTION"]) > 0.99
+    assert set(np.unique(data).tolist()) <= {0, *(int(k) for k in legend)}  # legend codes
+    pytest.importorskip("skimage")
+    from agribound.engines.crop_sequence import CropSequenceEngine
+
+    zones = CropSequenceEngine().delineate(path, cfg)
+    meta = zones.attrs["engine_meta"]
+    print(f"zones: {len(zones)} polygons, {meta['n_regions_after_merge']} zones")
+    assert len(zones) > 0 and meta["years"] == list(range(2016, 2024))
+    assert "agribound:crop_2023" in zones.columns
+
+
 @pytest.mark.network
 @pytest.mark.slow
 def test_usgs_naip_plus_iowa(out_dir):
@@ -280,6 +320,45 @@ def test_spot_namoi_multispectral_dn(out_dir):
     print(f"\nSPOT: {info} valid={valid:.3f} medians={med}")
     assert list(med) == ["R", "G", "B", "N"] and info["res"] == (6.0, 6.0)
     assert builder.last_metadata["AGRIBOUND_VALUE_SCALE"] == "dn"
+
+
+@pytest.mark.gee
+@pytest.mark.slow
+def test_sentinel1_namoi_backscatter_scaled_to_uint8(out_dir):
+    from agribound.composites import get_composite_builder
+    from agribound.composites.gee import S1_BANDS, sentinel1_uint8_to_db
+
+    builder = get_composite_builder("sentinel1")
+    path = builder.build(_cfg(out_dir, "sentinel1", date_range=("2023-04-01", "2023-09-30")))
+    tags = builder.last_metadata
+    with rasterio.open(path) as src:
+        data = src.read()
+        print(f"\nSentinel-1: {src.crs} {src.shape} {src.res} tags={tags}")
+        assert src.count == 3 and src.dtypes[0] == "uint8" and src.nodata == 0
+        assert src.descriptions == tuple(S1_BANDS) and src.res == (10.0, 10.0)
+        assert src.crs.to_epsg() == 32756
+    valid = (data > 0).all(axis=0)
+    assert valid.mean() > 0.9
+    assert float(tags["AGRIBOUND_VALID_FRACTION"]) > 0.9
+    assert tags["AGRIBOUND_VALUE_SCALE"] == "uint8"
+    assert tags["AGRIBOUND_ORBIT_PASS"] in ("ASCENDING", "DESCENDING")
+    assert tags["AGRIBOUND_SENSORS"] == "S1A"  # Sentinel-1A flew alone in 2023
+    assert int(tags["AGRIBOUND_N_IMAGES"]) >= 5
+    # Acquisitions: the image count is that of the pass used, and every pass has a count.
+    per_pass = dict(p.split(":") for p in tags["AGRIBOUND_ORBIT_PASS_ACQUISITIONS"].split(","))
+    assert int(per_pass[tags["AGRIBOUND_ORBIT_PASS"]]) == int(tags["AGRIBOUND_N_IMAGES"])
+    assert tags["AGRIBOUND_SENSOR_IMAGES"] == f"S1A:{tags['AGRIBOUND_N_IMAGES']}"
+    assert tags["AGRIBOUND_IMAGE_COUNTS"].startswith("acquisitions")
+    ranges = tags["AGRIBOUND_S1_DB_RANGES"]
+    medians = {
+        band: float(np.median(sentinel1_uint8_to_db(data[i][valid], band, ranges)))
+        for i, band in enumerate(S1_BANDS)
+    }
+    print(f"median dB: {medians}")
+    # Typical cropland backscatter (dB), well inside the scaling ranges.
+    assert -20 < medians["VV"] < -4
+    assert -28 < medians["VH"] < -10
+    assert 2 < medians["VV_VH"] < 13
 
 
 @pytest.mark.network

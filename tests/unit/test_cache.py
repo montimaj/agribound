@@ -170,6 +170,20 @@ class TestCacheKey:
         landsat = s2_config.merged(source="landsat")
         assert cache_key(landsat.merged(landsat_pan_missions="LE07")) == cache_key(landsat)
 
+    def test_crop_sequence_years_in_key_for_the_crop_map_sources_only(self, s2_config):
+        cdl = s2_config.merged(source="cdl-sequence", engine="crop-sequence", year=2023)
+        assert ("crop_sequence_years", 8) in _cache._key_fields(cdl, True)
+        keys = {cache_key(cdl.merged(crop_sequence_years=n)) for n in (2, 5, 8, 12)}
+        assert len(keys) == 4
+        aci = cdl.merged(source="aci-sequence")
+        assert ("crop_sequence_years", 8) in _cache._key_fields(aci, True)
+        assert cache_key(aci) != cache_key(cdl)
+        # Not in the other sources' keys: their cached composites stay valid.
+        assert "crop_sequence_years" not in dict(_cache._key_fields(s2_config, True))
+        for source in ("sentinel2", "landsat-pan", "naip"):
+            other = s2_config.merged(source=source)
+            assert cache_key(other.merged(crop_sequence_years=3)) == cache_key(other)
+
     def test_landsat_pan_key_differs_from_the_key_without_missions(self, s2_config):
         """Composites cached before the mission rule (Landsat 7 and 8/9 mixed) are not reused."""
         import hashlib

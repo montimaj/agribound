@@ -38,8 +38,10 @@ Claude Desktop or Claude Code (stdio). ``execute_plan`` is registered only
 with ``--allow-execute`` and is confirmed through an MCP elicitation (the
 user types ``yes``) by default. The script prints a configuration snippet.
 
-Runtime: about a second for part A (tested 2026-09-27); part B depends on the
-model and was not run for this release (no API key was available).
+Runtime: about a second for part A (tested 2026-09-27; 2 s with the
+interpreter's start in the development run of agribound 1.1, 2026-10-09); part
+B depends on the model and was not run for 1.0 or 1.1 (no API key was
+available).
 
 Prerequisites:
     pip install "agribound[agent]"
@@ -63,7 +65,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.WARNING,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 

@@ -62,10 +62,14 @@ from agribound.agent.errors import (
     UnknownPlanError,
 )
 from agribound.registry import (
+    CATEGORICAL_ENGINES,
+    CROP_SEQUENCE_SOURCES,
     ENGINE_REGISTRY,
     GEE_IMAGERY_SOURCES,
+    SAR_SOURCES,
     SOURCE_REGISTRY,
     TESSERA_YEAR_RANGES,
+    VHR_SAR_SOURCES,
     engine_notes,
     source_year_range,
 )
@@ -84,7 +88,19 @@ ENGINE_MODULES: dict[str, tuple[str, ...]] = {
     "dinov3": ("geoai",),
     "prithvi": ("terratorch",),
     "embedding": ("sklearn",),
+    "sam-auto": ("sam2", "cv2"),
+    "crop-sequence": ("skimage",),
     "ensemble": (),
+}
+
+#: Engines proposed by ``recommend_configurations`` only when named in its ``engines``
+#: (engine -> the reason given when it is not named).
+OPT_IN_ENGINES: dict[str, str] = {
+    "sam-auto": (
+        "opt-in; SAM 2.1 automatic masks, never chosen by default (recommended only when "
+        "named in 'engines'); its per-source settings were chosen on two Nevada development "
+        "squares, so its scores there are in-sample"
+    ),
 }
 
 #: Configuration fields a proposal may not set (the agent layer controls them).
@@ -100,6 +116,18 @@ PROPOSAL_RESERVED_FIELDS: dict[str, str] = {
         "not by the agent"
     ),
     "embedding_cache_dir": "embedding caches are kept in the session cache directory",
+    "vhr_sar_cache_dir": (
+        "the Umbra/Capella index and product cache is configured by the user, not by the "
+        "agent (default ~/.cache/agribound/vhr_sar)"
+    ),
+}
+
+#: Delineate-Anything engine_params proposed for the open VHR SAR sources: the fixed
+#: recipe of the Umbra prototype (read at 3 m, no tile-piece merging); they are not
+#: engine defaults (see agribound.composites.vhr_sar.DELINEATE_ANYTHING_PARAMS).
+VHR_SAR_DELINEATE_ANYTHING_PARAMS: dict[str, Any] = {
+    "processing_gsd_m": 3,
+    "merge_tile_pieces": False,
 }
 
 #: Named constants used by the recommendation rules (reported in the tool output).
@@ -108,8 +136,9 @@ RECOMMENDATION_PARAMETERS: dict[str, dict[str, Any]] = {
         "value": [-125.0, 24.0, -66.5, 49.5],
         "rationale": (
             "Approximate bounding box (min lon, min lat, max lon, max lat) of the conterminous "
-            "United States. NAIP in Earth Engine (USDA/NAIP/DOQQ) covers the conterminous US "
-            "only; a study-area centroid outside this box excludes 'naip' and 'usgs-naip-plus'. "
+            "United States. NAIP in Earth Engine (USDA/NAIP/DOQQ) and the Cropland Data Layer "
+            "(USDA/NASS/CDL) cover the conterminous US only; a study-area centroid outside this "
+            "box excludes 'naip', 'usgs-naip-plus' and 'cdl-sequence'. "
             "For 'usgs-naip-plus' the box is a simplification: the service also has footprints "
             "in Alaska, Hawaii, Puerto Rico, Guam, the Northern Mariana Islands and American "
             "Samoa (registry coverage text), and this rule excludes study areas there (propose "
@@ -119,6 +148,17 @@ RECOMMENDATION_PARAMETERS: dict[str, dict[str, Any]] = {
         "citation": (
             "Agribound source registry coverage text; GEE catalog entry USDA/NAIP/DOQQ (NAIP only)"
         ),
+    },
+    "canada_bbox_4326": {
+        "value": [-141.0, 41.6, -52.6, 83.2],
+        "rationale": (
+            "Approximate bounding box (min lon, min lat, max lon, max lat) of Canada. The AAFC "
+            "Annual Crop Inventory (AAFC/ACI) maps Canada only; a study-area centroid outside "
+            "this box excludes 'aci-sequence'. The box also covers the northern conterminous US, "
+            "where the rule does not exclude it, so a centroid inside the box does not prove "
+            "coverage (the stack's builder reports the years without a map)."
+        ),
+        "citation": "Agribound source registry coverage text (aci-sequence)",
     },
     "sentinel2_partial_coverage_years": {
         "value": [2017, 2018],
@@ -244,6 +284,10 @@ def _export_resolution(source: str) -> float | None:
         from agribound.agent.plans import config_defaults
 
         return float(config_defaults()["naip_resolution_m"])
+    if source in VHR_SAR_SOURCES:
+        from agribound.agent.plans import config_defaults
+
+        return float(config_defaults()["vhr_sar_resolution_m"])
     res = SOURCE_REGISTRY[source]["resolution_m"]
     return None if res is None else float(res)
 
@@ -426,12 +470,15 @@ def _composite_estimate(
     utm_bounds: tuple[float, float, float, float],
     tile_size: int,
     resolution_m: float | None = None,
+    crop_sequence_years: int | None = None,
 ) -> CompositeEstimate:
     info = SOURCE_REGISTRY[source]
     res = resolution_m if resolution_m is not None else _export_resolution(source)
     bands = info["all_bands"]
     n_bands = len(bands) if bands else None
-    dtype = "uint8" if info["value_scale"] == "uint8" else "float32"
+    dtype = "uint8" if info["value_scale"] in ("uint8", "categorical") else "float32"
+    if source in CROP_SEQUENCE_SOURCES and res is not None:
+        return _crop_sequence_estimate(source, utm_bounds, tile_size, res, crop_sequence_years)
     if res is None or n_bands is None:
         note = (
             "resolution depends on the input (state vintage or local file); no estimate"
@@ -452,6 +499,38 @@ def _composite_estimate(
         uncompressed_mb=round(width * height * n_bands * nbytes / 1e6, 1),
         download_tiles=math.ceil(width / tile_size) * math.ceil(height / tile_size),
         note="bounding box of the study area in the UTM zone of its centroid (export_crs='utm')",
+    )
+
+
+def _crop_sequence_estimate(
+    source: str,
+    utm_bounds: tuple[float, float, float, float],
+    tile_size: int,
+    res: float,
+    n_years: int | None,
+) -> CompositeEstimate:
+    """Size of a crop-type map stack: one uint8 band per year, on the grid padded by its pad."""
+    from agribound.agent.plans import config_defaults
+    from agribound.composites.crop_sequence import CROP_SEQUENCE_PAD_PX
+
+    n = int(n_years if n_years is not None else config_defaults()["crop_sequence_years"])
+    pad = 2 * CROP_SEQUENCE_PAD_PX
+    width = max(1, math.ceil((utm_bounds[2] - utm_bounds[0]) / res)) + pad
+    height = max(1, math.ceil((utm_bounds[3] - utm_bounds[1]) / res)) + pad
+    return CompositeEstimate(
+        source=source,
+        resolution_m=res,
+        width_px=width,
+        height_px=height,
+        n_bands=n,
+        dtype="uint8",
+        uncompressed_mb=round(width * height * n / 1e6, 1),
+        download_tiles=math.ceil(width / tile_size) * math.ceil(height / tile_size),
+        note=(
+            f"one uint8 band of class codes per year (crop_sequence_years={n}) on the bounding "
+            f"box of the study area in the UTM zone of its centroid, padded by "
+            f"{CROP_SEQUENCE_PAD_PX} px"
+        ),
     )
 
 
@@ -552,9 +631,10 @@ class AvailabilityInput(_Model):
     study_area: str | None = Field(None, description="Needed for live checks; session default")
     live: bool = Field(
         False,
-        description="Also query Earth Engine image counts / TESSERA tile counts for the study "
-        "area's bounding box (network; GEE needs credentials; TESSERA downloads its tile "
-        "manifest on first use).",
+        description="Also query Earth Engine image counts / TESSERA tile counts / the Umbra and "
+        "Capella collects for the study area's bounding box (network; GEE needs credentials; "
+        "TESSERA downloads its tile manifest and umbra/capella build their archive index on "
+        "first use).",
     )
     tessera_version: TesseraVersion = "v1"
     tessera_variant: str | None = Field(
@@ -699,8 +779,18 @@ class RecommendInput(_Model):
     include_restricted: bool = Field(
         False, description="Include restricted sources (SPOT 6/7) the user has access to"
     )
-    sources: list[SourceName] | None = None
-    engines: list[EngineName] | None = None
+    sources: list[SourceName] | None = Field(
+        None,
+        description="Sources to consider (default: every source except umbra and capella, "
+        "which are considered only when named here, and cdl-sequence and aci-sequence, "
+        "considered only when they or engine crop-sequence are named)",
+    )
+    engines: list[EngineName] | None = Field(
+        None,
+        description="Engines to consider (default: every engine except sam-auto, which is "
+        "considered only when named here, and crop-sequence, considered only when it or "
+        "cdl-sequence or aci-sequence is named)",
+    )
     tessera_version: TesseraVersion = Field(
         "v1",
         description="TESSERA dataset version whose year range is checked for "
@@ -968,6 +1058,10 @@ def _live_gee(ctx: ToolContext, source: str, bbox: list[float], year: int) -> Li
 
     region = ee.Geometry.Rectangle(list(bbox), "EPSG:4326", False)
     start, end = f"{year}-01-01", f"{year + 1}-01-01"
+    if source == "sentinel1":
+        return _sentinel1_live_check(region, year)
+    if source == "hls":
+        return _hls_live_check(region, bbox, year)
     counts: dict[str, int] = {}
     for cid in _gee_collections(source):
         n = ee.ImageCollection(cid).filterBounds(region).filterDate(start, end).size().getInfo()
@@ -978,6 +1072,58 @@ def _live_gee(ctx: ToolContext, source: str, bbox: list[float], year: int) -> Li
     )
     if source == "landsat-pan":
         return _landsat_pan_live_check(counts, year, method)
+    return LiveCheck(
+        status="ok", method=method, image_count=sum(counts.values()), per_collection=counts
+    )
+
+
+def _hls_live_check(region: Any, bbox: list[float], year: int) -> LiveCheck:
+    """Live check of ``hls``: images per collection, as the composite selects them.
+
+    Counts the images of each HLS collection over *region* (the study-area
+    bounding box) in the calendar year, before cloud filtering, without the
+    images whose footprint meets a far point of the box
+    (:func:`agribound.composites.gee.hls_footprint_filter`): HLSS30 images of
+    the MGRS tiles at 180 degrees have reversed footprints in Earth Engine and
+    match boxes anywhere but over their own tile. When the box comes within
+    :data:`agribound.composites.gee.HLS_ANTIMERIDIAN_MARGIN_DEG` of 180 degrees,
+    each collection's count also includes its images of those tiles whose tile
+    meets the box (:func:`agribound.composites.gee.hls_antimeridian_images`).
+    One request per collection.
+    """
+    import ee
+    from shapely.geometry import box
+
+    from agribound.composites.gee import (
+        HLS_ANTIMERIDIAN_MARGIN_DEG,
+        hls_antimeridian_images,
+        hls_footprint_filter,
+        near_antimeridian,
+    )
+
+    window = (f"{year}-01-01", f"{year + 1}-01-01")
+    geometry = box(*bbox)
+    keep = hls_footprint_filter(geometry)
+    near = near_antimeridian(geometry)
+    counts: dict[str, int] = {}
+    for cid in _gee_collections("hls"):
+        size = ee.ImageCollection(cid).filterBounds(region).filter(keep).filterDate(*window).size()
+        if near:
+            listed = hls_antimeridian_images(region, geometry, collection=cid, window=window)
+            size = size.add(listed.size())
+        counts[cid] = int(size.getInfo())
+    method = (
+        "ee.ImageCollection(...).filterBounds(study-area bbox).filterDate(year).size(), before "
+        "cloud filtering, without the images whose footprint meets the antipode of the bbox "
+        "centre or that point moved 90 degrees east (HLSS30 images of the MGRS tiles at 180 "
+        "degrees have reversed footprints in Earth Engine)"
+    )
+    if near:
+        method += (
+            f"; the bbox lies within {HLS_ANTIMERIDIAN_MARGIN_DEG:g} degrees of 180 degrees, so "
+            "each count includes the collection's images of those tiles whose footprint, read "
+            "with the even-odd rule, meets the bbox"
+        )
     return LiveCheck(
         status="ok", method=method, image_count=sum(counts.values()), per_collection=counts
     )
@@ -1020,6 +1166,92 @@ def _landsat_pan_live_check(counts: dict[str, int], year: int, method: str) -> L
         image_count=sum(used.values()),
         per_collection=used,
         message=message,
+    )
+
+
+def _sentinel1_live_check(region: Any, year: int) -> LiveCheck:
+    """Live check of ``sentinel1``: acquisitions per orbit pass and satellite.
+
+    Counts the acquisitions (:func:`agribound.composites.gee.sentinel1_acquisitions`:
+    the GRD slices of one satellite and absolute orbit count once) among the
+    images of :func:`agribound.composites.gee.sentinel1_collection`
+    (``COPERNICUS/S1_GRD`` with the composite's scene filters: IW mode, 10 m,
+    VV and VH) over *region* in the calendar year, per ``orbitProperties_pass``
+    and ``platform_number``, in one request. ``image_count`` and
+    ``per_collection`` count the acquisitions of the pass that a calendar-year
+    composite would use (the pass with more acquisitions, DESCENDING on a tie;
+    :func:`agribound.composites.gee.sentinel1_orbit_pass`); a composite with
+    ``date_range`` counts its own window and can use the other pass.
+    ``message`` gives both passes per satellite, or says that there is no
+    acquisition.
+    """
+    import ee
+
+    from agribound.composites.gee import (
+        S1_COLLECTION,
+        S1_ORBIT_PASSES,
+        S1_PLATFORMS,
+        sentinel1_acquisitions,
+        sentinel1_collection,
+        sentinel1_orbit_pass,
+    )
+
+    acquisitions = sentinel1_acquisitions(
+        sentinel1_collection(region).filterDate(f"{year}-01-01", f"{year + 1}-01-01")
+    )
+    query = {
+        p: acquisitions.filter(ee.Filter.eq("orbitProperties_pass", p)).aggregate_histogram(
+            "platform_number"
+        )
+        for p in S1_ORBIT_PASSES
+    }
+    info = ee.Dictionary(query).getInfo() or {}
+    platforms = {
+        p: {str(k): int(v) for k, v in (info.get(p) or {}).items()} for p in S1_ORBIT_PASSES
+    }
+    totals = {p: sum(counts.values()) for p, counts in platforms.items()}
+    used = sentinel1_orbit_pass(totals)
+    method = (
+        f"ee.ImageCollection('{S1_COLLECTION}').filterBounds(study-area bbox)"
+        ".filterDate(year) with the composite's scene filters (instrumentMode IW, "
+        "resolution_meters 10, VV and VH); acquisitions (the GRD slices with the same "
+        "platform_number and orbitNumber_start count once) counted per orbitProperties_pass "
+        "and platform_number; image_count counts the acquisitions of the orbit pass a "
+        "calendar-year composite would use"
+    )
+    if not any(totals.values()):
+        return LiveCheck(
+            status="ok",
+            method=method,
+            image_count=0,
+            per_collection={S1_COLLECTION: 0},
+            message=(
+                f"No IW acquisition with VV and VH intersects the study-area bounding box in "
+                f"{year}, in either orbit pass, so a sentinel1 composite of {year} would fail "
+                "(NoDataError)."
+            ),
+        )
+
+    def per_satellite(counts: dict[str, int]) -> str:
+        order = [k for k in S1_PLATFORMS if counts.get(k)] + sorted(
+            k for k in counts if k not in S1_PLATFORMS and counts[k]
+        )
+        return ", ".join(f"{S1_PLATFORMS.get(k, k)} {counts[k]}" for k in order) or "none"
+
+    passes = "; ".join(
+        f"{p} {totals[p]} acquisitions ({per_satellite(platforms[p])})" for p in S1_ORBIT_PASSES
+    )
+    return LiveCheck(
+        status="ok",
+        method=method,
+        image_count=totals[used],
+        per_collection={S1_COLLECTION: totals[used]},
+        message=(
+            f"{passes}. A calendar-year sentinel1 composite of {year} would use {used}, the pass "
+            "with more acquisitions (DESCENDING on a tie; with date_range the composite counts "
+            "its own window). It does not mix the two passes, but one pass can combine relative "
+            "orbits that view the area at different incidence angles."
+        ),
     )
 
 
@@ -1109,6 +1341,8 @@ def _live_check(
             return _live_gee(ctx, source, bbox, year)
         if source == "tessera-embedding":
             return _live_tessera(ctx, bbox, year, version, variant)
+        if source in VHR_SAR_SOURCES:
+            return _live_vhr_sar(source, bbox, year)
     except AgentToolError as exc:
         return LiveCheck(status="error", message=str(exc))
     except Exception as exc:
@@ -1120,6 +1354,46 @@ def _live_check(
             "composite stage reports the state's available years when the year is missing",
         )
     return LiveCheck(status="not_available", message="no live check for this source")
+
+
+def _live_vhr_sar(source: str, bbox: list[float], year: int) -> LiveCheck:
+    """Live check of ``umbra``/``capella``: collects covering the study-area bbox in *year*.
+
+    Reads the archive index (:func:`agribound.composites.vhr_sar.load_index`,
+    default cache; the first Umbra build reads about 18,000 metadata files)
+    and runs the automatic selection on the bounding box for the calendar
+    year, with the default settings.
+    """
+    from shapely.geometry import box
+
+    from agribound.composites.base import NoDataError
+    from agribound.composites.vhr_sar import get_provider, load_index, select_collects
+
+    window = (f"{year}-01-01", f"{year + 1}-01-01")
+    index = load_index(source, window_end=window[1])
+    method = (
+        f"{source} archive index (snapshot {index.snapshot}) + the automatic selection on the "
+        "study-area bounding box, calendar year, default settings"
+    )
+    try:
+        selection = select_collects(
+            index.records, box(*bbox), window, source=source, snapshot=index.snapshot
+        )
+    except (NoDataError, ValueError) as exc:
+        return LiveCheck(status="ok", method=method, image_count=0, message=str(exc))
+    group = selection.group
+    return LiveCheck(
+        status="ok",
+        method=method,
+        image_count=len(selection.chosen),
+        per_collection={f"s3://{get_provider(source).bucket}": selection.counts.get("covering", 0)},
+        message=(
+            f"{selection.counts.get('covering', 0)} collects cover the bounding box in {year}; "
+            f"the largest consistent group ({group['orbit_state']}, {group['look_side']}-looking, "
+            f"{group['polarization']}) has {group['n_consistent']}, of which "
+            f"{len(selection.chosen)} would be used: {', '.join(group['dates'])}."
+        ),
+    )
 
 
 def _row_years(gdf: Any) -> Any:
@@ -1374,12 +1648,41 @@ def recommend_configurations_tool(ctx: ToolContext, inp: RecommendInput) -> Reco
 
     candidates: list[dict[str, Any]] = []
     excluded: list[Excluded] = []
+    crop_sequence_years = int(defaults["crop_sequence_years"])
+
+    def crop_sequence_named(source: str) -> bool:
+        return source in (inp.sources or ()) or any(
+            e in (inp.engines or ()) for e in CATEGORICAL_ENGINES
+        )
+
+    def yr_window_start(source: str) -> str | None:
+        first = SOURCE_REGISTRY[source]["year_range"][0]
+        start = inp.year - crop_sequence_years + 1
+        if inp.year >= first and start < first:
+            return (
+                f"crop_sequence_years={crop_sequence_years} maps ending in {inp.year} start in "
+                f"{start}, before {first} (the first year of {source})"
+            )
+        return None
+
     for source in sources:
         info = SOURCE_REGISTRY[source]
         reasons: list[str] = []
         warn: list[str] = []
         if source == "local":
             reasons.append("needs a user GeoTIFF (local_tif_path); propose it explicitly")
+        if source in VHR_SAR_SOURCES and source not in (inp.sources or ()):
+            reasons.append(
+                "open VHR SAR archive with few sites (registry coverage); recommended only when "
+                "named in 'sources', after check_availability(live=True) finds collects"
+            )
+        if source in CROP_SEQUENCE_SOURCES and not crop_sequence_named(source):
+            reasons.append(
+                "opt-in; crop-history zones, not field instances (recommended only when the "
+                "source or engine crop-sequence is named)"
+            )
+        if source in CROP_SEQUENCE_SOURCES and yr_window_start(source) is not None:
+            reasons.append(yr_window_start(source))
         is_tessera = source == "tessera-embedding"
         yr = source_year_range(source, tessera_version=inp.tessera_version if is_tessera else None)
         if yr is not None:
@@ -1404,6 +1707,18 @@ def recommend_configurations_tool(ctx: ToolContext, inp: RecommendInput) -> Reco
             reasons.append(
                 "study-area centroid outside conus_bbox_4326 (NAIP in Earth Engine covers the "
                 "conterminous US)"
+            )
+        if source == "cdl-sequence" and not in_conus:
+            reasons.append(
+                "study-area centroid outside conus_bbox_4326 (the Cropland Data Layer covers the "
+                "conterminous US)"
+            )
+        canada = RECOMMENDATION_PARAMETERS["canada_bbox_4326"]["value"]
+        in_canada = canada[0] <= centroid.x <= canada[2] and canada[1] <= centroid.y <= canada[3]
+        if source == "aci-sequence" and not in_canada:
+            reasons.append(
+                "study-area centroid outside canada_bbox_4326 (the Annual Crop Inventory covers "
+                "Canada)"
             )
         if source == "usgs-naip-plus" and not in_conus:
             reasons.append(
@@ -1446,12 +1761,34 @@ def recommend_configurations_tool(ctx: ToolContext, inp: RecommendInput) -> Reco
             )
         if source in ("naip", "usgs-naip-plus"):
             warn.append(f"Coverage: {info['coverage']}")
+        if source in VHR_SAR_SOURCES:
+            warn.append(
+                f"Coverage: {info['coverage']}. Check it with check_availability(live=True); "
+                "data CC BY 4.0, credit in the composite's AGRIBOUND_ATTRIBUTION tag."
+            )
         for engine in engines:
             einfo = ENGINE_REGISTRY[engine]
             if source not in einfo["supported_sources"]:
                 continue
             if engine == "ensemble":
                 continue
+            if engine in OPT_IN_ENGINES and engine not in (inp.engines or ()):
+                continue  # one "excluded" entry for every source, after this loop
+            if engine == "sam-auto":
+                from agribound.engines.sam_auto import NO_DEFAULT_SOURCES, SOURCE_KEYS
+
+                if source in NO_DEFAULT_SOURCES:
+                    excluded.append(
+                        Excluded(
+                            source=source,
+                            engine=engine,
+                            reasons=[
+                                f"engine sam-auto has no default setting for {source}; "
+                                f"propose it with every one of engine_params {list(SOURCE_KEYS)}"
+                            ],
+                        )
+                    )
+                    continue
             variants: list[tuple[bool, dict[str, Any], list[str]]] = []
             if einfo["label_free"]:
                 params: dict[str, Any] = {}
@@ -1482,6 +1819,13 @@ def recommend_configurations_tool(ctx: ToolContext, inp: RecommendInput) -> Reco
                     "fine_tune": fine_tune,
                 }
                 config: dict[str, Any] = {}
+                if engine == "delineate-anything" and source in VHR_SAR_SOURCES:
+                    params = {**params, **VHR_SAR_DELINEATE_ANYTHING_PARAMS}
+                    rules = rules + [
+                        "VHR SAR + Delineate-Anything: engine_params processing_gsd_m=3 and "
+                        "merge_tile_pieces=False (the fixed recipe of the Umbra prototype; not "
+                        "engine defaults)"
+                    ]
                 if params:
                     config["engine_params"] = params
                 if is_tessera and inp.tessera_version != "v1":
@@ -1497,7 +1841,23 @@ def recommend_configurations_tool(ctx: ToolContext, inp: RecommendInput) -> Reco
                         f"'agribound[{einfo['install_extra']}]'."
                     )
                 metrics: dict[str, Any] = {"gsd_m": gsd, "median_pixels_per_field": median_p}
-                if inp.want_sam_refine and engine != "embedding":
+                if engine in CATEGORICAL_ENGINES:
+                    cwarn.append(
+                        "Crop-sequence zones count only pixels agricultural in more than half of "
+                        "the years; the LULC filter (on by default) can remove zones too (e.g. "
+                        "pasture or rangeland under CDL 176). The examples run it with "
+                        "lulc_filter=False."
+                    )
+                if inp.want_sam_refine and engine == "sam-auto":
+                    cwarn.append(
+                        "SAM refinement is not set: engine sam-auto refuses sam_refine (its "
+                        "polygons are already SAM masks)."
+                    )
+                if inp.want_sam_refine and engine not in (
+                    "embedding",
+                    "sam-auto",
+                    *CATEGORICAL_ENGINES,
+                ):
                     config["sam_refine"] = True
                     if is_refinable is not None and gsd is not None:
                         side = _min_refinable_square_side_m(
@@ -1516,6 +1876,7 @@ def recommend_configurations_tool(ctx: ToolContext, inp: RecommendInput) -> Reco
                 candidates.append(
                     {
                         "key": (
+                            source in SAR_SOURCES,
                             0 if (fine_tune is not inp.prefer_label_free) else 1,
                             gsd if gsd is not None else math.inf,
                             source_order.index(source),
@@ -1533,6 +1894,23 @@ def recommend_configurations_tool(ctx: ToolContext, inp: RecommendInput) -> Reco
                         "metrics": metrics,
                     }
                 )
+    for engine in CATEGORICAL_ENGINES:
+        named = any(crop_sequence_named(s) for s in CROP_SEQUENCE_SOURCES)
+        if engine in engines and not named:
+            excluded.append(
+                Excluded(
+                    source="*",
+                    engine=engine,
+                    reasons=[
+                        "opt-in; crop-history zones, not field instances (recommended only when "
+                        "named in 'engines', or when cdl-sequence or aci-sequence is named in "
+                        "'sources')"
+                    ],
+                )
+            )
+    for engine, reason in OPT_IN_ENGINES.items():
+        if engine in engines and engine not in (inp.engines or ()):
+            excluded.append(Excluded(source="*", engine=engine, reasons=[reason]))
     if "ensemble" in engines:
         excluded.append(
             Excluded(
@@ -1583,17 +1961,34 @@ def recommend_configurations_tool(ctx: ToolContext, inp: RecommendInput) -> Reco
         candidates=ranked,
         excluded=excluded,
         ordering=(
-            "1) runs matching prefer_label_free first (no fine-tuning when True, fine-tuning "
-            "first when False); 2) finer export GSD first (equivalently, more pixels per field "
-            "for a given field size); 3) registry order of sources, then engines."
+            f"1) candidates on the SAR sources {list(SAR_SOURCES)} last, after those of every "
+            "optical and embedding source whatever their GSD: GeoAI and DINOv3 were pre-trained "
+            "on optical imagery, and zero-shot Delineate-Anything, whose training set includes "
+            "Sentinel-1 patches, scored F1 (IoU >= 0.5) on Sentinel-1 composites 0.18 and 0.39 "
+            "on two 5 km smoke squares (Lea County 2022; near Davis 2024) and, in a pilot, "
+            "0.80 on the tree crops of a Madera square (2022), 0.455 near Davis (2024), 0.173 "
+            "in Lea County (2024) and 0.11, 0.06 and 0.00 on oil palm and olive squares (Twifo "
+            "Praso 2020, Ubeda 2023, Oro 2021); the California and Spanish scores are not held "
+            "out (FBIS-73M uses DWR and SIGPAC polygons as labels there, and has S1 patches "
+            "that intersect or lie within 10 km of the Davis and Madera areas); on Umbra "
+            "amplitude medians it scored 0.163-0.439 at the four prototype sites (0.24-0.46 for "
+            "orthophotos; not held out) and, in a held-out test of the fixed recipe (OpenET "
+            "field boundaries), 0.390 and 0.261 at two Umbra sites and 0.274 at one Capella "
+            "site, against 0.284, 0.193 and 0.261 for NAIP + Delineate-Anything with its "
+            "defaults and 0.403, 0.310 and 0.249 with the SAR settings; Capella's 0.50-0.54 "
+            "near Sevilla is in-sample; "
+            "2) runs matching prefer_label_free first (no fine-tuning when True, fine-tuning "
+            "first when False); 3) finer export GSD first (equivalently, more pixels per field "
+            "for a given field size); 4) registry order of sources, then engines."
         ),
         parameters=parameters,
         notes=[
             "Rule-based; the ranking does not predict accuracy. Candidates keep the package "
             "defaults for all thresholds and filters (including the LULC crop-filter "
             "threshold); they set only sam_refine (when want_sam_refine=True), Prithvi's "
-            "engine_params mode='embed' (label-free runs) and, for tessera-embedding, the "
-            "requested non-default tessera_version.",
+            "engine_params mode='embed' (label-free runs), Delineate-Anything's engine_params "
+            "processing_gsd_m=3 and merge_tile_pieces=False on umbra and capella and, for "
+            "tessera-embedding, the requested non-default tessera_version.",
             f"{len(candidates)} candidates before truncation to max_candidates.",
             *_tree_crop_note(aoi.geometry.union_all(), inp.year),
         ],
@@ -1780,6 +2175,8 @@ def plan_network_services(config: Any) -> list[str]:
         services.append("Earth Engine (study-area asset)")
     if config.is_gee_source():
         services.append("Earth Engine (composite)")
+    if config.source in CROP_SEQUENCE_SOURCES:
+        services.append("Earth Engine (crop maps)")
     if config.source == "google-embedding":
         if config.google_embedding_backend == "gee":
             services.append("Earth Engine (Google embeddings)")
@@ -1787,6 +2184,21 @@ def plan_network_services(config: Any) -> list[str]:
             services.append("Source Cooperative (Google embeddings)")
     if config.source == "tessera-embedding":
         services.append("TESSERA (embedding tiles)")
+    if config.source in VHR_SAR_SOURCES:
+        from agribound.composites.vhr_sar import get_provider
+
+        provider = get_provider(config.source)
+        services.append(
+            f"AWS Registry of Open Data: s3://{provider.bucket} (archive index and "
+            f"{provider.product} downloads)"
+        )
+        if config.source == "umbra":
+            services.append(
+                "AWS Registry of Open Data: Copernicus GLO-30 DEM (GLO-90 where GLO-30 has no "
+                "public tile), and cdn.proj.org (EGM2008 geoid) for the RPC orthorectification"
+            )
+        if config.vhr_sar_coregister in ("auto", "optical") and not config.vhr_sar_coregister_base:
+            services.append("USGS NAIP Plus ImageServer (co-registration base, where available)")
     if config.source == "usgs-naip-plus":
         from agribound.config import AgriboundConfig
 
@@ -1924,10 +2336,43 @@ def _plan_warnings(
         warnings.append(f"{einfo['name']}: {note}")
     if sinfo["restricted"]:
         warnings.append(f"{sinfo['name']} is restricted: {sinfo['coverage']}")
+    if config.source in VHR_SAR_SOURCES:
+        from agribound.composites.vhr_sar import get_provider
+
+        provider = get_provider(config.source)
+        warnings.append(
+            f"{sinfo['name']}: {provider.license_name} ({provider.license_url}); credit "
+            f"'{provider.attribution}' and note the changes (AGRIBOUND_ATTRIBUTION and "
+            "AGRIBOUND_CHANGES tags of the composite)."
+        )
+        params = config.engine_params or {}
+        if config.engine == "delineate-anything" and any(
+            params.get(k) != v for k, v in VHR_SAR_DELINEATE_ANYTHING_PARAMS.items()
+        ):
+            warnings.append(
+                "Delineate-Anything on VHR SAR composites: the tested recipe sets engine_params "
+                "processing_gsd_m=3 and merge_tile_pieces=False; with the default settings the "
+                "Umbra prototype medians scored F1 0.28, 0.01, 0.12 and 0.17 at UC Davis, "
+                "Centerfield, Purdue and Mallorca, against 0.42, 0.15, 0.26 and 0.32 with these "
+                "settings (reference fields down to 100 m2)."
+            )
+    if config.source in CROP_SEQUENCE_SOURCES:
+        warnings.append(
+            f"{sinfo['name']}: {sinfo['coverage']}. Credit the maps as the stack's "
+            "AGRIBOUND_ATTRIBUTION tag says."
+        )
+    if config.engine in CATEGORICAL_ENGINES and config.lulc_filter:
+        warnings.append(
+            "Crop-sequence zones count only pixels agricultural in more than half of the years; "
+            "the LULC filter (lulc_filter=True) can remove zones too (e.g. pasture or rangeland "
+            "under CDL 176). The examples run it with lulc_filter=False."
+        )
     if config.requires_gee():
         reasons = []
         if config.is_gee_source() or config.source == "google-embedding":
             reasons.append("the composite")
+        if config.source in CROP_SEQUENCE_SOURCES:
+            reasons.append("the crop-type maps")
         if config.lulc_filter:
             reasons.append(f"the LULC filter (lulc_mode={config.lulc_mode!r})")
         warnings.append(f"Earth Engine is used for {' and '.join(reasons)}.")
@@ -1962,8 +2407,20 @@ def _plan_cost(config: Any, ctx: ToolContext, aoi: Any | None = None) -> dict[st
             if aoi is None:
                 aoi = _read_aoi(ctx, config.study_area)
             _, utm_bounds = _utm_extent(aoi)
-            res = float(config.naip_resolution_m) if config.source == "naip" else None
-            est = _composite_estimate(config.source, utm_bounds, config.tile_size, res)
+            res = (
+                float(config.naip_resolution_m)
+                if config.source == "naip"
+                else float(config.vhr_sar_resolution_m)
+                if config.source in VHR_SAR_SOURCES
+                else None
+            )
+            est = _composite_estimate(
+                config.source,
+                utm_bounds,
+                config.tile_size,
+                res,
+                crop_sequence_years=getattr(config, "crop_sequence_years", None),
+            )
             cost["composite"] = est.model_dump()
         except AgentToolError as exc:
             cost["composite"] = {"note": f"no estimate: {exc}"}
@@ -2008,6 +2465,29 @@ def _reject_control_characters(inp: ProposeRunInput) -> None:
             f"{', '.join(bad)} must not contain control or format characters (line breaks, "
             "tabs, escape sequences, bidirectional overrides)."
         )
+
+
+def _tessera_store_key(ctx: ToolContext, config: Any, aoi: Any) -> str | None:
+    """Fingerprint of the TESSERA store's objects under a proposal's read, or *None*.
+
+    Only for ``source="tessera-embedding"`` with network access and a readable
+    study area (*aoi*, EPSG:4326); *None* when the store's state cannot be
+    determined (:func:`agribound.composites.local.current_tessera_stamp`).
+    """
+    if config.source != "tessera-embedding" or not ctx.allow_network or aoi is None:
+        return None
+    from agribound.composites.gee import resolve_export_crs
+    from agribound.composites.local import current_tessera_stamp, read_bbox_for_grid
+
+    try:
+        geometry = aoi.geometry.union_all()
+        bbox = read_bbox_for_grid(geometry, resolve_export_crs(config.export_crs, geometry))
+        return current_tessera_stamp(config, bbox).fingerprint
+    except Exception as exc:  # StoreCheckError (no network, ...): the key goes without it
+        logger.info(
+            "No TESSERA store state for the plan directory (%s: %s)", type(exc).__name__, exc
+        )
+        return None
 
 
 def propose_run_tool(ctx: ToolContext, inp: ProposeRunInput) -> ProposeRunOutput:
@@ -2071,8 +2551,10 @@ def propose_run_tool(ctx: ToolContext, inp: ProposeRunInput) -> ProposeRunOutput
     # inputs maps to the same directory, while a changed study-area geometry or
     # input file gets a new one (so a stale output is never reused). Fields added
     # after 1.0.1 enter the key only where they apply or are set to a non-default
-    # value, so a proposal that 1.0.1 could make keeps its directory and output;
-    # landsat-pan plans (whose config_hash changed) get a new one.
+    # value, so a proposal that 1.0.1 could make keeps its directory and output,
+    # except landsat-pan plans (whose config_hash changed), plans whose results
+    # versions were raised, and tessera-embedding plans made with network access
+    # (the key includes the TESSERA store's state, below): those get a new one.
     from agribound.agent.plans import canonical_json, compute_plan_hash, input_fingerprints
     from agribound.provenance import drop_inapplicable_fields
 
@@ -2089,6 +2571,17 @@ def propose_run_tool(ctx: ToolContext, inp: ProposeRunInput) -> ProposeRunOutput
         # A release that changes these results (agribound._results) gets a new directory:
         # agent runs never overwrite, so the old output would block the run.
         key_config["results_versions"] = versions
+    aoi = None
+    if draft.study_area:
+        try:
+            aoi = _read_aoi(ctx, draft.study_area)
+        except AgentToolError:
+            aoi = None  # the cost estimate reads it again and reports why it failed
+    store = _tessera_store_key(ctx, draft, aoi)
+    if store:
+        # Likewise a TESSERA output read from store objects that have changed since, or
+        # made before agribound recorded them (agribound.provenance.reuse_mismatch).
+        key_config["tessera_store"] = store
     run_key = compute_plan_hash(canonical_json(key_config), inputs_json)[:10]
     plan_dir = ctx.workdir / "plans" / f"{inp.source}_{inp.year}_{inp.engine}_{run_key}"
     try:
@@ -2097,12 +2590,6 @@ def propose_run_tool(ctx: ToolContext, inp: ProposeRunInput) -> ProposeRunOutput
         raise AgentToolError(f"Invalid configuration: {exc}") from exc
 
     changes = non_default_fields(config.to_dict())
-    aoi = None
-    if config.study_area:
-        try:
-            aoi = _read_aoi(ctx, config.study_area)
-        except AgentToolError:
-            aoi = None  # the cost estimate reads it again and reports why it failed
     try:
         plan = make_plan(
             config,
@@ -2391,8 +2878,9 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "check_availability",
         "Check whether sources have data for a year: registry year ranges and coverage notes, "
-        "and optionally (live=True) Earth Engine image counts or TESSERA tile counts over the "
-        "study area's bounding box. Live checks need network access and credentials.",
+        "and optionally (live=True) Earth Engine image counts, TESSERA tile counts or the Umbra "
+        "and Capella collects (from their AWS archive indexes) over the study area's bounding "
+        "box. Live checks need network access, and Earth Engine needs credentials.",
         AvailabilityInput,
         AvailabilityOutput,
         check_availability_tool,
@@ -2541,6 +3029,7 @@ class ToolRegistry:
 
 __all__ = [
     "ENGINE_MODULES",
+    "OPT_IN_ENGINES",
     "PROPOSAL_RESERVED_FIELDS",
     "RECOMMENDATION_PARAMETERS",
     "TOOL_SPECS",

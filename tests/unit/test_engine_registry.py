@@ -34,6 +34,79 @@ def test_landsat_pan_is_listed_right_after_landsat():
     assert list(registry.list_sources()) == sources
 
 
+def test_sentinel1_registry_entry():
+    info = registry.SOURCE_REGISTRY["sentinel1"]
+    assert info["collection"] == "COPERNICUS/S1_GRD"
+    assert info["resolution_m"] == 10 and info["native_resolution_m"] == 10
+    assert info["all_bands"] == ["VV", "VH", "VV_VH"]
+    assert info["canonical_bands"] == {"R": "VV", "G": "VH", "B": "VV_VH"}
+    assert get_canonical_band_indices("sentinel1", ["R", "G", "B"]) == [1, 2, 3]
+    assert registry.source_value_scale("sentinel1") == "uint8"
+    assert registry.source_year_range("sentinel1") == (2015, None)
+    assert info["requires_gee"] is True and info["restricted"] is False
+    coverage = info["coverage"]
+    for fact in (
+        "20 x 22 m",
+        "Sentinel-1B 2016-09-26 to 2021-12-23",
+        "Sentinel-1C from 2025-03-27 (preliminary calibration until 2025-05-19)",
+        "Sentinel-1D from 2026-04-15",
+        "to 2026-06-29",
+        "6-12 day revisit from 2017 in most regions",
+        "sparse in 2015, and in some regions in 2016",
+        "July 2015",
+        "its guide lists GRD border-noise removal as of 2018-01-12",
+    ):
+        assert fact in coverage, fact
+    assert "mid-2016" not in coverage
+    assert registry.SAR_SOURCES == ("sentinel1", "umbra", "capella")
+    assert registry.VHR_SAR_SOURCES == ("umbra", "capella")
+    assert "sentinel1" in registry.GEE_IMAGERY_SOURCES
+    assert not set(registry.VHR_SAR_SOURCES) & set(registry.GEE_IMAGERY_SOURCES)
+    assert "sentinel1" not in registry._OPTICAL_GEE_SOURCES
+
+
+def test_sentinel1_is_listed_after_spot_pan_and_before_local():
+    """Registry order breaks GSD ties in the agent's recommendations: optical sources first."""
+    sources = list(registry.SOURCE_REGISTRY)
+    assert sources.index("sentinel1") == sources.index("spot-pan") + 1
+    # The open VHR SAR sources follow Sentinel-1; local comes after them.
+    assert sources[sources.index("sentinel1") + 1 : sources.index("local")] == ["umbra", "capella"]
+    assert sources.index("sentinel2") < sources.index("sentinel1")
+    imagery = registry.ENGINE_REGISTRY["delineate-anything"]["supported_sources"]
+    assert imagery.index("sentinel1") == imagery.index("spot-pan") + 1
+    assert imagery[imagery.index("sentinel1") + 1 : -1] == ["umbra", "capella"]
+    assert imagery[-1] == "local"
+
+
+def test_sentinel1_engine_support():
+    for engine in ("delineate-anything", "geoai", "dinov3", "ensemble"):
+        assert registry.engine_supports_source(engine, "sentinel1"), engine
+    for engine in ("ftw", "prithvi", "embedding"):
+        assert not registry.engine_supports_source(engine, "sentinel1"), engine
+    assert "ftw" in registry.ENSEMBLE_DEFAULT_MEMBERS  # so the default ensemble is refused
+
+
+@pytest.mark.parametrize("engine", ["delineate-anything", "geoai", "dinov3"])
+def test_sentinel1_source_notes(engine):
+    notes = registry.engine_notes(engine, "sentinel1")
+    (sar,) = [n for n in notes if "Sentinel-1" in n]
+    assert "about 20 m" in sar and "10 m" in sar and "fine-tun" in sar
+    if engine == "delineate-anything":
+        # FBIS-73M, the training set of Delineate-Anything v2, holds Sentinel-1 patches.
+        assert "FBIS-73M" in sar and "76,448" in sar and "out of distribution" not in sar
+        # The 5 km smoke squares and the pilot areas, each score with its area.
+        assert "0.18 and 0.39 on two 5 km smoke squares" in sar and "not held out" in sar
+        assert "0.80 on the tree crops of example 23's Madera square" in sar
+        assert "0.455 on 20.5 km2 near Davis" in sar and "0.173 on 415 km2" in sar
+        assert "0.11, 0.06 and 0.00 on example 23's Twifo Praso" in sar
+        assert "2 of its S1 patches intersect the Davis area" in sar and "18 lie within 10" in sar
+        assert "inside the Davis smoke square" in sar and "contains the Lea smoke square" in sar
+        assert "stretch_percentiles has no effect" in sar and "at most 0.005" in sar
+    else:  # weights pre-trained on optical imagery only
+        assert "out of distribution" in sar
+    assert not any("Sentinel-1" in n for n in registry.engine_notes(engine, "sentinel2"))
+
+
 def test_delineate_anything_notes_landsat_pan_resolution():
     notes = registry.engine_notes("delineate-anything", "landsat-pan")
     (pan,) = [n for n in notes if "Landsat PAN" in n]
@@ -52,6 +125,8 @@ EXPECTED_ENGINES = {
     "dinov3",
     "prithvi",
     "embedding",
+    "sam-auto",
+    "crop-sequence",
     "ensemble",
 }
 EXPECTED_SOURCES = {
@@ -63,9 +138,14 @@ EXPECTED_SOURCES = {
     "usgs-naip-plus",
     "spot",
     "spot-pan",
+    "sentinel1",
+    "umbra",
+    "capella",
     "local",
     "google-embedding",
     "tessera-embedding",
+    "cdl-sequence",
+    "aci-sequence",
 }
 ENGINE_KEYS = {
     "name",
@@ -153,6 +233,34 @@ class TestListEngines:
         emb = ENGINE_REGISTRY["embedding"]
         assert emb["gpu_recommended"] is False and emb["label_free"] is True
         assert "2507.22291" in emb["reference"] and "CVPR" in emb["reference"]
+        crop = ENGINE_REGISTRY["crop-sequence"]
+        assert crop["supported_sources"] == ["cdl-sequence", "aci-sequence", "local"]
+        assert crop["gpu_recommended"] is False and crop["requires_bands"] == []
+        assert crop["label_free"] is True and crop["fine_tunable"] is False
+        assert crop["install_extra"] == "crop-sequence"
+        assert "Hunt et al. (2024)" in crop["reference"] and "SJI-230078" in crop["reference"]
+        assert "not field instances" in crop["notes"]
+
+    def test_crop_sequence_entries_and_order(self):
+        """The crop-map sources come last; engine crop-sequence comes before ensemble."""
+        sources = list(registry.SOURCE_REGISTRY)
+        assert sources[-2:] == ["cdl-sequence", "aci-sequence"]
+        assert registry.CROP_SEQUENCE_SOURCES == ("cdl-sequence", "aci-sequence")
+        engines = list(registry.ENGINE_REGISTRY)
+        assert engines[-2:] == ["crop-sequence", "ensemble"]
+        assert registry.CATEGORICAL_ENGINES == ("crop-sequence",)
+        assert registry.ENGINE_CLASSES["crop-sequence"].endswith("crop_sequence:CropSequenceEngine")
+        for source in registry.CROP_SEQUENCE_SOURCES:
+            info = registry.SOURCE_REGISTRY[source]
+            assert info["requires_gee"] is True and info["restricted"] is False
+            assert info["all_bands"] is None and info["canonical_bands"] is None
+            assert info["resolution_m"] == info["native_resolution_m"] == 30
+            assert source not in registry.GEE_IMAGERY_SOURCES  # not imagery
+            engines_for = [e for e in engines if registry.engine_supports_source(e, source)]
+            assert engines_for == ["crop-sequence"]
+        assert "10 m" in registry.SOURCE_REGISTRY["cdl-sequence"]["coverage"]
+        assert "56 m" in registry.SOURCE_REGISTRY["aci-sequence"]["coverage"]
+        assert "categorical" in registry.VALUE_SCALES and "categorical" in registry.__doc__
 
     def test_engine_notes_are_source_specific(self):
         for name, info in ENGINE_REGISTRY.items():
@@ -203,8 +311,13 @@ class TestSourceRegistry:
         assert registry.source_value_scale("naip") == "uint8"
         assert registry.source_value_scale("usgs-naip-plus") == "uint8"
         assert registry.source_value_scale("spot") == "dn"
+        assert registry.source_value_scale("sentinel1") == "uint8"
+        assert registry.source_value_scale("umbra") == "dn"
+        assert registry.source_value_scale("capella") == "db"
         assert registry.source_value_scale("tessera-embedding") == "embedding"
         assert registry.source_value_scale("local") == "unknown"
+        assert registry.source_value_scale("cdl-sequence") == "categorical"
+        assert registry.source_value_scale("aci-sequence") == "categorical"
         with pytest.raises(ValueError, match="Unknown source"):
             registry.source_value_scale("modis")
 
@@ -223,6 +336,7 @@ class TestSourceRegistry:
         assert registry.source_year_range("naip") == (2002, 2023)
         assert registry.source_year_range("usgs-naip-plus") == (2012, 2023)
         assert registry.source_year_range("spot") == (2012, 2023)
+        assert registry.source_year_range("sentinel1") == (2015, None)
         assert registry.source_year_range("google-embedding") == (2017, 2025)
         assert registry.source_year_range("tessera-embedding") == (2017, 2025)
         assert registry.source_year_range("tessera-embedding", tessera_version="v1.1") == (
@@ -230,6 +344,9 @@ class TestSourceRegistry:
             2025,
         )
         assert registry.source_year_range("local") is None
+        # CDL: one 30 m map per year from 2008; ACI: 30 m from 2011 (56 m in 2009-2010).
+        assert registry.source_year_range("cdl-sequence") == (2008, None)
+        assert registry.source_year_range("aci-sequence") == (2011, None)
         with pytest.raises(ValueError, match="tessera_version"):
             registry.source_year_range("tessera-embedding", tessera_version="v9")
 
@@ -285,6 +402,7 @@ class TestCanonicalBandIndices:
         assert get_canonical_band_indices("naip", ["R", "G", "B", "NIR"]) == [1, 2, 3, 4]
         assert get_canonical_band_indices("spot", ["NIR"]) == [4]
         assert get_canonical_band_indices("spot-pan", ["R", "G", "B"]) == [1, 1, 1]
+        assert get_canonical_band_indices("sentinel1", ["R", "G", "B"]) == [1, 2, 3]
 
     def test_local_positional(self):
         assert get_canonical_band_indices("local", ["R", "G", "B", "NIR"]) == [1, 2, 3, 4]

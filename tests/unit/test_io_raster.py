@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agribound.io.raster import get_raster_info, read_raster
 
 
@@ -120,6 +122,92 @@ class TestValueScaleConversions:
 
         with pytest.raises(ValueError, match="not optical"):
             to_unit_reflectance(np.zeros(3), "google-embedding")
+
+    def test_sar_rejected_unless_the_value_scale_is_given(self):
+        """sentinel1 is "uint8" too, but its values are radar backscatter scaled from dB."""
+        import numpy as np
+        import pytest
+
+        from agribound.io.raster import to_s2_dn, to_unit_reflectance
+        from agribound.registry import SAR_SOURCES, source_value_scale
+
+        arr = np.array([1, 128, 255], dtype=np.uint8)
+        assert SAR_SOURCES == ("sentinel1", "umbra", "capella")
+        assert source_value_scale("sentinel1") == "uint8"
+        for convert in (to_unit_reflectance, to_s2_dn):
+            with pytest.raises(ValueError) as info:
+                convert(arr, "sentinel1")
+            assert str(info.value) == (
+                "Source 'sentinel1' (value scale 'uint8') is radar backscatter scaled from dB, "
+                "not optical reflectance. Pass value_scale=... to rescale its values anyway."
+            )
+            with pytest.raises(ValueError, match="radar backscatter"):
+                convert(arr, "sentinel1", allow_unknown=True)  # not an unknown scale
+        np.testing.assert_allclose(
+            to_unit_reflectance(arr, "sentinel1", value_scale="uint8"), [1 / 255, 128 / 255, 1.0]
+        )
+        # The open VHR SAR composites hold log-scaled amplitude (Umbra DN, Capella dB + 50).
+        for source, scale in (("umbra", "dn"), ("capella", "db")):
+            with pytest.raises(ValueError) as info:
+                to_unit_reflectance(arr.astype(np.float32), source, allow_unknown=True)
+            assert str(info.value) == (
+                f"Source {source!r} (value scale {scale!r}) is log-scaled radar amplitude, not "
+                "optical reflectance. Pass value_scale=... to rescale its values anyway."
+            )
+        np.testing.assert_allclose(
+            to_s2_dn(arr, "sentinel1", value_scale="uint8"),
+            [10000 / 255, 1280000 / 255, 10000.0],
+            rtol=1e-6,
+        )
+        # The other uint8 sources (digital numbers) are rescaled as before.
+        np.testing.assert_allclose(to_unit_reflectance(arr, "naip"), [1 / 255, 128 / 255, 1.0])
+
+    def test_categorical_rejected(self):
+        """Class codes of crop-type maps (value scale "categorical") are never rescaled."""
+        import numpy as np
+        import pytest
+
+        from agribound.io.raster import to_s2_dn, to_unit_reflectance
+
+        arr = np.array([1, 5, 176], dtype=np.uint8)
+        for convert in (to_unit_reflectance, to_s2_dn):
+            for source in ("cdl-sequence", "aci-sequence"):
+                with pytest.raises(ValueError) as info:
+                    convert(arr, source, allow_unknown=True)
+                assert str(info.value) == (
+                    f"Source {source!r} (value scale 'categorical') holds class codes of "
+                    "crop-type maps, not optical reflectance; codes are nominal and cannot be "
+                    "rescaled."
+                )
+            with pytest.raises(ValueError, match="holds class codes"):
+                convert(arr, "local", value_scale="categorical")
+
+    def test_raster_value_scale_and_refuse_categorical(self, tmp_path):
+        import numpy as np
+        import pytest
+        import rasterio
+        from rasterio.transform import from_origin
+
+        from agribound.io.raster import raster_value_scale, refuse_categorical
+
+        def write(name, tag):
+            path = tmp_path / name
+            with rasterio.open(
+                path, "w", driver="GTiff", height=2, width=2, count=1, dtype="uint8",
+                crs="EPSG:32611", transform=from_origin(0, 2, 1, 1),
+            ) as dst:  # fmt: skip
+                dst.write(np.ones((1, 2, 2), dtype=np.uint8))
+                if tag:
+                    dst.update_tags(AGRIBOUND_VALUE_SCALE=tag)
+            return str(path)
+
+        codes = write("codes.tif", " Categorical ")
+        assert raster_value_scale(codes) == "categorical"
+        assert raster_value_scale(write("plain.tif", None)) is None
+        assert raster_value_scale(tmp_path / "missing.tif") is None
+        with pytest.raises(ValueError, match="X cannot read .*AGRIBOUND_VALUE_SCALE tag"):
+            refuse_categorical(codes, None, "X")
+        refuse_categorical(write("s2.tif", "reflectance_x10000"), None, "X")
 
     def test_infer_value_scale(self):
         import numpy as np
@@ -314,6 +402,77 @@ class TestClipRaster:
             data = ds.read(1)
             assert np.isnan(ds.nodata)
         assert np.isnan(data[-1, 0]) and data[0, 0] == 1.0
+
+
+def _rgbn_uint8(path, **creation):
+    """R, G, B, NIR uint8 raster (10 m, UTM 11N), NIR 0 in a block, no nodata."""
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    data = np.full((4, 20, 20), 120, np.uint8)
+    data[3, 5:10, 5:10] = 0
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=20,
+        width=20,
+        count=4,
+        dtype="uint8",
+        crs="EPSG:32611",
+        transform=from_bounds(500000, 4000000, 500200, 4000200, 20, 20),
+        **creation,
+    ) as dst:
+        dst.write(data)
+    return str(path), data
+
+
+class TestNoAlphaBand:
+    """GDAL tags band 4 of a new 4-band uint8 GeoTIFF as alpha unless told otherwise."""
+
+    def test_write_raster_tags_no_band_as_alpha(self, tmp_path):
+        import rasterio
+        from rasterio.enums import ColorInterp
+
+        from agribound.io.raster import write_raster
+
+        src, data = _rgbn_uint8(tmp_path / "src.tif", ALPHA="UNSPECIFIED")
+        with rasterio.open(src) as ds:
+            out = write_raster(tmp_path / "w.tif", data, ds.crs, ds.transform)
+        with rasterio.open(out) as ds:
+            assert ColorInterp.alpha not in ds.colorinterp
+            assert (ds.read() == data).all()
+
+    @pytest.mark.parametrize(
+        ("creation", "expected"),
+        [
+            ({"ALPHA": "UNSPECIFIED"}, ["red", "green", "blue", "undefined"]),
+            ({"photometric": "MINISBLACK"}, ["gray", "undefined", "undefined", "undefined"]),
+            ({}, ["red", "green", "blue", "alpha"]),
+        ],
+    )
+    def test_clip_and_reproject_keep_the_colour_interpretation(self, tmp_path, creation, expected):
+        import rasterio
+        from rasterio.vrt import WarpedVRT
+        from shapely.geometry import box
+
+        from agribound.io.crs import reproject_raster
+        from agribound.io.raster import clip_raster_to_geometry
+
+        src, data = _rgbn_uint8(tmp_path / "src.tif", **creation)
+        clipped = clip_raster_to_geometry(
+            src, tmp_path / "c.tif", box(500000, 4000000, 500150, 4000200), crs="EPSG:32611"
+        )
+        moved = reproject_raster(src, tmp_path / "r.tif", "EPSG:32611", resolution=10.0)
+        for out in (clipped, moved):
+            with rasterio.open(out) as ds:
+                assert [c.name for c in ds.colorinterp] == expected
+        if expected[3] != "alpha":
+            # Read through GDAL's warper: R, G, B stay where band 4 is 0.
+            with rasterio.open(clipped) as ds, WarpedVRT(ds) as vrt:
+                warped = vrt.read()
+            assert (warped[:3, 5:10, 5:10] == 120).all()
 
 
 class TestRasterFixtures:

@@ -22,7 +22,9 @@ Earth Engine error, which the script prints.
 
 The LULC crop filter is on (Dynamic World is selected outside the US).
 
-Estimated runtime (not measured for 1.0): ~10-20 minutes (1 year, 6 m, GPU).
+Runtime: 3.4 minutes (201 s) in the development run of agribound 1.1
+(2026-10-09, Apple M2 Max with MPS; the SPOT composite downloaded, the model
+weights already cached).
 
 Prerequisites:
     pip install "agribound[gee,delineate-anything]"
@@ -48,7 +50,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*STAC entry.*")
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

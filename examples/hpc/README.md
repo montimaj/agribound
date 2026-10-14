@@ -91,7 +91,7 @@ examples/regions/run_iowa_corn_belt_us.sh --mode slurm --profile delta \
   Both install agribound in editable mode from the repository root, so create
   them from a clone. Neither includes the `sam3` extra (the Meta SAM 3
   backend, `sam_backend="sam3"`, which needs CUDA and triton). Both SAM 3
-  backends (`sam3`, `sam3-hf`) are untested in 1.0.1 and log a WARNING when
+  backends (`sam3`, `sam3-hf`) are untested in 1.1.0 and log a WARNING when
   loaded.
 - Put the environments, the clone, the weights and the caches in project or
   work storage, not in `$HOME`. conda defaults to `$HOME/.conda`, and home
@@ -241,7 +241,8 @@ agribound tiles prefetch --config base.yaml
 - For Prithvi, run the prefetch in the GFM env.
 - With `submit_region.sh --offline-gpu`, the GPU jobs set `HF_HUB_OFFLINE=1`
   and `TRANSFORMERS_OFFLINE=1`, so a missing weight file fails immediately
-  instead of trying to download.
+  instead of trying to download, and `AGRIBOUND_TESSERA_STORE_CHECK=0`, so
+  that they send no requests to the TESSERA store (see below).
 - TESSERA embeddings are streamed from the Source Cooperative Zarr stores
   (`GeoTesseraZarr`). Set `embedding_cache_dir` in the base YAML to give
   geotessera a shared cache directory, for example with
@@ -249,7 +250,18 @@ agribound tiles prefetch --config base.yaml
   --dry-run` (section 6); tile jobs read it from the base YAML. The
   coverage check `agribound.composites.local.tessera_coverage` downloads the
   dataset manifest (about 212 MB for v1, 59 MB for v1.1) into its
-  `cache_dir`.
+  `cache_dir`. Cached TESSERA rasters and outputs are checked against the
+  store (a few HTTP requests) before they are reused. On compute nodes
+  without internet access the check fails: the raster is reused with a
+  WARNING, and an output is reused with a WARNING unless the staged raster
+  has been read again since it was made (then it is refused). With
+  `embedding_cache_dir`, agribound keeps only the store's metadata and
+  coordinate arrays there (not the shards), and reads bypass the directory
+  when the store cannot be checked. `AGRIBOUND_TESSERA_STORE_CHECK=0` skips
+  the requests (and so the cache directory too). Set it only in jobs without
+  internet access (`--offline-gpu` does, for the compute jobs); in the stage
+  jobs, or a profile they read, it would keep stale rasters and build rasters
+  without a store stamp.
 
 ## 6. Build a base configuration
 
@@ -305,7 +317,7 @@ Main options (see `submit_region.sh --help` for all of them):
 | `--compute cpu` | Run the compute array on the CPU partition (the `embedding` engine needs no GPU). |
 | `--gee-max-requests N`, `--gee-budget 40`, `--gee-after IDS` | Earth Engine throttling (section 4). |
 | `--conda-env ENV` | Env for the compute jobs (the GFM env for Prithvi). |
-| `--offline-gpu` | `HF_HUB_OFFLINE=1` in the compute jobs. |
+| `--offline-gpu` | `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1` and `AGRIBOUND_TESSERA_STORE_CHECK=0` in the compute jobs. |
 | `--pipelined` | Each GPU task waits only for its own stage task (`aftercorr`). |
 | `--keep-going` | Dependencies use `afterany` instead of `afterok`: a failed tile fails only itself (its delineation reports "not staged"), and the merge job still runs and lists the tiles that are not done. |
 | `--allow-missing` | The merge job merges even if some tiles are not done (they are listed in the summary). |
@@ -396,7 +408,9 @@ Completion is decided from content, not from the markers:
 
 Tile states (`agribound tiles status`): `done`, `pending`, `failed`, `stale`
 (an output made with another configuration, or by a release whose results for
-it differ) and `no-data`. A tile is
+it differ, or, for TESSERA, from store objects that have changed since; a
+staged TESSERA raster is `stale` in the composite column then) and `no-data`.
+A tile is
 `no-data` when the composite builder reports that the source has no data for
 it: no image intersects the tile, no valid pixel inside it, no TESSERA or
 Google embedding data, no USGS NAIP Plus imagery, or a local raster that does
@@ -416,7 +430,19 @@ marks those tiles `stale`, and `tiles merge` counts them as not done.
 (`tiles status --list stale` prints their indices; add `--stage delineate` on
 offline GPU nodes, to delineate from the cache), then merge with
 `agribound tiles merge --overwrite`. After fixing a failure,
-re-run the same `submit_region.sh` command with `--resume`. Without
+re-run the same `submit_region.sh` command with `--resume`.
+
+After a rewrite of the TESSERA store, the composite stage must read the stale
+rasters again before they are delineated: delineation on an offline GPU node
+with `--overwrite` would delineate the old staged raster again. On a node
+with internet access, re-stage the tiles of `agribound tiles status --list
+stale --stage composite` with `agribound tiles run --stage composite` (or run
+`submit_region.sh --resume`, whose stage array takes them), then run
+`agribound tiles run --stage delineate --overwrite` for the tiles of
+`tiles status --list stale`, and merge with `--overwrite`. Without
+`--overwrite`, an offline delineation of a re-staged tile stops with
+`FileExistsError`: its output was made before the staged raster was read
+again. Without
 `--keep-going`, a failed stage or compute task leaves the later jobs pending
 with reason `DependencyNeverSatisfied` (unless the site sets
 `kill_invalid_depend`); cancel them with `scancel` first. They also count

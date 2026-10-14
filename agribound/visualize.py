@@ -28,6 +28,93 @@ _DEFAULT_STYLE = {
     "fillOpacity": 0.15,
 }
 
+#: Longest side, in pixels, of the composite image embedded by show_boundaries.
+OVERLAY_MAX_SIDE = 2048
+
+
+def _composite_overlay(
+    path: str | Path,
+    bands: dict[str, int] | None = None,
+    max_side: int = OVERLAY_MAX_SIDE,
+) -> tuple[str, tuple[tuple[float, float], tuple[float, float]]]:
+    """RGB PNG of a GeoTIFF for an image overlay, and its latitude/longitude bounds.
+
+    The R, G and B bands are chosen as the pipeline chooses them for
+    ``source="local"``: *bands* (``{"R": 4, "G": 3, "B": 2}``, 1-based) where
+    given, otherwise bands 1, 2 and 3; a raster with fewer than 3 bands (a
+    panchromatic composite) shows band 1 in grey. They are warped to
+    EPSG:3857 (the map's projection, so the image lines up with the basemap)
+    with average resampling, at most *max_side* pixels on the long side.
+    Non-uint8 data are stretched to 8 bits with
+    :func:`agribound.io.raster.percentile_stretch_uint8` (per-band 1-99
+    percentiles, as Delineate-Anything sees the image); uint8 data are kept.
+    Pixels that are nodata or NaN in any band, or outside the raster, are
+    transparent.
+
+    Returns
+    -------
+    tuple
+        ``("data:image/png;base64,...", ((south, west), (north, east)))``.
+    """
+    import base64
+    import io
+
+    import rasterio
+    from affine import Affine
+    from PIL import Image
+    from rasterio.enums import Resampling
+    from rasterio.warp import calculate_default_transform, reproject, transform_bounds
+
+    from agribound.engines.base import get_canonical_band_indices
+    from agribound.io.raster import percentile_stretch_uint8
+
+    with rasterio.open(path) as src:
+        if src.crs is None:
+            raise ValueError(f"{path} has no CRS")
+        if bands is None and src.count < 3:
+            indices = [1, 1, 1]  # grey
+        else:
+            indices = get_canonical_band_indices("local", ["R", "G", "B"], bands=bands)
+        bad = [i for i in indices if not 1 <= i <= src.count]
+        if bad:
+            raise ValueError(f"RGB bands {indices} are out of range for a {src.count}-band raster")
+        transform, width, height = calculate_default_transform(
+            src.crs, "EPSG:3857", src.width, src.height, *src.bounds
+        )
+        scale = max(width, height) / max_side
+        if scale > 1:
+            new_width, new_height = max(1, round(width / scale)), max(1, round(height / scale))
+            transform = transform @ Affine.scale(width / new_width, height / new_height)
+            width, height = new_width, new_height
+        planes = {}
+        for band in dict.fromkeys(indices):  # each band once (grey repeats band 1)
+            # NaN-initialised: pixels with no valid source data stay NaN (transparent).
+            planes[band] = np.full((height, width), np.nan, dtype=np.float32)
+            reproject(
+                source=rasterio.band(src, band),
+                destination=planes[band],
+                src_nodata=src.nodata,
+                dst_transform=transform,
+                dst_crs="EPSG:3857",
+                dst_nodata=np.nan,
+                resampling=Resampling.average,
+            )
+        rgb = np.stack([planes[band] for band in indices])
+        is_uint8 = src.dtypes[indices[0] - 1] == "uint8"
+    valid = np.isfinite(rgb).all(axis=0)
+    if is_uint8:
+        image = np.clip(np.nan_to_num(np.rint(rgb)), 0, 255).astype(np.uint8)
+    else:
+        image = percentile_stretch_uint8(rgb)
+    alpha = np.where(valid, 255, 0).astype(np.uint8)
+    buffer = io.BytesIO()
+    Image.fromarray(np.dstack([*image, alpha])).save(buffer, format="PNG")  # (h, w, 4) uint8: RGBA
+    url = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    left, top = transform.c, transform.f
+    right, bottom = left + width * transform.a, top + height * transform.e
+    west, south, east, north = transform_bounds("EPSG:3857", "EPSG:4326", left, bottom, right, top)
+    return url, ((south, west), (north, east))
+
 
 def _json_safe_value(value: Any) -> Any:
     """Return *value* as a JSON-serialisable Python object.
@@ -118,6 +205,7 @@ def show_boundaries(
     width: str = "100%",
     height: str = "600px",
     layer_name: str = "Field Boundaries",
+    satellite_bands: dict[str, int] | None = None,
 ) -> Any:
     """Display field boundaries on an interactive satellite basemap.
 
@@ -136,7 +224,11 @@ def show_boundaries(
         Polygon styling dict with keys like ``color``, ``weight``,
         ``fillOpacity``. Uses orange outline by default.
     satellite_tif : str or None
-        Path to a local GeoTIFF to overlay instead of the web basemap.
+        Path to a local GeoTIFF to show above the basemap, as an RGB image
+        embedded in the map (layer "Satellite Composite"), so it also shows
+        in the HTML file after Python has exited. The image is at most
+        :data:`OVERLAY_MAX_SIDE` pixels on its long side; see
+        :func:`_composite_overlay` for bands, stretch and transparency.
     output_html : str or None
         If provided, saves the map as a standalone HTML file.
     center : tuple[float, float] or None
@@ -149,6 +241,10 @@ def show_boundaries(
         Map height CSS value (default ``"600px"``).
     layer_name : str
         Name for the polygon layer in the layer control.
+    satellite_bands : dict or None
+        1-based R, G, B bands of *satellite_tif*, as ``AgriboundConfig.bands``
+        (``{"R": 4, "G": 3, "B": 2}``). Default: bands 1, 2 and 3 (band 1 in
+        grey for a raster with fewer than 3 bands).
 
     Returns
     -------
@@ -195,11 +291,19 @@ def show_boundaries(
     except Exception:
         logger.warning("Could not add basemap %r, using default", basemap)
 
-    # Add satellite TIF if provided
+    # Add satellite TIF if provided. Embedded as an image: a localtileserver
+    # layer (leafmap's add_raster) points at a tile server that stops with
+    # this process, and localtileserver 1.0 answers HTTP 500 for rasters
+    # with NaN nodata (every agribound float composite).
+    image_bounds = None
     if satellite_tif is not None:
         try:
-            m.add_raster(satellite_tif, layer_name="Satellite Composite")
+            import ipyleaflet
+
+            url, image_bounds = _composite_overlay(satellite_tif, bands=satellite_bands)
+            m.add(ipyleaflet.ImageOverlay(url=url, bounds=image_bounds, name="Satellite Composite"))
         except Exception as exc:
+            image_bounds = None
             logger.warning("Could not add satellite TIF: %s", exc)
 
     # Add field boundaries
@@ -214,8 +318,12 @@ def show_boundaries(
     # Set view — use set_center which persists to HTML (fit_bounds doesn't)
     if center is not None:
         m.set_center(center[1], center[0], zoom or 12)
-    elif len(boundaries) > 0:
-        bounds = boundaries.total_bounds  # minx, miny, maxx, maxy
+    elif len(boundaries) > 0 or image_bounds is not None:
+        if len(boundaries) > 0:
+            bounds = boundaries.total_bounds  # minx, miny, maxx, maxy
+        else:  # no polygons: centre on the composite
+            (south, west), (north, east) = image_bounds
+            bounds = (west, south, east, north)
         center_lon = (bounds[0] + bounds[2]) / 2
         center_lat = (bounds[1] + bounds[3]) / 2
         extent = max(bounds[2] - bounds[0], bounds[3] - bounds[1])

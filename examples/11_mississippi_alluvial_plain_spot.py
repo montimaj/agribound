@@ -23,7 +23,9 @@ use); external users can contact the package author to request processing.
 The LULC crop filter is on (NLCD is selected in the conterminous US).
 Each year writes its own output file.
 
-Estimated runtime (not measured for 1.0): ~10-20 minutes per year (6 m, GPU).
+Runtime: 6.2 minutes (372 s) for the three years, 98 to 134 s per year, in
+the development run of agribound 1.1 (2026-10-09, Apple M2 Max with MPS; the
+SPOT composites downloaded, the model weights already cached).
 
 Prerequisites:
     pip install "agribound[gee,delineate-anything]"
@@ -50,7 +52,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*STAC entry.*")
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

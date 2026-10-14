@@ -24,8 +24,9 @@ window composites are cached and shared between them.
 The LULC crop filter is on (Dynamic World is selected outside the US) and
 needs Earth Engine, like the Sentinel-2 composites.
 
-Estimated runtime (not measured for 1.0): ~10-20 minutes (1 year, small AOI,
-GPU).
+Runtime: 12 minutes (733 s) for the four FTW runs (61 to 330 s each) in the
+development run of agribound 1.1 (2026-10-09, Apple M2 Max with MPS; the
+composites and FTW's checkpoint downloaded).
 
 Prerequisites:
     pip install "agribound[gee,ftw]"
@@ -49,7 +50,7 @@ if Path.cwd().name == "notebooks" and Path.cwd().parent.name == "examples":
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)

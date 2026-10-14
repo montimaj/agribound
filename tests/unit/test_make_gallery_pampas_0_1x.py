@@ -42,6 +42,46 @@ def test_the_frame_is_the_documented_scale_and_rotation(tool):
     assert abs(math.degrees(math.atan2(b, a))) == pytest.approx(32.8, abs=0.1)
 
 
+def test_the_defaults_are_the_1_1_run_and_gallery_and_the_old_layer_can_be_named(tool, tmp_path):
+    """As tools/make_gallery.py: outputs/examples_1.1 into assets/gallery_1.1; the 0.1.x layer
+    (not in the repository) is given with --old-layer, and a missing one is an error."""
+    assert tool.mg.RUN_ROOT == ROOT / "outputs" / "examples_1.1"
+    assert tool.mg.OUT_DIR == ROOT / "assets" / "gallery_1.1"
+    assert tool.OLD_LAYER.name == "fields_sam2_tessera_improved_2024.gpkg"
+    with pytest.raises(SystemExit):
+        tool.main(["--old-layer", str(tmp_path / "missing.gpkg"), "--out-dir", str(tmp_path)])
+    assert not list(tmp_path.iterdir())  # nothing written
+
+
+def test_the_notes_name_the_composite_from_its_tags(tool, tmp_path):
+    rasterio = pytest.importorskip("rasterio")
+    import numpy as np
+
+    tif = tmp_path / "sentinel2_composite_demo.tif"
+    with rasterio.open(
+        tif,
+        "w",
+        driver="GTiff",
+        width=2,
+        height=2,
+        count=1,
+        dtype="float32",
+        crs="EPSG:32720",
+        transform=rasterio.transform.from_origin(0, 20, 10, 10),
+    ) as dst:
+        dst.write(np.zeros((1, 2, 2), dtype="float32"))
+        dst.update_tags(
+            AGRIBOUND_DATE_START="2024-10-01",
+            AGRIBOUND_DATE_END_EXCLUSIVE="2024-11-01",
+            AGRIBOUND_COMPOSITE_METHOD="median",
+            AGRIBOUND_N_IMAGES="8",
+            AGRIBOUND_RESOLUTION_M="10.0",
+        )
+    assert tool.composite_note(tif) == (
+        "Sentinel-2 L2A 10 m median composite of 2024-10-01 to 2024-11-01 (end exclusive), 8 images"
+    )
+
+
 def test_the_screenshot_footprint_is_about_23_by_18_km(tool):
     poly = tool.frame_polygon(1864, 1458)
     xs, ys = poly.exterior.coords.xy

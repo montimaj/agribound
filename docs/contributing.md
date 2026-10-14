@@ -108,7 +108,9 @@ opt-in recorded in `engine_meta`, and log at WARNING when anything degrades.
    bands=config.bands)` and convert values with `agribound.io.raster`
    (`to_unit_reflectance`, `to_s2_dn`, `percentile_stretch_uint8`) according to
    `registry.source_value_scale(config.source)`; never assume Sentinel-2
-   units.
+   units. The reflectance conversions refuse embedding sources and the SAR
+   sources in `registry.SAR_SOURCES`: the `uint8` values of `sentinel1` are
+   radar backscatter scaled from dB, not reflectance.
 4. Name every intermediate with `agribound._cache.cache_path` and seed random
    choices with `agribound._repro.get_rng`.
 5. If it is fine-tunable, add a trainer module to `agribound/engines/finetune/`
@@ -159,11 +161,47 @@ python tools/sync_notebooks.py           # rewrite out-of-date notebooks
 python tools/sync_notebooks.py --check   # what CI runs; exit 1 if a notebook differs
 ```
 
-The gallery images in `assets/gallery_1.0/` (and the facts their captions
+The gallery images in `assets/gallery_1.1/` (and the facts their captions
 quote, `gallery_stats.json`) are rendered from the example outputs by
 `tools/make_gallery.py`, except the comparison with the 0.1.x Pampas image
 (`Pampas_0.1x_comparison_example.png`, by `tools/make_gallery_pampas_0.1x.py`,
-with no `gallery_stats.json` entry). The workflow diagram
+with no `gallery_stats.json` entry). Each entry reads the run root that holds
+its current outputs (`Entry.run_root`, else `outputs/examples_1.1`, the
+development run of 1.1):
+
+- `outputs/examples_1.1_final`: the targeted 1.1.0 re-runs (entries 03, 14,
+  23 and 23b-23e, 25b and 27);
+- `outputs/examples_1.1_sar`: example 26's run (entries 26 and 26b);
+- `outputs/examples_1.1_ex24b`: example 24 with `--options` and `--sam-auto`
+  (entries 24 to 24e; its other runs are those of the re-scoring run
+  `outputs/examples_1.1_ex24`, copied unchanged);
+- `outputs/examples_1.1_r3/ny`: example 28's run (entries 28, 28b and 28c);
+- `outputs/examples_1.1_r3/sam_eval`: the pre-registered SAM evaluation (the
+  SAM 2.1 entry; its Delineate-Anything panels are read from
+  `outputs/examples_1.1_ex24` and `outputs/examples_1.1_final`, where the
+  evaluation read them);
+- `outputs/examples_1.1_r3`: the left panel of entry 25c (below).
+
+`python tools/make_gallery.py --list` prints each entry's run root;
+`--run-root` replaces the run roots of every entry, layer and image panel,
+and `--out-dir` chooses another folder. The 1.0 images are kept in
+`assets/gallery_1.0/`.
+
+Entry 25c also draws the NAIP of 2005 on example 25's Montana square, which
+agribound's `naip` source cannot read (that year has red, green and blue
+only). Its panel reads the image from `outputs/examples_1.1_r3/montana`, so
+export it there before rendering the entry:
+
+```bash
+python tools/fetch_naip_history.py --year 2005 --crs EPSG:32612 \
+    --corner 375000 5385000 --side 5000 --resolution 2 \
+    --out-dir outputs/examples_1.1_r3/montana
+```
+
+Earth Engine's averages can differ by 1 in a few pixels between exports, so
+a new export can change the image slightly; the record the tool writes beside
+the image names the file that was drawn and its SHA-256, and the renderer
+checks it. The workflow diagram
 `assets/agribound_workflow_1.0.{png,svg}` is rendered by
 `tools/make_workflow_diagram.py`; `assets/README.md` lists the files.
 

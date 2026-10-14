@@ -143,7 +143,9 @@ runs at one shared directory. Old cache directories are not read.
   chip size.
 - **Prithvi**: `segment` mode works with fine-tuned checkpoints; inputs are on
   the reflectance × 10000 scale of the pre-training statistics.
-- **Embedding**: only the embedding sources; `source="local"` is rejected.
+- **Embedding**: only the embedding sources; `source="local"` is rejected
+  (after 1.0.1 the engine also clusters local feature rasters; see
+  [Feature rasters](user-guide/engines.md#feature-rasters-sourcelocal)).
   With `sam_refine=True` it needs `engine_params["sam_rgb_bands"]`.
 - **Ensemble**: members receive only their own `engine_params` (0.1.x copied
   the parent's, including a fine-tuned `checkpoint_path`, into every member);

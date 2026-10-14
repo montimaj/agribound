@@ -6,7 +6,11 @@ Provides the ``agribound`` CLI:
 - ``delineate``: run the full pipeline (composite, optional fine-tuning,
   delineation, post-processing, export).
 - ``composite``: run only stage A (composite / embedding download, plus the
-  LULC raster prefetch with ``--lulc-mode raster``).
+  LULC raster prefetch with ``--lulc-mode raster``; ``--date-layers`` also
+  downloads the date layers of an Earth Engine composite).
+- ``scenes``: rank the acquisitions of a composite's date window by the share
+  of the study area each shows clear (one Earth Engine request, or one per
+  month when the whole window is too large for one).
 - ``prefetch``: download an engine's weights (and the SAM refinement weights
   when ``sam_refine`` is set) ahead of an offline run.
 - ``evaluate``: score predicted boundaries against reference boundaries.
@@ -14,7 +18,7 @@ Provides the ``agribound`` CLI:
 - ``list-engines``, ``list-sources``, ``list-ftw-models``: registry listings.
 - ``auth``: authenticate with Google Earth Engine.
 
-``delineate``, ``composite`` and ``prefetch`` accept ``--config run.yaml``.
+``delineate``, ``composite``, ``scenes`` and ``prefetch`` accept ``--config run.yaml``.
 Flags given explicitly on the command line override the YAML values; flags that
 are not given keep the YAML value (or the :class:`~agribound.config.AgriboundConfig`
 default when the YAML does not set it). ``--dry-run`` prints the resolved
@@ -72,6 +76,17 @@ _PARAM_TO_FIELD: dict[str, str] = {
     "s2_cloud_mask": "s2_cloud_mask",
     "naip_resolution": "naip_resolution_m",
     "landsat_pan_missions": "landsat_pan_missions",
+    "crop_sequence_years": "crop_sequence_years",
+    "vhr_sar_collect_ids": "vhr_sar_collect_ids",
+    "vhr_sar_max_collects": "vhr_sar_max_collects",
+    "vhr_sar_polarization": "vhr_sar_polarization",
+    "vhr_sar_resolution": "vhr_sar_resolution_m",
+    "vhr_sar_coregister": "vhr_sar_coregister",
+    "vhr_sar_coregister_base": "vhr_sar_coregister_base",
+    "vhr_sar_bands": "vhr_sar_bands",
+    "vhr_sar_calibration": "vhr_sar_calibration",
+    "vhr_sar_max_download_gb": "vhr_sar_max_download_gb",
+    "vhr_sar_cache_dir": "vhr_sar_cache_dir",
     "export_crs": "export_crs",
     "tessera_version": "tessera_version",
     "embedding_cache_dir": "embedding_cache_dir",
@@ -364,7 +379,10 @@ _STAGE_A_OPTIONS = [
         "--cloud-cover-max",
         default=None,
         type=int,
-        help=f"Maximum scene cloud cover in percent (GEE scene filter).{_d('cloud_cover_max')}",
+        help=(
+            "Maximum scene cloud cover in percent (scene filter of the Landsat, Sentinel-2, HLS "
+            f"and SPOT composites; naip and sentinel1 ignore it).{_d('cloud_cover_max')}"
+        ),
     ),
     click.option(
         "--s2-cloud-mask",
@@ -385,6 +403,103 @@ _STAGE_A_OPTIONS = [
             "Missions whose PAN band --source landsat-pan uses: 'auto' (Landsat 8/9 whenever "
             "the window overlaps their record, else Landsat 7; never both bandpasses) or a "
             f"comma-separated list of LE07, LC08, LC09.{_d('landsat_pan_missions')}"
+        ),
+    ),
+    click.option(
+        "--crop-sequence-years",
+        default=None,
+        type=int,
+        help=(
+            "--source cdl-sequence/aci-sequence: number of annual crop-type maps, ending in "
+            f"--year, in the stack (2-20).{_d('crop_sequence_years')}"
+        ),
+    ),
+    click.option(
+        "--vhr-sar-collect-ids",
+        default=None,
+        help=(
+            "--source umbra/capella: comma-separated collect IDs to composite instead of the "
+            "automatic selection (one orbit pass, look side and polarization; incidence within "
+            "5 deg, view azimuth within 25 deg)."
+        ),
+    ),
+    click.option(
+        "--vhr-sar-max-collects",
+        default=None,
+        type=int,
+        help=(
+            "--source umbra/capella: most collects of the automatic selection, spread over the "
+            "window (1 = single date: in the Umbra prototype F1 0.00-0.08 with "
+            "Delineate-Anything's defaults; read at 2 m without tile merging, 0.15-0.40 against "
+            f"0.22-0.42 for the median at 3 of 4 sites).{_d('vhr_sar_max_collects')}"
+        ),
+    ),
+    click.option(
+        "--vhr-sar-polarization",
+        default=None,
+        type=click.Choice(["auto", "HH", "VV"], case_sensitive=False),
+        help=(
+            "--source umbra/capella: polarization (auto = that of the largest consistent "
+            f"group; HH and VV are never mixed).{_d('vhr_sar_polarization')}"
+        ),
+    ),
+    click.option(
+        "--vhr-sar-resolution",
+        default=None,
+        type=float,
+        help=f"--source umbra/capella: composite pixel size in metres.{_d('vhr_sar_resolution_m')}",
+    ),
+    click.option(
+        "--vhr-sar-coregister",
+        default=None,
+        type=click.Choice(["auto", "optical", "sar", "none"], case_sensitive=False),
+        help=(
+            "--source umbra/capella: co-registration (auto = dates to a reference date, then to "
+            "--vhr-sar-coregister-base or USGS NAIP Plus where available; optical = require "
+            f"such a base; sar = dates only; none).{_d('vhr_sar_coregister')}"
+        ),
+    ),
+    click.option(
+        "--vhr-sar-coregister-base",
+        default=None,
+        help=(
+            "--source umbra/capella: orthophoto GeoTIFF of 1 m or finer used as the "
+            "co-registration base (e.g. outside the US)."
+        ),
+    ),
+    click.option(
+        "--vhr-sar-bands",
+        default=None,
+        type=click.Choice(["median", "median+dates"], case_sensitive=False),
+        help=(
+            "--source umbra/capella: composite bands (median+dates is experimental: adds the "
+            f"closest pair's mean and each date; needs 2 or more collects).{_d('vhr_sar_bands')}"
+        ),
+    ),
+    click.option(
+        "--vhr-sar-calibration",
+        default=None,
+        type=click.Choice(["any", "full"], case_sensitive=False),
+        help=(
+            "--source capella: 'full' drops collects with 'limited' or 'partial' "
+            f"calibration.{_d('vhr_sar_calibration')}"
+        ),
+    ),
+    click.option(
+        "--vhr-sar-max-download-gb",
+        default=None,
+        type=float,
+        help=(
+            "--source umbra/capella: most gigabytes of products one composite may download "
+            f"(cached products do not count).{_d('vhr_sar_max_download_gb')}"
+        ),
+    ),
+    click.option(
+        "--vhr-sar-cache-dir",
+        default=None,
+        help=(
+            "--source umbra/capella: directory for the archive indexes and downloaded products. "
+            "[default: ~/.cache/agribound/vhr_sar]"
         ),
     ),
     click.option(
@@ -669,17 +784,36 @@ def delineate(ctx: click.Context, dry_run: bool, **_: Any) -> None:
 
 @main.command()
 @_apply(_STAGE_A_OPTIONS)
+@click.option(
+    "--date-layers",
+    is_flag=True,
+    default=False,
+    help=(
+        "Also download the composite's date layers: a separate uint16 GeoTIFF on its grid "
+        "with the valid observations per pixel and the first and last observation date "
+        "(days since 1970-01-01). Sources sentinel2, landsat, landsat-pan, hls, spot and "
+        "spot-pan, with --export-method local; one more download."
+    ),
+)
 @click.pass_context
-def composite(ctx: click.Context, dry_run: bool, **_: Any) -> None:
+def composite(ctx: click.Context, dry_run: bool, date_layers: bool, **_: Any) -> None:
     """Build the stage-A raster (composite or embeddings) and print its path.
 
     Downloaded or computed rasters go to the cache (see --output / --cache-dir),
     and so does a GeoJSON copy of a GEE-asset study area; with --lulc-mode raster
     the LULC raster is prefetched as well. A later 'agribound delineate' with the
-    same stage-A options and cache location reuses the cached files.
+    same stage-A options and cache location reuses the cached files. With
+    --date-layers, the date layers of the composite are cached next to it.
     """
     data = _resolve_config_data(ctx, require_study_area=True)
     config = _build_config(data, ctx)
+    if date_layers:
+        from agribound.composites.scenes import check_date_layers
+
+        try:
+            check_date_layers(config)
+        except ValueError as exc:
+            raise click.UsageError(f"--date-layers: {exc}", ctx=ctx) from exc
     if dry_run:
         click.echo(_config_yaml(config), nl=False)
         return
@@ -691,6 +825,187 @@ def composite(ctx: click.Context, dry_run: bool, **_: Any) -> None:
     except ImportError as exc:  # an optional extra is missing; the message says which
         raise _missing_dependency(exc) from exc
     click.echo(f"Composite ready → {raster_path}")
+    if date_layers:
+        from agribound.composites.scenes import build_date_layers
+
+        try:
+            layers_path = build_date_layers(config)
+        except ImportError as exc:
+            raise _missing_dependency(exc) from exc
+        click.echo(f"Date layers ready → {layers_path}")
+
+
+def _survey_cell(value: Any, digits: int) -> str:
+    """A number of the survey table with *digits* decimals; ``-`` when missing."""
+    if value is None:
+        return "-"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{number:.{digits}f}" if math.isfinite(number) else "-"
+
+
+#: Survey table: (header, column, decimals); decimals None prints the value as is.
+_SURVEY_TABLE = (
+    ("rank", "rank", None),
+    ("date", "date", None),
+    ("acquisition", "acquisition", None),
+    ("images", "n_images", None),
+    ("cloud %", "scene_cloud_pct", 1),
+    ("footprint", "extent_share", 3),
+    ("clear", "clear_share", 3),
+)
+_SURVEY_TABLE_S2 = (
+    ("cs clear", "cs_clear_share", 3),
+    ("scl clear", "scl_clear_share", 3),
+    ("cs mean", "cs_mean", 3),
+    ("AOT", "aot_mean", 3),
+)
+
+
+def _survey_text(table: Any, top: int) -> str:
+    """The survey as a text table with a header and the one-day window of rank 1."""
+    attrs = table.attrs
+    start, end = attrs["window"]
+    lines = [
+        f"{attrs['source']} {attrs['year']}: {len(table)} acquisition(s) over the study area in "
+        f"{start} to {end} (end exclusive), scene cloud cover <= {attrs['cloud_cover_max']} %; "
+        f"shares of {attrs['reduced_over']} at {attrs['scale_m']:g} m.",
+        f"Ranked by: {attrs['ranked_by']}.",
+    ]
+    if attrs.get("n_without_coverage"):
+        lines.append(
+            f"{attrs['n_without_coverage']} date(s) whose images miss the study area are not "
+            "listed."
+        )
+    if table.empty:
+        lines.append("No acquisition covers the study area.")
+        return "\n".join(lines)
+    spec = _SURVEY_TABLE + (_SURVEY_TABLE_S2 if "cs_mean" in table.columns else ())
+    shown = table if top == 0 else table.head(top)
+    cells = [[header for header, _, _ in spec]]
+    for _, row in shown.iterrows():
+        cells.append(
+            [
+                str(row[column]) if digits is None else _survey_cell(row[column], digits)
+                for _, column, digits in spec
+            ]
+        )
+    widths = [max(len(r[i]) for r in cells) for i in range(len(spec))]
+    lines.append("")
+    for r in cells:
+        lines.append(
+            "  ".join(
+                cell.ljust(width) if spec[i][1] in ("date", "acquisition") else cell.rjust(width)
+                for i, (cell, width) in enumerate(zip(r, widths, strict=True))
+            ).rstrip()
+        )
+    lines.append("")
+    if len(shown) < len(table):
+        lines.append(f"{len(shown)} of {len(table)} rows (--top 0 prints all).")
+    first = table.iloc[0]["date"]
+    lines.append(
+        f"Rank 1 alone: --date-range {first} {first} (with the default --composite-method "
+        "median). In a pilot at tropical tree-crop squares the median of the whole window was "
+        "the better Delineate-Anything input; see 'Dates in a composite' in the "
+        "satellite-sources guide."
+    )
+    return "\n".join(lines)
+
+
+@main.command()
+@_apply(_STAGE_A_OPTIONS)
+@click.option(
+    "--top",
+    default=10,
+    show_default=True,
+    type=click.IntRange(min=0),
+    help="Rows to print (table or --json); 0 prints all.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Print the survey's facts and rows as JSON instead of a table.",
+)
+@click.option(
+    "--csv",
+    "csv_path",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Also write every ranked row to this CSV file (image IDs joined with ';').",
+)
+@click.option(
+    "--scale-m",
+    default=None,
+    type=click.FloatRange(min=0, min_open=True),
+    help=(
+        "Reduction scale in metres. [default: the smallest multiple of 10 m, at least 60 m, "
+        "that keeps the region reduced over at 250,000 pixels or fewer: the study area, or "
+        "the export grid's outline for a study area of more than 5,000 vertices]"
+    ),
+)
+@click.pass_context
+def scenes(
+    ctx: click.Context,
+    dry_run: bool,
+    top: int,
+    as_json: bool,
+    csv_path: str | None,
+    scale_m: float | None,
+    **_: Any,
+) -> None:
+    """Rank the acquisitions of the composite's window by their clear share of the study area.
+
+    An acquisition is the images of one UTC date that pass --cloud-cover-max.
+    sentinel2, landsat, landsat-pan and hls are ranked by the share of the study
+    area that each acquisition shows clear under the composite's pixel mask
+    (Sentinel-2 ties: higher mean Cloud Score+), spot and spot-pan by the share
+    their scenes cover. One Earth Engine request, or one per month when Earth
+    Engine runs out of memory or time on the whole window (the same rows);
+    nothing is written but --csv.
+    A one-day --date-range (start = end) with the default --composite-method
+    median then builds the composite of one acquisition. In a pilot at tropical
+    tree-crop sites the single clearest Sentinel-2 date was a worse input for
+    Delineate-Anything than the median.
+    """
+    data = _resolve_config_data(ctx, require_study_area=True)
+    config = _build_config(data, ctx)
+    from agribound.composites.scenes import check_scene_survey, survey_scenes
+
+    try:
+        check_scene_survey(config)
+    except ValueError as exc:
+        raise click.UsageError(str(exc), ctx=ctx) from exc
+    if dry_run:
+        click.echo(_config_yaml(config), nl=False)
+        return
+
+    try:
+        table = survey_scenes(config, scale_m=scale_m)
+    except ImportError as exc:
+        raise _missing_dependency(exc) from exc
+    except (ValueError, RuntimeError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if csv_path:
+        out = Path(csv_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        flat = table.drop(columns=["date_range"]).copy()
+        flat["image_ids"] = [";".join(ids) for ids in flat["image_ids"]]
+        flat.to_csv(out, index=False)
+    shown = table if top == 0 else table.head(top)
+    if as_json:
+        facts = dict(table.attrs)
+        facts["n_rows"] = len(table)
+        facts["rows"] = shown.to_dict(orient="records")
+        click.echo(json.dumps(_jsonable(facts), indent=2))
+    else:
+        click.echo(_survey_text(table, top))
+    if csv_path:
+        click.echo(f"Survey table → {csv_path}", err=as_json)
 
 
 def _missing_dependency(exc: ImportError) -> click.ClickException:
@@ -929,6 +1244,15 @@ def _parse_spacing(ctx: click.Context, param: click.Parameter, value: str | None
     help="Equal-area CRS for area and IoU computations [default: evaluate()'s default].",
 )
 @click.option(
+    "--baselines",
+    is_flag=True,
+    help=(
+        "Also score chance baselines with the same rules (agribound.evaluate.chance_baselines): "
+        "a blind square grid with the predictions' median area over their bounding box, the "
+        "mean of 36 offset grids. Reported under 'baselines'."
+    ),
+)
+@click.option(
     "--output",
     "-o",
     default=None,
@@ -947,6 +1271,7 @@ def evaluate(
     boundary_tolerance_m: float | None,
     boundary_sample_spacing_m: Any,
     equal_area_crs: str | None,
+    baselines: bool,
     output: str | None,
 ) -> None:
     """Evaluate predicted field boundaries against reference boundaries."""
@@ -979,6 +1304,8 @@ def evaluate(
         kwargs["boundary_sample_spacing_m"] = boundary_sample_spacing_m
     if equal_area_crs is not None:
         kwargs["equal_area_crs"] = equal_area_crs
+    if baselines:
+        kwargs["baselines"] = True
 
     metrics = run_evaluate(pred_gdf, ref_gdf, **kwargs)
     text = json.dumps(_jsonable(metrics), indent=2)

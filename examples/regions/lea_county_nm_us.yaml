@@ -22,7 +22,7 @@ run:
   engines: [delineate-anything, ftw, embedding]
   tile_size_km: 10
   halo_m: 1200
-  reference: ../NMOSE Field Boundaries/WUCB ag polys.shp
+  reference: ../NM_Field_Boundaries/Master_NM_Field_Boundaries_V18.shp
 tiling:
   n_tiles: 144
   grid: utm
@@ -135,8 +135,10 @@ sources:
       which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
       before large runs.'
 reference_data:
-- examples/NMOSE Field Boundaries/WUCB ag polys.shp (NMOSE, local; evaluation uses the polygons intersecting
-  the study area).
+- 'examples/NM_Field_Boundaries/Master_NM_Field_Boundaries_V18.shp: DRI/NMOSE field boundaries (V18; local,
+  not distributed), extracted from examples/NM_Field_Boundaries.zip with ''unzip examples/NM_Field_Boundaries.zip
+  -d examples/NM_Field_Boundaries'' (the driver reads a vector file, not the zip archive). Lea County is
+  FIPS_code 35025; evaluation uses the polygons intersecting the study area.'
 ftw:
   in_ftw_benchmark_countries: false
   note: Not an FTW benchmark country (ftw_tools.settings.ALL_COUNTRIES), so FTW models run out of their
@@ -147,9 +149,9 @@ ftw:
 notes:
 - WorldCover cropland is 2.4 % of the county box; the fields are concentrated in the east (22 % in the
   test box).
-- 'Centre pivots are about 800 m across; halo_m 1200 exceeds that, but 42 of the 1,123 NMOSE single-part
-  polygons whose representative point lies in the bbox are longer (bounding-box long side in UTM 13N,
-  checked 2026-09-28: median 736 m, p99 1609 m, max 3772 m). Check n_reaching_halo_edge in the merge
-  summary.'
+- 'Centre pivots are about 800 m across; halo_m 1200 exceeds that, but 38 of the 1,884 DRI/NMOSE (V18)
+  single-part polygons whose representative point lies in the bbox are longer (bounding-box long side in
+  UTM 13N, checked 2026-10-08: median 538 m, p99 1396 m, max 2428 m). Check n_reaching_halo_edge in the
+  merge summary.'
 - 10 km tiles keep 1 m NAIP tiles at about 12,400 x 12,400 px including the halo.
 - USGS NAIP Plus serves only the latest vintage per state (2022 here).

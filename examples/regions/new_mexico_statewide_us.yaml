@@ -9,8 +9,9 @@ description: 'The whole state of New Mexico: irrigated agriculture along the Rio
   San Juan valleys and on the eastern plains, within a mostly non-agricultural state.'
 country: US
 bbox: [-109.0505, 31.3322, -102.9976, 37.0003]
-bbox_source: union of the TIGER/2018/States bounds of New Mexico and the extent of the NMOSE WUCB polygons
-  (which reach 0.0044 degrees east of the state box), rounded outwards to 1e-4 degrees
+bbox_source: union of the TIGER/2018/States bounds of New Mexico and the extent of the older NMOSE WUCB
+  polygons (which reach 0.0044 degrees east of the state box), rounded outwards to 1e-4 degrees; the DRI/NMOSE
+  field boundaries (V18) lie inside the state box (checked 2026-10-08)
 test_bbox: [-106.8, 34.6, -106.75, 34.65]
 test_bbox_source: hand-picked box on the Rio Grande valley near Belen, checked with WorldCover
 study_area: null
@@ -22,17 +23,17 @@ run:
   engines: [delineate-anything, ftw, embedding]
   tile_size_km: 20
   halo_m: 1500
-  reference: ../NMOSE Field Boundaries/WUCB ag polys.shp
+  reference: ../NM_Field_Boundaries/Master_NM_Field_Boundaries_V18.shp
 tiling:
   n_tiles: 950
   grid: utm
   computed_with: agribound.hpc.tiles.make_tiles(bbox, tile_size_m=20000, halo_m=1500, crs='utm', clip=True)
   halo_note: 'halo_m is an agribound choice; fields longer than the halo that cross a tile core boundary
-    can be truncated. 1500 m covers 97.8 % of the NMOSE reference fields but not all of them (bounding-box
-    long side in the UTM zone of each of the 50,660 single-part polygons, checked 2026-09-28: median 240 m,
-    p99 1618 m, max 4891 m; 1136 exceed 1500 m, 154 exceed 2000 m, 53 exceed 2500 m). Raise halo_m (for
-    example to 2500 m, or 5000 m to cover every reference field) when large fields matter, and check
-    n_reaching_halo_edge in the merge summary.'
+    can be truncated. 1500 m covers 98.5 % of the DRI/NMOSE (V18) reference fields but not all of them
+    (bounding-box long side in the UTM zone of each of the 90,177 single-part polygons, checked 2026-10-08:
+    median 187 m, p99 1605 m, max 9243 m; 1376 exceed 1500 m, 185 exceed 2000 m, 55 exceed 2500 m and one
+    exceeds 5000 m). Raise halo_m (for example to 2500 m, or 5000 m to cover all reference fields but one)
+    when large fields matter, and check n_reaching_halo_edge in the merge summary.'
 verification:
   worldcover_date: '2026-09-27'
   method: 'ESA/WorldCover/v200 (2021) Map == 40 (cropland): share of seeded random points (ee.FeatureCollection.randomPoints,
@@ -159,8 +160,11 @@ sources:
       which has no tiles). Coverage changes; re-check with agribound.composites.local.tessera_coverage
       before large runs.'
 reference_data:
-- 'examples/NMOSE Field Boundaries/WUCB ag polys.shp: New Mexico Office of the State Engineer water-use
-  agricultural polygons, 50,603 polygons (EPSG:26913; local, not distributed).'
+- 'examples/NM_Field_Boundaries/Master_NM_Field_Boundaries_V18.shp: DRI/NMOSE field boundaries (V18; Desert
+  Research Institute and New Mexico Office of the State Engineer), 85,316 records, 37 of them without a
+  geometry (EPSG:26913; local, not distributed). Extract it from examples/NM_Field_Boundaries.zip with ''unzip
+  examples/NM_Field_Boundaries.zip -d examples/NM_Field_Boundaries'' (the driver reads a vector file, not the
+  zip archive).'
 ftw:
   in_ftw_benchmark_countries: false
   note: Not an FTW benchmark country (ftw_tools.settings.ALL_COUNTRIES), so FTW models run out of their
@@ -170,13 +174,13 @@ ftw:
     reference data.
 notes:
 - Only about 1.6 % of the bbox is cropland (WorldCover), so most tiles hold few fields but are still downloaded
-  and processed. A study area built from the NMOSE polygons (e.g. their buffered convex hulls) cuts the
+  and processed. A study area built from the DRI/NMOSE polygons (e.g. their buffered convex hulls) cuts the
   number of tiles; do not use the polygons themselves as the study area when they are also the reference.
 - NAIP in GEE ends in 2023 (registry range 2002-2023), so the 2024 NAIP run is skipped by the driver.
 - 'The bbox is the state''s bounding box and extends beyond New Mexico: about 7.4 % of it is Texas
   (mostly around El Paso and the Trans-Pecos; TIGER/2018/States) and 2.7 % is Mexico (northern Chihuahua
   and Sonora, including the Valle de Juarez; LSIB_SIMPLE/2017). About 1,060 of the 5,050 km2 of WorldCover
   2021 cropland in the bbox (300 m, approximate; checked 2026-09-28) lies outside New Mexico, and the
-  worldcover_v200_cropland_fraction values above cover the whole bbox. The NMOSE reference covers New
+  worldcover_v200_cropland_fraction values above cover the whole bbox. The DRI/NMOSE reference covers New
   Mexico only, so detections outside the state count as false positives in an evaluation: clip the
   predictions (or the evaluation) to the state, or set study_area to a file with the state polygon.'

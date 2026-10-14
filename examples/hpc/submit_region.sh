@@ -41,7 +41,8 @@
 #   --compute gpu|cpu        partition type of the compute array (default gpu; cpu for
 #                            engines that need no GPU, e.g. embedding: AGB_CPU_SBATCH,
 #                            AGB_CPU_TIME, AGB_CPU_ACCOUNT, <= AGB_CPU_MAX_CONCURRENT tasks)
-#   --offline-gpu            export HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1 in GPU jobs
+#   --offline-gpu            export HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1 and
+#                            AGRIBOUND_TESSERA_STORE_CHECK=0 in GPU jobs
 #   --pipelined              GPU tasks depend on their own stage task (aftercorr) instead
 #                            of the whole stage array (afterok)
 #   --keep-going             the compute array waits for the stage array, and the merge for

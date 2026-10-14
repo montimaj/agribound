@@ -69,6 +69,7 @@ METHOD_FIELDS: tuple[str, ...] = (
     "s2_cloud_mask",
     "naip_resolution_m",
     "landsat_pan_missions",
+    "crop_sequence_years",
     "bands",
     "tessera_version",
     "tessera_variant",
@@ -158,11 +159,11 @@ def input_fingerprints(config: Any) -> dict[str, Any]:
     -------
     dict
         JSON-serialisable fingerprints of the study area, reference boundaries
-        and local raster.
+        and local raster, and of the VHR SAR co-registration base when one is set.
     """
     from agribound._cache import aoi_fingerprint
 
-    return {
+    out = {
         "study_area": {
             "value": str(config.study_area or ""),
             "aoi_fingerprint": aoi_fingerprint(config),
@@ -170,6 +171,11 @@ def input_fingerprints(config: Any) -> dict[str, Any]:
         "reference_boundaries": _file_signature(config.reference_boundaries),
         "local_tif_path": _file_signature(config.local_tif_path),
     }
+    # Only when set, so the fingerprints of other plans keep their 1.0.1 form.
+    base = getattr(config, "vhr_sar_coregister_base", None)
+    if base:
+        out["vhr_sar_coregister_base"] = _file_signature(base)
+    return out
 
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 **Agricultural field boundary delineation from satellite imagery**
 
-[![Release](https://img.shields.io/badge/release-v1.0.1-green.svg)](https://github.com/montimaj/agribound/releases)
+[![Release](https://img.shields.io/badge/release-v1.1.0-green.svg)](https://github.com/montimaj/agribound/releases)
 [![PyPI version](https://img.shields.io/pypi/v/agribound)](https://pypi.org/project/agribound/)
 [![Downloads](https://static.pepy.tech/badge/agribound/month)](https://pepy.tech/projects/agribound)
 [![CI](https://github.com/montimaj/agribound/actions/workflows/ci.yml/badge.svg)](https://github.com/montimaj/agribound/actions/workflows/ci.yml)
@@ -17,24 +17,27 @@
 
 ## Overview
 
-Agribound runs published field-boundary models, geospatial foundation models
-and embedding-based methods on satellite and aerial imagery through one
-configuration and one pipeline: composite → optional fine-tuning → delineation
-→ optional SAM refinement → study-area selection → post-processing → LULC crop
-filter → export. It supports eleven sources (Landsat, Landsat panchromatic,
-Sentinel-2, HLS, NAIP and SPOT 6/7 composites built on Google Earth Engine;
-USGS NAIP Plus without Earth Engine; local GeoTIFFs; Google Satellite Embedding
-and TESSERA embeddings) and seven engines (Delineate-Anything, Fields of The
-World, GeoAI Mask R-CNN, DINOv3, Prithvi-EO-2.0, embedding clustering and
-ensembles).
+Agribound runs published field-boundary models, geospatial and general-purpose
+foundation models and embedding-based methods on satellite and aerial imagery
+through one configuration and one pipeline: composite → optional fine-tuning →
+delineation → optional SAM refinement → study-area selection → post-processing
+→ LULC crop filter → export. It supports sixteen sources (Landsat, Landsat
+panchromatic, Sentinel-2, HLS, NAIP, SPOT 6/7 and Sentinel-1 SAR composites
+built on Google Earth Engine; USGS NAIP Plus and the Umbra and Capella open SAR
+archives on AWS without Earth Engine; local GeoTIFFs; Google Satellite
+Embedding and TESSERA embeddings; stacks of annual USDA CDL and AAFC ACI
+crop-type maps on Google Earth Engine) and nine engines (Delineate-Anything,
+Fields of The World, GeoAI Mask R-CNN, DINOv3, Prithvi-EO-2.0, SAM 2.1
+automatic masks, embedding clustering, crop-sequence zones and ensembles).
 
 Every run is seeded, caches its intermediates under content-addressed names,
 and writes a provenance record (configuration and hash, package versions,
 device, step timings, model weights, counts, warnings) next to its output.
 The package also provides object-level evaluation against reference
-boundaries, tiling of large regions for HPC clusters, a query helper for the
-published Fields of The World polygons, and an optional agent layer that
-proposes one run for a human to approve.
+boundaries, tiling of large regions for HPC clusters, query helpers for the
+published Fields of The World polygons and USDA NASS Crop Sequence
+Boundaries, and an optional agent layer that proposes one run for a human to
+approve.
 
 > **Upgrading from 0.1.x?** Version 1.0.0 fixes defects that affected results
 > produced with agribound 0.1.x, among them FTW season windows that were
@@ -46,14 +49,14 @@ proposes one run for a human to approve.
 
 ## How It Works
 
-<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png" alt="The agribound 1.0 workflow: an optional agent layer with a human confirmation gate and a deterministic entry point above a six-stage pipeline from eleven imagery and embedding sources to field boundaries" width="900"></a>
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/agribound_workflow_1.0.png" alt="The agribound 1.1 workflow: an optional agent layer with a human confirmation gate and a deterministic entry point above a six-stage pipeline from sixteen imagery, embedding and crop-type map sources to field boundaries" width="900"></a>
 
-*The agribound 1.0 workflow (select the image for full resolution): a six-stage pipeline from eleven imagery and embedding sources (0.3–30 m, 1984–present) to field boundaries, with a deterministic entry point and an optional, human-confirmed agent layer above it.*
+*The agribound 1.1 workflow (select the image for full resolution): a six-stage pipeline from sixteen imagery, embedding and crop-type map sources (0.16–30 m, 1984–present) to field boundaries, with a deterministic entry point and an optional, human-confirmed agent layer above it.*
 
-1. **Composite.** Earth Engine builds a median or greenest-pixel (max-NDVI) composite for a year or a date window and exports it on a UTM grid. NAIP is mosaicked, and only Landsat, Sentinel-2 and HLS are cloud-masked and scaled to reflectance ×10 000 (Landsat panchromatic is cloud-masked but kept as TOA reflectance). USGS NAIP Plus, TESSERA and local GeoTIFF inputs are read without Earth Engine.
+1. **Composite.** Earth Engine builds a median or greenest-pixel (max-NDVI) composite for a year or a date window and exports it on a UTM grid. NAIP is mosaicked, and only Landsat, Sentinel-2 and HLS are cloud-masked and scaled to reflectance ×10 000 (Landsat panchromatic is cloud-masked but kept as TOA reflectance; Sentinel-1 radar backscatter is edge-masked and scaled from dB to 8 bits). USGS NAIP Plus, Umbra and Capella SAR (median amplitude of co-registered collects of one geometry, built locally from the AWS open data), TESSERA and local GeoTIFF inputs are read without Earth Engine. The USDA CDL and AAFC ACI crop-type maps are downloaded as class codes, one band per year, resampled to 30 m by Earth Engine (never averaged).
 2. **Fine-tuning (optional).** Full (Delineate-Anything, GeoAI, DINOv3, Prithvi) or LoRA (DINOv3, Prithvi) fine-tuning on reference boundaries, validated by default on a spatially blocked split (5 km blocks). GeoAI, DINOv3 and Prithvi's UPerNet mode need a checkpoint, from fine-tuning or supplied by the user.
-3. **Delineation.** One of seven engines, coloured by family: task-specific segmentation, geospatial foundation model, label-free embedding clustering and multi-engine ensemble.
-4. **Refine and post-process.** Optional SAM refinement (SAM 2, 2.1 or 3; the SAM 3 backends are untested), then study-area selection, merging, minimum-area filtering, smoothing and simplification.
+3. **Delineation.** One of nine engines, coloured by family: task-specific segmentation, foundation model (geospatial: DINOv3, Prithvi; general-purpose: SAM 2.1), label-free embedding clustering, crop-history zones (zones of uniform multi-year crop history from crop-type maps, not field instances) and multi-engine ensemble. SAM 2.1 automatic masks (`sam-auto`) are opt-in: never an engine default.
+4. **Refine and post-process.** Optional SAM refinement (SAM 2, 2.1 or 3; the SAM 3 backends are untested), then study-area selection, merging, minimum-area filtering, smoothing and simplification, and optional centre-pivot snapping (opt-in, `engine_params["pivots"]`).
 5. **LULC crop filter.** Removes polygons whose crop fraction is below 0.3, computed on Earth Engine or locally on a downloaded crop raster. Annual NLCD, Dynamic World or C3S Land Cover is selected by coverage and year; CDL (CONUS only) is used on request. Dynamic World files plantations and many orchards under trees, so for tree crops set `lulc_tree_crops=True`, which, with Dynamic World or C3S, counts tree cover (forest included) as crop; NLCD and CDL are unchanged.
 6. **Export.** GeoParquet (fiboa-style columns), GeoPackage or GeoJSON, with per-field area, perimeter, compactness and crop fraction, plus a `provenance.json` record.
 
@@ -65,35 +68,50 @@ Around the pipeline:
 
 ## Results
 
-From the agribound 1.0.1 example runs (the San Juan County map shows 1.0.0
-outputs, which 1.0.1 reuses unchanged; the tree-crop map comes from the
-development version that follows 1.0.1). Each map is drawn on a composite from
-the run, named under the map with the model and its version: usually the
-engine's input; for FTW, its window A; for the SAM-refined embedding panels
-(Pampas, top), the Sentinel-2 composite SAM 2 read. Select an image for the
-full-resolution file. See the
+From the agribound 1.1 example runs: the development run of 2026-10-09/10,
+whose outputs 1.1.0 reuses unchanged, the targeted 1.1.0 re-runs of
+2026-10-11 (example 14's Landsat and HLS runs among them), example 26's run of
+2026-10-10, example 24's re-scoring run of 2026-10-11 and its run with
+`--options` and `--sam-auto` of 2026-10-13, and example 28's run of
+2026-10-12/13; the gallery adds the pre-registered evaluation of `sam-auto`
+(2026-10-13). Each map is drawn
+on a composite from the run, named under the map with the model and its
+version: usually the engine's input; for FTW, its window A; for the
+SAM-refined embedding panels (Pampas, top), the Sentinel-2 composite SAM 2
+read. Select an image for the full-resolution file. See the
 [gallery](https://montimaj.github.io/agribound/gallery/) for more regions and
 engines.
 
 ### From 30 m to 1 m: Delineate-Anything v2 against a reference registry (San Juan County, New Mexico, USA)
 
 Example 20: Delineate Anything v2, used as released, on Landsat, Sentinel-2,
-SPOT 6/7 and NAIP of 2018, each evaluated against the 944 NMOSE WUCB polygons
-(cyan; not used for training or fine-tuning in these runs). Object F1
-(IoU ≥ 0.5) is 0.15 at 30 m, 0.34 at 10 m, 0.33 at 6 m and 0.43 at 1 m;
-recall rises from 0.08 to 0.44.
+SPOT 6/7 and NAIP of 2022, each evaluated against the 1,355 DRI/NMOSE field
+boundaries (V18) of at least 2,500 m² in the box (cyan; not used for training
+or fine-tuning in these runs). Object F1 (IoU ≥ 0.5) is 0.13 at 30 m, 0.29 at
+10 m, 0.17 at 6 m and 0.39 at 1 m; recall rises from 0.07 to 0.34. The 2022
+SPOT composite is a single scene with valid data over 76.7 % of the box.
 
-<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/San_Juan_resolution_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/San_Juan_resolution_example.webp" alt="Delineate-Anything v2 on Landsat, Sentinel-2, SPOT and NAIP — San Juan County, New Mexico" width="800"></a>
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.1/San_Juan_resolution_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.1/preview/San_Juan_resolution_example.webp" alt="Delineate-Anything v2 on Landsat, Sentinel-2, SPOT and NAIP — San Juan County, New Mexico" width="800"></a>
+
+Credits: DRI/NMOSE field boundaries (V18), Desert Research Institute and New
+Mexico Office of the State Engineer; contains modified Copernicus Sentinel
+data 2022.
 
 ### Supervised: DINOv3 fine-tuned + SAM 2 on four sources (eastern Lea County, New Mexico, USA)
 
-Example 14: DINOv3 (SAT-493M weights) fine-tuned on the NMOSE polygons for
-each source and refined with SAM 2. In-sample F1 (the polygons are also the
-training labels): 0.06 on Landsat, 0.38 on Sentinel-2, 0.45 on SPOT and 0.59
-on NAIP; at 30 m the box also holds only 4 training chips, against 2,014 at
-1 m.
+Example 14: DINOv3 (SAT-493M weights) fine-tuned on the DRI/NMOSE field
+boundaries (V18) for each source and refined with SAM 2. In-sample F1 against
+the 388 V18 polygons of the box (they are also the training labels): 0.53 on
+Landsat 2024, 0.57 on Sentinel-2 2024, 0.59 on SPOT 2023 and 0.56 on NAIP
+2022. DINOv3 reads the 30 m Landsat composite on a 10 m copy, which gives it
+52 training chips, as many as Sentinel-2, against 2,354 at 1 m; read at 30 m,
+the box held 4 chips and F1 was 0.01.
 
-<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/NM_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/NM_example.webp" alt="DINOv3 fine-tuned and SAM 2 on Landsat, Sentinel-2, SPOT and NAIP — eastern Lea County, New Mexico" width="800"></a>
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.1/NM_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.1/preview/NM_example.webp" alt="DINOv3 fine-tuned and SAM 2 on Landsat, Sentinel-2, SPOT and NAIP — eastern Lea County, New Mexico" width="800"></a>
+
+Credits: DRI/NMOSE field boundaries (V18), Desert Research Institute and New
+Mexico Office of the State Engineer; contains modified Copernicus Sentinel
+data 2024.
 
 ### Label-free: embeddings + SAM 2 vs Delineate-Anything v2 (Pampas, Argentina)
 
@@ -101,13 +119,15 @@ Example 15, no reference data or training: Google Satellite Embedding and
 TESSERA v1 clusters of 2024, crop-filtered and refined with SAM 2 on
 Sentinel-2 (top; parts over 50 ha kept unrefined), against Delineate Anything
 v2 on the same Sentinel-2 composite and on SPOT 6/7 2023 (bottom); centre
-pivots near Pergamino. Orange = refined by SAM 2. The embedding panels come
-from the agribound 1.0.1 run of 2026-09-29; the Delineate-Anything panels are
-the 1.0.0 outputs, which that run reused. The
+pivots near Pergamino. Orange = refined by SAM 2. The four panels come from
+the development run; the TESSERA layers were read from the TESSERA v1 store
+as converted again upstream on 2026-10-06/08. The
 [gallery](https://montimaj.github.io/agribound/gallery/) adds the whole study
 area and three zoomed windows.
 
-<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Pampas_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Pampas_example.webp" alt="Embeddings with SAM 2 vs Delineate-Anything v2 on Sentinel-2 and SPOT — Pampas, Argentina" width="800"></a>
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.1/Pampas_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.1/preview/Pampas_example.webp" alt="Embeddings with SAM 2 vs Delineate-Anything v2 on Sentinel-2 and SPOT — Pampas, Argentina" width="800"></a>
+
+Credits: contains modified Copernicus Sentinel data 2024.
 
 ### Tree crops: oil palm, orchards and olive groves against reference boundaries (Ghana, Papua New Guinea, California, Spain)
 
@@ -116,35 +136,113 @@ Example 23: Delineate Anything v2 as released on SPOT 6/7 panchromatic
 (an oil palm estate at Twifo Praso and smallholder parcels in Oro Province),
 the DWR / Land IQ 2022 crop map (Madera County) and SIGPAC parcels (Úbeda).
 Object F1 (IoU ≥ 0.5; precision counts only the predictions that overlap a
-reference polygon, as in the gallery) is 0.29 for the estate blocks, about
-half of which come out in pieces: many are cut along the edges of the
-engine's 768 m inference tiles (the blocks are about 1 km long), and about as
-many along roads or tracks that run through the blocks. Among 302 smallholder
-parcels it draws one polygon. A model fine-tuned on parcels of the same scheme,
-in a square 13.6 km from the Oro square (centres 19.5 km apart), matches 68;
-that fine-tuning was added after the released model's Oro result and kept after
-its own Oro score was seen. For the almond and pistachio blocks F1 is 0.86, on
-fields the model has seen: its training data (FBIS-73M) cover the Madera square
-and 87 % of the Úbeda square, with labels that match 121 of the 122 DWR / Land
-IQ fields and 166 of the 225 SIGPAC recintos, and have no patches in Ghana or
-Papua New Guinea. Fine-tuned on the same labels near each site, DINOv3
-(ViT-L/16 pre-trained on satellite imagery, with agribound's default recipe)
-merges neighbouring fields (merge rates 0.80 to 1.00), because it almost never
-predicts the field-boundary class. Oro is the only site where it beats both
-Delineate Anything v2 models (F1 0.23, against 0.21 for the fine-tuned one).
-The default LULC crop filter removes every polygon at both oil palm sites,
-because Dynamic World counts the palms as trees; `lulc_tree_crops=True` keeps
-every Delineate-Anything polygon there and all but 8 of their 2,720 embedding
-segments.
+reference polygon, as in the gallery) is 0.32 for the estate blocks, 24 of the
+55 of which come out in pieces: the blocks are about 1 km long, longer than
+the engine's 768 m inference tiles, and 12.7 % of the boundary lies within
+2 m of a tile edge. Among 302 smallholder parcels it draws one polygon. A
+model fine-tuned on parcels of the same scheme, in a square 13.6 km from the
+Oro square (centres 19.5 km apart), matches 126; that fine-tuning was added
+after the released model's Oro result and kept after its own Oro score was
+seen. For the almond and pistachio blocks F1 is 0.83 (0.86 with agribound
+1.0.1's tile stitching; three tile seam joins of 1.1 merge pairs of blocks),
+on fields the model has seen: its training data (FBIS-73M) cover the Madera
+square and 87 % of the Úbeda square, with labels that match 121 of the 122
+DWR / Land IQ fields and 166 of the 225 SIGPAC recintos, and have no patches
+in Ghana or Papua New Guinea. Fine-tuned on the same labels near each site,
+DINOv3 (ViT-L/16 pre-trained on satellite imagery) has the highest F1 of the
+three models at all four sites (0.50, 0.50, 0.91 and, on the Úbeda recintos,
+0.18, against 0.40, 0.45, 0.83 and 0.14 for the better Delineate Anything v2
+model of each site), with merge rates of 0.13 to 0.88. The default LULC crop
+filter removes every polygon at both oil palm sites, because Dynamic World
+counts the palms as trees; `lulc_tree_crops=True` keeps all but one of their
+Delineate-Anything polygons and all but 7 of their 2,701 embedding segments.
 The [gallery](https://montimaj.github.io/agribound/gallery/) compares the
 sources and engines at Twifo Praso, Oro and Madera.
 
-<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/Tree_Crops_SPOT_Pan_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.0/preview/Tree_Crops_SPOT_Pan_example.webp" alt="Tree crops — Delineate-Anything v2 on SPOT 6/7 panchromatic in Ghana, Papua New Guinea, California and Spain" width="800"></a>
+<a href="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.1/Tree_Crops_SPOT_Pan_example.png"><img src="https://raw.githubusercontent.com/montimaj/agribound/main/assets/gallery_1.1/preview/Tree_Crops_SPOT_Pan_example.webp" alt="Tree crops — Delineate-Anything v2 on SPOT 6/7 panchromatic in Ghana, Papua New Guinea, California and Spain" width="800"></a>
+
+### More in the gallery: Nevada, Diamond Valley options, SAM 2.1 automatic masks, 47 states, Montana, radar, Quebec, New York
+
+- **Nevada (example 24):** centre pivots in Diamond Valley and flood- and
+  sprinkler-irrigated fields in Mason Valley against the DRI field boundaries
+  (Nevada, 2026-08-20), each panel drawn on its own input (NAIP 2022, SPOT
+  6/7 2023, Sentinel-1 2024). Delineate Anything v2 as released on NAIP scores
+  F1 0.26 and 0.57 against all mapped fields, and 0.38 and 0.58 against the
+  fields irrigated in 2022, with the predictions on the other fields left out.
+  With `--sam-auto`, SAM 2.1 automatic masks (no field labels, no
+  fine-tuning) take three of the eight panels by F1: Diamond Valley on NAIP
+  (0.39, against 0.38 for fine-tuned DINOv3) and on SPOT 6/7 (0.59, against
+  0.50), and Mason Valley on SPOT 6/7 (0.60, against 0.51 for Delineate
+  Anything v2 as released). The panel rule ranks point estimates, and in all
+  three slots the two 95 % intervals overlap. `sam-auto`'s settings were
+  chosen on example 24's training squares, 5.0 and 16.0 km from these
+  squares in the same basins, so the squares are held out from that choice,
+  not from the landscape.
+- **[Diamond Valley options](https://montimaj.github.io/agribound/gallery/#nevada-diamond-valley-opt-in-options-of-110-before-and-after) (example 24 with `--options`):** the opt-in options
+  of 1.1.0 that passed a pre-registered test on three other Nevada squares (a
+  3 m grid for Delineate Anything v2 on NAIP, pivot snapping and a half-band
+  growth for DINOv3, then the crop filter), before and after. On this square F1
+  goes from 0.26 to 0.42 for Delineate Anything v2 on NAIP and from 0.50 to
+  0.56 for fine-tuned DINOv3 on SPOT 6/7 (boundary F1 0.07 to 0.40); the
+  options were tested one at a time and their effects here were partly known
+  before the test, so these are reported results, not tests. The test's
+  rules (PREREG-DV3) were revised and amended before any run and amended
+  again on 2026-10-13, before any score, for a defect of its check step that
+  changed no layer or score.
+- **[SAM 2.1 automatic masks](https://montimaj.github.io/agribound/gallery/#sam-21-automatic-masks-against-delineate-anything-v2) (`sam-auto`):** a pre-registered evaluation
+  against Delineate Anything v2 as released, on the same composites. On NAIP
+  F1 was 0.017 higher over 46 of example 25's squares (95 % interval 0.004
+  to 0.030; both engines near F1 0.3), at 6.1 times the GPU time; on
+  Sentinel-2 it did not transfer (0.152 lower); on SPOT 6/7 and Landsat it
+  was kept over four Nevada and New Mexico areas (means +0.26 and +0.13, with
+  no interval and no "better" claim; as pre-registered, the Nevada pairs are
+  scored without the crop filter and the New Mexico pairs with it, and with
+  all four unfiltered the means are +0.21 and +0.09, a secondary result).
+  Both Nevada areas were scored again on 2026-10-13, after the first scores
+  and the endpoints had been read: the second amendment of the
+  pre-registration (the first preceded every run), recorded as a deviation;
+  Mason Valley's new values were partly known beforehand. Delineate Anything
+  v2's scores on most areas were known before the evaluation, from the
+  examples' own runs. Its settings were chosen on example 24's two training
+  squares, so its scores there are in-sample.
+- **47 states (example 25):** Delineate Anything v2 as released on NAIP in one
+  5 km square per state against the OpenET field boundaries v2.1.1 (in New
+  Mexico the DRI/NMOSE field boundaries, V18, and in Nevada the DRI field
+  boundaries): median F1 0.31, from 0.01 (Montana) to 0.70 (California), with
+  crop-history zones of the Cropland Data Layer beside it in four squares.
+- **[Montana](https://montimaj.github.io/agribound/gallery/#47-us-states-montana-the-clu-on-naip-2005-and-2023) (example 25):** in the lowest square (F1 0.01), 590 of the 684
+  reference fields are Common Land Unit strips about 50 m wide, the width and
+  orientation of the crop and fallow strips of the 2005 NAIP; on the 2023
+  NAIP that the model read, 10 % of the 1,163 lines between them show
+  contrast, where 5 % would by chance, so a delineation of exactly what that
+  image shows would score at most about F1 0.01-0.08 against this reference.
+  These measurements were made on 2026-10-12, after the scores were known,
+  and changed nothing in example 25.
+- **Radar (example 26):** Delineate Anything v2 on Sentinel-1 and on Umbra and
+  Capella open SAR beside NAIP read with the same settings; at the three
+  held-out sites F1 is 0.03-0.16 on Sentinel-1, 0.26-0.37 on Umbra and Capella
+  and 0.25-0.41 on NAIP read the same way.
+- **Quebec (example 27):** crop-history zones of the AAFC Annual Crop Inventory
+  (F1 0.12 and 0.20) beside Delineate Anything v2 on Sentinel-2 (0.47 and
+  0.49) against the parcels declared for 2023.
+- **[New York](https://montimaj.github.io/agribound/gallery/#new-york-black-dirt-vegetable-and-onion-strips-on-muck-against-the-common-land-units) (example 28):** the Common Land Units of the OpenET field
+  boundaries v2.1.1 in three landscapes, each panel drawn on its own input
+  (NAIP 2022, Sentinel-2 2024). Delineate Anything v2 as released on NAIP
+  scores F1 0.15 on the Black Dirt's muck strips, where no run is above the
+  chance baseline fixed before the run (the reference moved by 24 m still
+  matches 470 of its 668 fields), 0.34 in the Finger Lakes and 0.37 in the
+  North Country. Fine-tuned on a square of the same county 15 and 10 km
+  away, DINOv3 scores 0.43 in the Finger Lakes and Delineate Anything v2 0.43
+  in the North Country, above the released model by both paired intervals
+  (claim and panel rules of PREREG-NY, amended three times before the run; a
+  recorded deviation in the run's post-check changed no number).
 
 ## Satellite Sources
 
 From `agribound.registry` (`agribound list-sources`); facts checked against the
-Earth Engine catalogue and the providers on 2026-09-26 to 2026-09-28.
+Earth Engine catalogue and the providers on 2026-09-26 to 2026-09-28 (Sentinel-1
+on 2026-10-07; Umbra and Capella on 2026-10-07 to 2026-10-09; CDL and ACI on
+2026-10-09).
 
 | Source | Key | Export resolution | Years | Coverage | Value scale | Earth Engine |
 |---|---|---|---|---|---|---|
@@ -156,9 +254,14 @@ Earth Engine catalogue and the providers on 2026-09-26 to 2026-09-28.
 | USGS NAIP Plus ImageServer | `usgs-naip-plus` | 0.3-0.6 m (finest selected footprint) | 2012-2023, **latest vintage per state only** | US states and territories | uint8 | no |
 | SPOT 6/7 multispectral | `spot` | 6 m | 2012-2023 | global, **restricted** | uncalibrated DN | yes |
 | SPOT 6/7 panchromatic | `spot-pan` | 1.5 m | 2012-2023 | global, **restricted** | uncalibrated DN | yes |
+| Sentinel-1 C-band SAR GRD (IW, VV + VH) | `sentinel1` | 10 m (about 20 × 22 m resolution) | 2015-present | global where IW VV + VH images exist; one orbit pass per composite | VV, VH, VV − VH dB scaled to uint8 | yes |
+| Umbra open SAR (X-band GEC, AWS) | `umbra` | 1 m (`vhr_sar_resolution_m`) | 2023-present | Umbra Open Data Program sites; one scene of about 5 × 5 km per collect | median of co-registered, level-normalised DN (uncalibrated) | no |
+| Capella open SAR (X-band GEO, AWS) | `capella` | 1 m (`vhr_sar_resolution_m`) | 2021-present | Capella open-data sites; few farmland series | median sigma0 dB + 50 | no |
 | Local GeoTIFF | `local` | the file's | any | user-provided | unknown | no |
 | Google Satellite Embedding (AlphaEarth) | `google-embedding` | 10 m, 64-D | 2017-2025 | global land | embedding | default backend; `source_coop` backend needs none |
 | TESSERA | `tessera-embedding` | 10 m, 128-D | v1 2017-2025 (near-global 2024), v1.1 2015-2025, v2 beta | depends on version | embedding | no |
+| USDA NASS Cropland Data Layer, multi-year stack | `cdl-sequence` | 30 m, one band per year (`crop_sequence_years`, default 8, ending in `year`) | 2008-present | conterminous US; public domain | class codes (categorical) | yes |
+| AAFC Annual Crop Inventory, multi-year stack | `aci-sequence` | 30 m, one band per year | 2011-present | Canada; Open Government Licence - Canada | class codes (categorical) | yes |
 
 Composites cover the study area's bounding box in the UTM zone of its centroid
 (`export_crs`) without polygon masking. The LULC crop filter reads Earth Engine
@@ -173,7 +276,9 @@ for **every** source. Details: [Satellite sources](https://montimaj.github.io/ag
 | GeoAI | `geoai` | Mask R-CNN instance segmentation (geoai-py) | **no**: no published field weights; needs fine-tuning or `checkpoint_path` | yes | COCO Mask R-CNN as the fine-tuning start | recommended (CPU on Apple MPS) |
 | DINOv3 | `dinov3` | DINOv3 ViT + DPT head (geoai-py) | **no**: needs fine-tuning or `checkpoint_path` | yes (full by default, LoRA optional) | SAT-493M ViT-L/16 backbone | recommended |
 | Prithvi-EO-2.0 | `prithvi` | Prithvi-EO-2.0 ViT (terratorch): `embed` clustering, `pca` baseline, or fine-tuned `segment` | only `embed`/`pca` | yes | `Prithvi-EO-2.0-300M-TL` | recommended |
-| Embedding | `embedding` | K-means clustering of pre-computed embeddings | yes | no | - | no (CPU) |
+| SAM 2.1 automatic masks | `sam-auto` | Segment Anything 2.1 automatic mask generation (a grid of point prompts) on large overlapping tiles, partitioned into non-overlapping polygons; opt-in, never an engine default | yes | no | `facebook/sam2.1-hiera-large` (Apache-2.0), pinned revision, SHA-256 checked; a setting per source: defaults for NAIP and SPOT 6/7, Sentinel-2 and Landsat with a WARNING | recommended |
+| Embedding | `embedding` | K-means clustering of pre-computed embeddings, or of a local feature raster (`source="local"`, e.g. SAR features) | yes | no | - | no (CPU) |
+| Crop-sequence zones | `crop-sequence` | zones of uniform multi-year crop history from the `cdl-sequence` or `aci-sequence` stacks, as USDA NASS makes its Crop Sequence Boundaries; **not field instances** | yes | no | - (no model) | no (CPU) |
 | Ensemble | `ensemble` | intersection, union or pixel vote of several engines/models | depends on members | no | members `delineate-anything` + `ftw` | depends |
 
 Engine/source support is checked when the configuration is created; there are
@@ -181,8 +286,30 @@ no silent fallbacks to another model, band set or engine. GeoAI fine-tuning
 sizes its chips from the reference fields by default, and GeoAI joins the
 instances that a field was split into at the edges of its inference windows
 (see [Fine-tuning](https://montimaj.github.io/agribound/user-guide/fine-tuning/)).
+
+`sam-auto` (`pip install "agribound[sam-auto]"`) needs no field labels and no
+fine-tuning. Its settings per source were chosen on two Nevada squares
+(example 24's training squares, so its scores there are in-sample): NAIP and
+SPOT 6/7 are defaults; Sentinel-2 and Landsat run with a WARNING about their
+GPU cost (17.0 and 20.7 times Delineate-Anything's, measured back to back);
+Sentinel-1 has no default. In a pre-registered evaluation against
+Delineate-Anything v2 as released, its F1 on NAIP was 0.017 higher over 46 of
+example 25's squares (95 % interval 0.004 to 0.030; both near F1 0.3), on
+Sentinel-2 it did not transfer (0.152 lower), and on SPOT 6/7 and Landsat it
+was kept over four Nevada and New Mexico areas, with no "better" claim (see
+[Engines](https://montimaj.github.io/agribound/user-guide/engines/#sam-21-automatic-masks-sam-auto)
+and the [gallery](https://montimaj.github.io/agribound/gallery/#sam-21-automatic-masks-against-delineate-anything-v2)).
+SAM outlines
+non-field land too; in the evaluation it merged neighbouring fields more often
+than Delineate-Anything in all 12 Nevada and New Mexico area pairs on SPOT 6/7,
+Sentinel-2 and Landsat (on NAIP and Sentinel-2 over the 46 squares, less
+often on average); and it drops objects larger than about half a tile. HPC
+tiling refuses the engine.
+
 Optional **SAM refinement** (`sam_refine=True`) runs after any engine except
-`embedding` (which refines its own polygons, given
+`crop-sequence` (whose input holds no imagery), `sam-auto` (whose polygons are
+already SAM masks; `sam_refine` raises `ValueError`) and `embedding` (which
+refines its own polygons, given
 `engine_params["sam_rgb_bands"]`), with backends `sam2` (default), `sam2.1`,
 `sam3` (Meta; CUDA + triton, Linux) and `sam3-hf` (transformers); **both SAM 3
 backends are currently untested** (they have not been run end to end, because
@@ -200,8 +327,8 @@ environments**:
 
 | Environment | File | Extra | Includes | Excludes |
 |---|---|---|---|---|
-| core | `environment.yml` | `agribound[all]` | GEE, Delineate-Anything, FTW, GeoAI, DINOv3, SAM 2, TESSERA, agent | Prithvi, SAM 3 |
-| GFM | `environment-gfm.yml` | `agribound[all-gfm]` | GEE, Delineate-Anything, GeoAI, DINOv3, Prithvi, SAM 2, TESSERA, agent | FTW, SAM 3 |
+| core | `environment.yml` | `agribound[all]` | GEE, Delineate-Anything, FTW, GeoAI, DINOv3, SAM 2, SAM 2.1 automatic masks, TESSERA, crop-sequence, agent | Prithvi, SAM 3 |
+| GFM | `environment-gfm.yml` | `agribound[all-gfm]` | GEE, Delineate-Anything, GeoAI, DINOv3, Prithvi, SAM 2, SAM 2.1 automatic masks, TESSERA, crop-sequence, agent | FTW, SAM 3 |
 
 ```bash
 git clone https://github.com/montimaj/agribound.git && cd agribound
@@ -225,8 +352,10 @@ pip install "agribound[gee,delineate-anything]"   # or only what you need
 | `geoai`, `dinov3` | GeoAI, DINOv3 (`geoai-py>=0.43.1`) |
 | `prithvi` | Prithvi (`terratorch[peft]`; conflicts with `ftw`) |
 | `samgeo` | SAM 2 / 2.1 refinement |
+| `sam-auto` | the `sam-auto` engine (SAM 2.1 automatic masks): `sam2==1.1.0`, a third-party PyPI build of Meta's SAM 2 code, pinned; OpenCV and the Hugging Face hub client; no segment-geospatial |
 | `sam3` | SAM 3 Meta backend (CUDA; `triton-windows` on Windows); **untested** (see SAM refinement) |
 | `tessera`, `embedding` | TESSERA (`geotessera>=0.10.2,<0.11`); both embedding sources |
+| `crop-sequence` | the `crop-sequence` engine and the `cdl-sequence`/`aci-sequence` sources (`scikit-image>=0.24` and `gee`) |
 | `agent` | the agent layer and MCP server (`anthropic`, `mcp`) |
 | `docs`, `dev` | documentation; tests and linting |
 
@@ -345,7 +474,13 @@ over- and under-segmentation (Persello & Bruzzone, 2010), Hausdorff and mean
 boundary distances, boundary precision/recall/F1 and coverage within a
 tolerance, per-stratum and per-size-class metrics, and percentile bootstrap
 intervals. `agribound evaluate -p pred.gpkg -r ref.gpkg` does the same from
-the command line. Definitions:
+the command line. `evaluate(..., ignore=...)` leaves out of the score the
+predictions on excluded ground (for example fields not irrigated in the year
+of the imagery), `evaluate(..., baselines=True)` or `chance_baselines()`
+scores layers that use no image (a blind grid and, optionally, a shifted
+copy of the reference), and `paired_bootstrap()` compares two layers against
+one reference, with intervals from resamples of reference fields or of
+square blocks that both layers share. Definitions:
 [Evaluation](https://montimaj.github.io/agribound/user-guide/evaluation/).
 
 ## Large Areas and HPC
@@ -432,12 +567,45 @@ output path, the query parameters, backend and counts are also written to
 
 See [FTW polygon query](https://montimaj.github.io/agribound/user-guide/ftw-query/).
 
+## Crop-History Zones from Crop-Type Maps
+
+`source="cdl-sequence"` (USDA Cropland Data Layer, conterminous US) and
+`source="aci-sequence"` (AAFC Annual Crop Inventory, Canada) download
+`crop_sequence_years` (default 8) years of crop-type maps ending in `year`,
+one band of class codes per year, and
+`engine="crop-sequence"` turns them on the CPU into zones of uniform crop
+history, the way USDA NASS makes its Crop Sequence Boundaries. The zones are
+not field outlines: neighbouring fields with the same crop sequence fall into
+one zone, and narrow or small fields are lost. On ten of example 25's 5 km US
+squares their object F1 was 0.004-0.078, where Delineate-Anything v2 on
+Sentinel-2 scored 0.011-0.649 in the crop-sequence pilot; over all 47 squares
+(example 25 with `--crop-sequence`, agribound 1.1.0) their median F1 was 0.08
+(0.004-0.26), against 0.31 for Delineate-Anything v2 on NAIP; in two Quebec
+squares (example 27), 0.12-0.20 against 0.47-0.49.
+
+```python
+import agribound as ab
+
+zones = ab.delineate(
+    study_area="square.geojson",
+    source="cdl-sequence",
+    year=2023,  # CDL 2016-2023
+    engine="crop-sequence",
+    lulc_filter=False,
+)
+csb = ab.query_csb("square.geojson", 2023)  # published CSB 2016-2023 (minutes per query)
+```
+
+`attach_crop_history(fields, stack)` adds the per-year classes of such a stack
+to any outlines, for example Delineate-Anything outlines from imagery. See
+[Crop-sequence zones](https://montimaj.github.io/agribound/user-guide/engines/#crop-sequence-zones-crop-sequence).
+
 ## Project Structure
 
 ```
 agribound/
 ├── agribound/                  # Main package
-│   ├── __init__.py             # Public API (delineate, build_composite, evaluate, list_*, query_ftw, agent)
+│   ├── __init__.py             # Public API (delineate, build_composite, evaluate, list_*, query_ftw, query_csb, attach_crop_history, agent)
 │   ├── _version.py             # Version string
 │   ├── _cache.py               # Content-addressed cache keys
 │   ├── _repro.py               # Seeding, seeded generators, version capture, run IDs
@@ -447,6 +615,7 @@ agribound/
 │   ├── evaluate.py             # Object-level evaluation
 │   ├── ftw_arrow.py            # PyArrow reader of the published FTW polygons
 │   ├── ftw_query.py            # query_ftw()
+│   ├── csb_query.py            # query_csb(): published USDA NASS Crop Sequence Boundaries
 │   ├── pipeline.py             # delineate() and build_composite()
 │   ├── provenance.py           # Provenance records and configuration hash
 │   ├── registry.py             # Source and engine registries
@@ -459,14 +628,15 @@ agribound/
 │   ├── io/                     # Raster, vector and CRS helpers
 │   └── postprocess/            # Polygonize, merge, filter, simplify/smooth, regularize, LULC filter
 ├── assets/                     # Figures linked by URL from the README and docs (see assets/README.md):
-│   ├── gallery_1.0/            #   rendered from the 1.0.0 and 1.0.1 example runs (tools/make_gallery*.py); WebP previews in preview/
+│   ├── gallery_1.1/            #   rendered from the 1.1 example runs (tools/make_gallery*.py); WebP previews in preview/
+│   ├── gallery_1.0/            #   the 1.0 gallery (1.0.0 and 1.0.1 runs; example 23 from the version after 1.0.1), kept
 │   ├── gallery_0.1x/           #   archived 0.1.x screenshots
 │   └── agribound_workflow_1.0.*  # workflow diagram (tools/make_workflow_diagram.py)
 ├── docs/                       # MkDocs documentation (user guide, API reference, gallery, blog)
-├── examples/                   # Example scripts 01-23, notebooks/ (generated from the scripts), hpc/, regions/
+├── examples/                   # Example scripts 01-28, notebooks/ (generated from the scripts), hpc/, regions/
 ├── paper/                      # Manuscript materials (not included in the PyPI distribution)
 ├── tests/                      # Pytest suite (unit/, integration/)
-├── tools/                      # Maintainer scripts: make_gallery.py, make_gallery_pampas_0.1x.py, make_workflow_diagram.py, sync_notebooks.py
+├── tools/                      # Maintainer scripts: make_gallery.py, make_gallery_pampas_0.1x.py, make_workflow_diagram.py, sync_notebooks.py, fetch_naip_history.py
 ├── CHANGELOG.md
 ├── CITATION.cff                # Citation metadata
 ├── CONTRIBUTING.md             # Developer guide
@@ -487,7 +657,7 @@ Example scripts and notebooks are in [`examples/`](https://github.com/montimaj/a
 
 | Script | Notebook | Description |
 |---|---|---|
-| [01_new_mexico_landsat_timeseries.py](https://github.com/montimaj/agribound/blob/main/examples/01_new_mexico_landsat_timeseries.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/01_new_mexico_landsat_timeseries.ipynb) | Landsat time series over New Mexico with a Delineate-Anything model fine-tuned on NMOSE polygons |
+| [01_new_mexico_landsat_timeseries.py](https://github.com/montimaj/agribound/blob/main/examples/01_new_mexico_landsat_timeseries.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/01_new_mexico_landsat_timeseries.ipynb) | Landsat time series over New Mexico with a Delineate-Anything model fine-tuned on the DRI/NMOSE field boundaries (V18) and the 2024 composite, evaluated by default on 2025, a year held out from the fine-tuning |
 | [02_india_ganges_sentinel2.py](https://github.com/montimaj/agribound/blob/main/examples/02_india_ganges_sentinel2.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/02_india_ganges_sentinel2.ipynb) | Four label-free approaches (FTW, Google and TESSERA embeddings, SPOT pan with Delineate-Anything) in Nadia, West Bengal |
 | [03_australia_murray_darling_hls.py](https://github.com/montimaj/agribound/blob/main/examples/03_australia_murray_darling_hls.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/03_australia_murray_darling_hls.ipynb) | Prithvi `embed` and `pca` modes on HLS in the Murray-Darling Basin, compared with Delineate-Anything v2 on SPOT |
 | [04_france_beauce_sentinel2.py](https://github.com/montimaj/agribound/blob/main/examples/04_france_beauce_sentinel2.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/04_france_beauce_sentinel2.ipynb) | FTW with crop-calendar season windows in the Beauce |
@@ -498,7 +668,7 @@ Example scripts and notebooks are in [`examples/`](https://github.com/montimaj/a
 | [09_ensemble_comparison.py](https://github.com/montimaj/agribound/blob/main/examples/09_ensemble_comparison.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/09_ensemble_comparison.ipynb) | Intersection, union and vote ensembles of Delineate-Anything and FTW (Andalusia) |
 | [10_local_tif_quickstart.py](https://github.com/montimaj/agribound/blob/main/examples/10_local_tif_quickstart.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/10_local_tif_quickstart.ipynb) | Local GeoTIFF without Earth Engine |
 | [11_mississippi_alluvial_plain_spot.py](https://github.com/montimaj/agribound/blob/main/examples/11_mississippi_alluvial_plain_spot.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/11_mississippi_alluvial_plain_spot.ipynb) | SPOT 6/7 series 2021-2023 with year-to-year agreement (restricted source) |
-| [12_new_mexico_ensemble_timeseries.py](https://github.com/montimaj/agribound/blob/main/examples/12_new_mexico_ensemble_timeseries.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Per-source multi-model ensembles with SAM 2, eastern Lea County, 2022 |
+| [12_new_mexico_ensemble_timeseries.py](https://github.com/montimaj/agribound/blob/main/examples/12_new_mexico_ensemble_timeseries.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/12_new_mexico_ensemble_timeseries.ipynb) | Per-source multi-model ensembles with SAM 2, eastern Lea County, evaluated against the DRI/NMOSE field boundaries (V18): 2024 (NAIP 2022, SPOT 6/7 2023, their latest years there) |
 | [13_sam2_refine_dinov3.py](https://github.com/montimaj/agribound/blob/main/examples/13_sam2_refine_dinov3.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/13_sam2_refine_dinov3.ipynb) | Stand-alone SAM refinement of existing DINOv3 boundaries |
 | [14_dinov3_sam2_ensemble.py](https://github.com/montimaj/agribound/blob/main/examples/14_dinov3_sam2_ensemble.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/14_dinov3_sam2_ensemble.ipynb) | Fine-tuned DINOv3 with and without SAM 2 on five sources |
 | [15_pampas_semi_supervised.py](https://github.com/montimaj/agribound/blob/main/examples/15_pampas_semi_supervised.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/15_pampas_semi_supervised.ipynb) | Label-free chain: embeddings → LULC filter → SAM 2, compared with Delineate-Anything v2 on Sentinel-2 and SPOT |
@@ -506,18 +676,24 @@ Example scripts and notebooks are in [`examples/`](https://github.com/montimaj/a
 | [17_query_published_ftw_polygons.py](https://github.com/montimaj/agribound/blob/main/examples/17_query_published_ftw_polygons.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/17_query_published_ftw_polygons.ipynb) | Offline `query_ftw` demo with a local tile store (contributed by Jeremy Rapp) |
 | [18_agent_orchestration.py](https://github.com/montimaj/agribound/blob/main/examples/18_agent_orchestration.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/18_agent_orchestration.ipynb) | Agent tools and a dry-run plan with the human confirmation gate |
 | [19_hpc_tiling.py](https://github.com/montimaj/agribound/blob/main/examples/19_hpc_tiling.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/19_hpc_tiling.ipynb) | Tiling, two-phase runs and merging with `agribound.hpc` |
-| [20_stratified_evaluation.py](https://github.com/montimaj/agribound/blob/main/examples/20_stratified_evaluation.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/20_stratified_evaluation.ipynb) | Stratified, size-class and boundary evaluation against NMOSE with bootstrap intervals; overall object and boundary metrics on Landsat, Sentinel-2, SPOT and NAIP of 2018 and with and without the crop filter |
-| [21_published_ftw_audit.py](https://github.com/montimaj/agribound/blob/main/examples/21_published_ftw_audit.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/21_published_ftw_audit.ipynb) | Published FTW polygons evaluated against NMOSE |
+| [20_stratified_evaluation.py](https://github.com/montimaj/agribound/blob/main/examples/20_stratified_evaluation.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/20_stratified_evaluation.ipynb) | Stratified, size-class and boundary evaluation against the DRI/NMOSE field boundaries (V18) with bootstrap intervals (Sentinel-2 2024); overall object and boundary metrics on Landsat, Sentinel-2, SPOT and NAIP of 2022 (one year for all four, so that only the resolution differs) and with and without the crop filter (2024) |
+| [21_published_ftw_audit.py](https://github.com/montimaj/agribound/blob/main/examples/21_published_ftw_audit.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/21_published_ftw_audit.ipynb) | Published FTW polygons (2024) evaluated against the DRI/NMOSE field boundaries (V18) |
 | [22_global_south_spot_pan.py](https://github.com/montimaj/agribound/blob/main/examples/22_global_south_spot_pan.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/22_global_south_spot_pan.ipynb) | Delineate-Anything v2 on SPOT 6/7 panchromatic (1.5 m, restricted) in six farming landscapes of the Global South |
-| [23_tree_crops.py](https://github.com/montimaj/agribound/blob/main/examples/23_tree_crops.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/23_tree_crops.ipynb) | Tree crops (an oil palm estate, oil palm smallholders, almond and pistachio orchards, olive groves) against RSPO, DWR / Land IQ and SIGPAC reference boundaries: Delineate-Anything v2 (released and fine-tuned), DINOv3 (fine-tuned), SAM 2, FTW and embeddings on SPOT-Pan, NAIP, Landsat PAN and Sentinel-2, and the crop filter with and without `lulc_tree_crops` |
+| [23_tree_crops.py](https://github.com/montimaj/agribound/blob/main/examples/23_tree_crops.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/23_tree_crops.ipynb) | Tree crops (an oil palm estate, oil palm smallholders, almond and pistachio orchards, olive groves) against RSPO, DWR / Land IQ and SIGPAC reference boundaries: Delineate-Anything v2 (released and fine-tuned), DINOv3 (fine-tuned), SAM 2, FTW and embeddings on SPOT-Pan, NAIP, Landsat PAN, Sentinel-2 and Sentinel-1, and the crop filter with and without `lulc_tree_crops` |
+| [24_nevada_field_boundaries.py](https://github.com/montimaj/agribound/blob/main/examples/24_nevada_field_boundaries.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/24_nevada_field_boundaries.ipynb) | Centre pivots (Diamond Valley) and flood- and sprinkler-irrigated fields (Mason Valley) against the DRI field boundaries (Nevada, 2026-08-20; local data, not in this repository): Delineate-Anything v2 (released, and fine-tuned on a separate square of each basin), DINOv3 (fine-tuned), SAM 2 and FTW on NAIP (2022), SPOT 6/7 (2023), Sentinel-2, Landsat, Landsat PAN and Sentinel-1 (2024), and Google and TESSERA embeddings (2024), with recall per irrigation system, field size and irrigation status; `--sam-auto` adds SAM 2.1 automatic masks on NAIP, SPOT 6/7 and Landsat, and `--options` the "-opt" runs with the opt-in options of 1.1.0 that passed the pre-registered test of the Diamond Valley options (reported results, not tests) |
+| [25_multistate_openet_field_boundaries.py](https://github.com/montimaj/agribound/blob/main/examples/25_multistate_openet_field_boundaries.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/25_multistate_openet_field_boundaries.ipynb) | Delineate-Anything v2 as released on NAIP (each square's latest complete year in Earth Engine, 2021-2023) and Sentinel-2 (2024) in one 5 km square in each of 47 states (the conterminous US except Alabama), the cell with the most farmed fields (CDL 2024) chosen by a fixed rule, evaluated against the OpenET agricultural field boundaries v2.1.1 (USDA FSA Common Land Units, state and federal agency fields, and DRI's field delineation in Oregon; local data, not yet public), with the DRI field boundaries in New Mexico (V18) and Nevada (2026-08-20); `--only` takes states or Census regions; `--crop-sequence` adds crop-history zones from the USDA Cropland Data Layer 2016-2023 (`cdl-sequence`, `crop-sequence`), scored the same way; `--sam-auto` adds SAM 2.1 automatic masks on the same NAIP and Sentinel-2 composites (`summary_sam_auto.csv`) |
+| [26_sar_field_boundaries.py](https://github.com/montimaj/agribound/blob/main/examples/26_sar_field_boundaries.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/26_sar_field_boundaries.ipynb) | What agribound does with radar today, framed as capability limits: Delineate-Anything v2 as released on Sentinel-1 and on Umbra and Capella open SAR composites at seven sites with field references (public: DWR / Land IQ, SIGPAC and Utah WRLU; local data: the OpenET field boundaries v2.1.1 until their release, and DRI's Nevada fields; three sites held out), beside NAIP and Sentinel-2 on the same areas; `--uavsar` adds a UAVSAR L-band quad-pol (Pauli) composite near UC Davis |
+| [27_quebec_crop_sequence.py](https://github.com/montimaj/agribound/blob/main/examples/27_quebec_crop_sequence.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/27_quebec_crop_sequence.ipynb) | Crop-history zones from the AAFC Annual Crop Inventory 2016-2023 (`aci-sequence`, `crop-sequence`) in two 5 km squares in Quebec, scored against the parcels declared to La Financière agricole du Québec for 2023 (BDPPAD, CC BY 4.0, downloaded by the script) beside Delineate-Anything v2 on Sentinel-2 (2023) and two image-blind baselines; `attach_crop_history` adds the ACI history to the Delineate-Anything outlines |
+| [28_new_york_field_boundaries.py](https://github.com/montimaj/agribound/blob/main/examples/28_new_york_field_boundaries.py) | [notebook](https://github.com/montimaj/agribound/blob/main/examples/notebooks/28_new_york_field_boundaries.ipynb) | Three New York landscapes (Black Dirt muck strips, Finger Lakes dairy rotations, North Country corn, hay and pasture) against the OpenET agricultural field boundaries v2.1.1 (in New York all USDA FSA Common Land Units; local data, not yet public): Delineate-Anything v2 released, with SAM 2 refinement and fine-tuned, DINOv3 fine-tuned, SAM 2.1 automatic masks (`sam-auto`) and FTW on NAIP (2022) and Sentinel-2 (2024), with claim and gallery-panel rules fixed before the run, recall per land use, strip shape and field size, chance baselines and paired F1 intervals; fine-tuned models trained on a square 5-15 km away (held out), and in the Black Dirt also 1 km away (near-sample) |
 
 ## Google Earth Engine Authentication
 
-Earth Engine is needed for the Landsat, Sentinel-2, HLS, NAIP and SPOT
-composites, for Google embeddings with the default backend, for GEE-asset
-study areas, and for the **LULC crop filter** (on by default, for every
-source). `local`, `usgs-naip-plus` and `tessera-embedding` runs need no Earth
-Engine only with `lulc_filter=False`.
+Earth Engine is needed for the Landsat, Sentinel-2, HLS, NAIP, SPOT and
+Sentinel-1 composites, for the crop-type map stacks (`cdl-sequence`,
+`aci-sequence`), for Google embeddings with the default backend, for
+GEE-asset study areas, and for the **LULC crop filter** (on by default, for
+every source). `local`, `usgs-naip-plus` and `tessera-embedding` runs need no
+Earth Engine only with `lulc_filter=False`.
 
 ```bash
 earthengine authenticate                       # once
@@ -573,7 +749,8 @@ Please also cite the underlying engines, models and data as appropriate:
 - **TerraTorch**: Gomes, C., Blumenstiel, B., de Sousa Almeida, J. L., et al. (2025). TerraTorch: The geospatial foundation models toolkit. *IGARSS 2025*, 6364–6368. https://doi.org/10.1109/IGARSS55030.2025.11243570
 - **TESSERA**: Feng, Z., Atzberger, C., Jaffer, S., Knezevic, J., Sormunen, S., Young, R., Lisaius, M. C., Immitzer, M., Jackson, T., Ball, J., Coomes, D. A., Madhavapeddy, A., Blake, A., & Keshav, S. (2026). TESSERA: Temporal embeddings of surface spectra for Earth representation and analysis. *Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)*, 34818–34831. arXiv:2506.20380
 - **Google Satellite Embeddings (AlphaEarth)**: Brown, C. F., Kazmierski, M. R., Pasquarella, V. J., Rucklidge, W. J., Samsikova, M., Zhang, C., Shelhamer, E., Lahera, E., Wiles, O., Ilyushchenko, S., Gorelick, N., Zhang, L. L., Alj, S., Schechter, E., Askay, S., Guinan, O., Moore, R., Boukouvalas, A., & Kohli, P. (2025). AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data. *arXiv:2507.22291*. https://doi.org/10.48550/arXiv.2507.22291
-- **SAM 2**: Ravi, N., Gabeur, V., Hu, Y.-T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., Mintun, E., Pan, J., Alwala, K. V., Carion, N., Wu, C.-Y., Girshick, R., Dollár, P., & Feichtenhofer, C. (2025). SAM 2: Segment anything in images and videos. *ICLR 2025*. arXiv:2408.00714
+- **Segment Anything** (the automatic mask generation that `sam-auto` runs): Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A. C., Lo, W.-Y., Dollár, P., & Girshick, R. (2023). Segment anything. *Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)*, 3992-4003. https://doi.org/10.1109/ICCV51070.2023.00371
+- **SAM 2** (also SAM 2.1, the model of `sam-auto`): Ravi, N., Gabeur, V., Hu, Y.-T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., Mintun, E., Pan, J., Alwala, K. V., Carion, N., Wu, C.-Y., Girshick, R., Dollár, P., & Feichtenhofer, C. (2025). SAM 2: Segment anything in images and videos. *ICLR 2025*. arXiv:2408.00714
 - **SAM 3**: Carion, N., Gustafson, L., Hu, Y.-T., et al. (2026). SAM 3: Segment anything with concepts. *ICLR 2026*. arXiv:2511.16719
 - **SamGeo**: Wu, Q., & Osco, L. P. (2023). samgeo: A Python package for segmenting geospatial data with the Segment Anything Model (SAM). *Journal of Open Source Software*, 8(89), 5663. https://doi.org/10.21105/joss.05663
 - **SAM for Remote Sensing**: Osco, L. P., Wu, Q., de Lemos, E. L., Gonçalves, W. N., Ramos, A. P. M., Li, J., & Marcato Junior, J. (2023). The Segment Anything Model (SAM) for remote sensing applications: From zero to one shot. *International Journal of Applied Earth Observation and Geoinformation*, 124, 103540. https://doi.org/10.1016/j.jag.2023.103540
@@ -581,8 +758,8 @@ Please also cite the underlying engines, models and data as appropriate:
 - **Google Earth Engine**: Gorelick, N., Hancher, M., Dixon, M., Ilyushchenko, S., Thau, D., & Moore, R. (2017). Google Earth Engine: Planetary-scale geospatial analysis for everyone. *Remote Sensing of Environment*, 202, 18–27. https://doi.org/10.1016/j.rse.2017.06.031
 - **Awesome GEE Community Catalog**: Roy, S., Majumdar, S., & Swetnam, T. (2025). samapriya/awesome-gee-community-datasets: Community Catalog (3.9.0). Zenodo. https://doi.org/10.5281/zenodo.17641528
 
-More references (HLS, Dynamic World, NLCD, C3S, Cloud Score+, evaluation
-methods, ACCESS) are listed in the
+More references (HLS, Sentinel-1, Dynamic World, NLCD, C3S, Cloud Score+,
+evaluation methods, ACCESS) are listed in the
 [documentation](https://montimaj.github.io/agribound/citation/).
 
 ## License
@@ -593,7 +770,10 @@ The DINOv3 weights used by the `dinov3` engine are under the
 [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md)
 (custom, not OSI-approved), whose clause 1.b.ii requires publications to
 acknowledge the use of the DINO Materials; the SAM 3 licence has a similar
-clause. Check the licences of the models and datasets you use.
+clause. SAM 2.1's code and weights, used by the `sam-auto` engine, are
+Apache-2.0 (Meta); the `sam2` 1.1.0 package on PyPI is a third-party build of
+Meta's code, whose 62 code, configuration and licence files equal Meta's
+commit 2b90b9f. Check the licences of the models and datasets you use.
 
 ## Acknowledgments
 
@@ -611,7 +791,7 @@ Agribound builds on the work of many open-source projects and research teams:
 - The **fiboa** community for the field boundary schema standard
 - The **TorchGeo** team for geospatial deep learning data loaders and utilities
 - The **Desert Research Institute (DRI)** for supporting this research
-- **Jacob Abramowitz** (The University of Alabama in Huntsville) for asking about tree crops and pointing to the RSPO concession maps (example 23)
+- **Jacob Abramowitz** (The University of Alabama in Huntsville), who raised the question of date mixing in tropical composites and shared his SNIC script ("Dates in a composite" in the Satellite Sources guide), and who asked about tree crops and pointed to the RSPO concession maps (example 23); and **Jacob T. Stid** (Michigan State University) and **Jeremy Rapp**, who shared the crop-sequence recipe that the crop-sequence route follows (sources `cdl-sequence` and `aci-sequence`, engine `crop-sequence`, example 27)
 - The **Roundtable on Sustainable Palm Oil (RSPO)** (GeoRSPO concession maps), the **California Department of Water Resources** and **Land IQ** (Statewide Crop Mapping) and the **Fondo Español de Garantía Agraria** (SIGPAC) for the reference boundaries of example 23
 
 ## Funding

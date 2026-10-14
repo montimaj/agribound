@@ -63,6 +63,91 @@ def test_cli_page_documents_every_query_ftw_option():
     assert not missing, f"cli.md does not mention {missing}"
 
 
+def test_cli_page_documents_every_evaluate_option():
+    from agribound.cli import main
+
+    page = _page("cli.md")
+    section = page.split("## evaluate", 1)[1].split("\n## ", 1)[0]
+    options = _option_names(main.commands["evaluate"])
+    assert "--baselines" in options
+    missing = [o for o in options if f"`{o}" not in section and f"/{o}`" not in section]
+    assert not missing, f"the evaluate section of cli.md does not mention {missing}"
+
+
+def test_cli_page_documents_the_scenes_command_and_date_layers():
+    from agribound.cli import main
+
+    page = _page("cli.md")
+    assert "## scenes" in page and "| `scenes` |" in page
+    section = page.split("## scenes", 1)[1].split("\n## ", 1)[0]
+    own = ("--top", "--json", "--csv", "--scale-m")
+    options = _option_names(main.commands["scenes"])
+    assert set(own) <= set(options)
+    missing = [o for o in own if o not in section]
+    assert not missing, f"the scenes section of cli.md does not mention {missing}"
+    missing = [o for o in options if o not in page]  # the stage-A options are listed above
+    assert not missing, f"cli.md does not mention {missing}"
+    composite = page.split("## composite", 1)[1].split("\n## ", 1)[0]
+    assert "--date-layers" in _option_names(main.commands["composite"])
+    assert "--date-layers" in composite
+
+
+#: The acknowledgement the author decided on 2026-10-09 for the date-mixing question and
+#: the SNIC work (an acknowledgement only: Jacob T. Stid is in no author list).
+DECIDED_THANKS = (
+    "Jacob Abramowitz (The University of Alabama in Huntsville), who raised the question "
+    "of date mixing in tropical composites and shared his SNIC script",
+    "Jacob T. Stid (Michigan State University) and Jeremy Rapp",
+)
+
+
+def _check_thanks(text: str, where: str) -> None:
+    """*text* holds the decided wording (whitespace and bold aside) and no contact details."""
+    flat = " ".join(text.replace("**", "").split())
+    for phrase in DECIDED_THANKS:
+        assert phrase in flat, f"{where}: the decided wording {phrase!r} is missing"
+    for contact in ("@", "mailto:", "orcid", "http"):
+        assert contact not in flat.lower(), f"{where}: contact detail {contact!r} in the thanks"
+
+
+def test_satellite_sources_page_has_the_dates_section():
+    page = _page("satellite-sources.md")
+    assert "### Dates in a composite" in page
+    assert "#### Superpixel segmentation (SNIC, SLIC)" in page
+    dates = page.split("### Dates in a composite", 1)[1].split("\n### ", 1)[0]
+    # One acknowledgement for the three collaborators, at the end of the section.
+    assert dates.count("Thanks to") == 1
+    thanks = dates[dates.index("Thanks to") :]
+    _check_thanks(thanks, "satellite-sources.md")
+    assert "Superpixel segmentation (SNIC, SLIC)" in dates.split("Thanks to")[0]
+
+
+def test_the_snic_acknowledgement_everywhere_it_is_given():
+    """The CHANGELOG's Documentation bullet and the README thank with the decided wording."""
+    changelog, readme = ROOT / "CHANGELOG.md", ROOT / "README.md"
+    if not (changelog.is_file() and readme.is_file()):
+        pytest.skip("CHANGELOG.md and README.md are not available")
+    unreleased = changelog.read_text(encoding="utf-8").split("\n## [", 2)[1]
+    (bullet,) = [
+        b for b in unreleased.split("\n- ") if b.startswith("**Documentation:**") and "SNIC" in b
+    ]
+    thanks = bullet[bullet.index("Thanks to Jacob Abramowitz") :]
+    _check_thanks(thanks.split(" [", 1)[0], "CHANGELOG.md Documentation bullet")
+    acknowledgments = readme.read_text(encoding="utf-8").split("## Acknowledgments", 1)[1]
+    acknowledgments = acknowledgments.split("\n## ", 1)[0]
+    (line,) = [ln for ln in acknowledgments.splitlines() if "Stid" in ln]
+    _check_thanks(line, "README.md Acknowledgments")
+
+
+def test_jacob_stid_is_acknowledged_only():
+    """Jacob T. Stid is thanked, never listed as an author or in the citation files."""
+    for name in ("CITATION.cff", "pyproject.toml", "docs/citation.md"):
+        path = ROOT / name
+        if not path.is_file():
+            pytest.skip(f"{name} is not available")
+        assert "Stid" not in path.read_text(encoding="utf-8"), name
+
+
 def test_sam_page_documents_every_overlap_mode():
     from agribound.engines.samgeo_engine import SAM_OVERLAP_MODES
 

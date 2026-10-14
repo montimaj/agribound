@@ -9,6 +9,7 @@ triton-free ``sam3-hf`` backend.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import tomllib
 import types
@@ -16,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from agribound import __version__
 from agribound.engines import samgeo_engine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -108,3 +110,71 @@ def test_sam3_backends_warn_that_they_are_untested(backend, monkeypatch, caplog)
 
 def _raise_runtime(device):
     raise RuntimeError("stop")
+
+
+#: A release named as the one in which the SAM 3 backends are untested: "untested in
+#: 1.1.0", "**untested** in 1.1.0", "end to end with agribound 1.1.0" and "agribound
+#: 1.1.0 has not run" (line breaks allowed between the words).
+_SAM3_STATUS_RELEASE = re.compile(
+    r"untested(?:\*\*)?\s+in\s+(?:agribound\s+)?(\d+\.\d+\.\d+)"
+    r"|end\s+to\s+end\s+with\s+agribound\s+(\d+\.\d+\.\d+)"
+    r"|agribound\s+(\d+\.\d+\.\d+)\s+has\s+not\s+run"
+)
+
+
+def _sam3_status_releases(root: Path = REPO_ROOT) -> list[tuple[str, str]]:
+    """``(location, release)`` of each SAM 3 status statement in the package, docs and READMEs.
+
+    The CHANGELOG (each release's own statement) and the blog posts (dated) are not read.
+    """
+    files = {
+        *root.glob("agribound/**/*.py"),
+        *root.glob("docs/**/*.md"),
+        *root.glob("examples/**/*.md"),
+        root / "README.md",
+        root / "pyproject.toml",
+    }
+    found = []
+    for path in sorted(files):
+        relative = path.relative_to(root).as_posix()
+        if not path.is_file() or relative.startswith("docs/blog/"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in _SAM3_STATUS_RELEASE.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            found.append((f"{relative}:{line}", next(g for g in match.groups() if g)))
+    return found
+
+
+def test_sam3_status_names_the_current_release():
+    """Statements that the SAM 3 backends are untested name agribound.__version__.
+
+    A version bump must check the claim again (neither backend run end to end) and update
+    these statements; a stale number ("untested in 1.0.1" in 1.1.0) reads as if a later
+    release had tested them.
+    """
+    found = _sam3_status_releases()
+    assert any(where.startswith("agribound/engines/samgeo_engine.py") for where, _ in found)
+    stale = [f"{where}: {release}" for where, release in found if release != __version__]
+    assert not stale, f"agribound.__version__ is {__version__}:\n" + "\n".join(stale)
+
+
+def test_sam3_status_pattern_reads_each_wording(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "page.md").write_text(
+        "backends are untested in 1.0.1: they\n"
+        "are **untested** in 9.9.9 (see\n"
+        "    have not been run end to end with\n    agribound 7.8.9 (the weights\n"
+        "(agribound 5.6.7 has not run either end to end)\n"
+        "the 0.1.x vote rule, untested in practice\n"
+        "a model run end to end with 3.1.4 of another package\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docs" / "blog").mkdir()
+    (tmp_path / "docs" / "blog" / "post.md").write_text("untested in 1.0.0\n", encoding="utf-8")
+    assert _sam3_status_releases(tmp_path) == [
+        ("docs/page.md:1", "1.0.1"),
+        ("docs/page.md:2", "9.9.9"),
+        ("docs/page.md:3", "7.8.9"),
+        ("docs/page.md:5", "5.6.7"),
+    ]

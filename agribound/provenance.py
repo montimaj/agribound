@@ -6,8 +6,10 @@ Run provenance: what was run, with which inputs, versions and resources.
 timings, peak memory, engine metadata, facts and warnings). The pipeline writes
 it next to the output as ``<output_path>.provenance.json``
 (:func:`provenance_path`) and uses :func:`reuse_mismatch` (the
-:func:`config_hash`, the study-area fingerprint and the results versions of
-:mod:`agribound._results`) to decide whether an existing output can be reused.
+:func:`config_hash`, the study-area fingerprint, the results versions of
+:mod:`agribound._results`, for TESSERA the state of the store and, for HLS, the
+recipe of a composite made at 180 degrees) to decide whether an existing output
+can be reused.
 """
 
 from __future__ import annotations
@@ -123,13 +125,23 @@ def to_jsonable(value: Any) -> Any:
 
 
 def _utc_now() -> str:
-    return _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return _utc_text(_dt.datetime.now(_dt.UTC))
+
+
+def _utc_text(moment: _dt.datetime) -> str:
+    """``YYYY-MM-DDTHH:MM:SSZ`` of a timezone-aware UTC datetime."""
+    return moment.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 # ---------------------------------------------------------------------------
 # Hashing and file helpers
 # ---------------------------------------------------------------------------
 
+
+#: The open VHR SAR sources (:data:`agribound.registry.VHR_SAR_SOURCES`).
+_VHR_SAR: tuple[str, ...] = ("umbra", "capella")
+#: The crop-type map stacks (:data:`agribound.registry.CROP_SEQUENCE_SOURCES`).
+_CROP_SEQUENCE: tuple[str, ...] = ("cdl-sequence", "aci-sequence")
 
 #: Fields added after agribound 1.0.1, and when each one does not apply
 #: (field -> predicate on the configuration dictionary). Such a field is left
@@ -144,25 +156,66 @@ def _utc_now() -> str:
 #: later must be listed here. ``landsat_pan_missions`` always applies to
 #: ``source="landsat-pan"``, even at its default, so an output made before the
 #: mission rule existed is not reused (that code mixed Landsat 7 and 8/9 PAN).
+#: The ``vhr_sar_*`` fields apply only to the open VHR SAR sources (``umbra``,
+#: ``capella``; ``vhr_sar_calibration`` only to ``capella``), and
+#: ``vhr_sar_max_download_gb`` and ``vhr_sar_cache_dir`` never apply: a download
+#: cap and a cache location do not change the composite, so they never enter the
+#: hash (they are listed here rather than in :data:`HASH_EXCLUDED_FIELDS` so that
+#: they also stay out of the tile-manifest signature and the plan directory while
+#: they hold their defaults). ``crop_sequence_years`` applies only to the crop-type
+#: map stacks (``cdl-sequence``, ``aci-sequence``), where it is hashed at any value.
 HASH_CONDITIONAL_FIELDS: dict[str, Any] = {
     "lulc_tree_crops": lambda data: data.get("lulc_tree_crops") is not True,
     "landsat_pan_missions": lambda data: data.get("source") != "landsat-pan",
+    "vhr_sar_collect_ids": lambda data: data.get("source") not in _VHR_SAR,
+    "vhr_sar_max_collects": lambda data: data.get("source") not in _VHR_SAR,
+    "vhr_sar_polarization": lambda data: data.get("source") not in _VHR_SAR,
+    "vhr_sar_resolution_m": lambda data: data.get("source") not in _VHR_SAR,
+    "vhr_sar_coregister": lambda data: data.get("source") not in _VHR_SAR,
+    "vhr_sar_coregister_base": lambda data: data.get("source") not in _VHR_SAR,
+    "vhr_sar_bands": lambda data: data.get("source") not in _VHR_SAR,
+    "vhr_sar_calibration": lambda data: data.get("source") != "capella",
+    "vhr_sar_max_download_gb": lambda data: True,
+    "vhr_sar_cache_dir": lambda data: True,
+    "crop_sequence_years": lambda data: data.get("source") not in _CROP_SEQUENCE,
 }
 
+#: Fields whose default changed after agribound 1.0.1, with their 1.0.1 default (JSON
+#: form). Each one is in :data:`HASH_EXCLUDED_FIELDS`: it does not change the result. The
+#: identities computed from the whole configuration dictionary (the tile-manifest signature
+#: and the agent's plan directory; :func:`drop_inapplicable_fields` with
+#: ``keep_non_default=True``) take such a field at its 1.0.1 default while it holds its
+#: current default, so that a configuration that 1.0.1 could express keeps the identity that
+#: 1.0.1 gave it. An explicit value equal to the 1.0.1 default then has the identity of the
+#: current default. ``usgs_retries``: 3 in agribound 1.0.1, 5 since 1.1.0. A field whose
+#: default changes later must be listed here.
+DEFAULTS_OF_1_0_1: dict[str, Any] = {"usgs_retries": 3}
 
-@functools.cache
-def _conditional_field_defaults() -> dict[str, Any]:
-    """Defaults of the :data:`HASH_CONDITIONAL_FIELDS` (JSON form), from ``AgriboundConfig``."""
+
+def _field_defaults(names: Any) -> dict[str, Any]:
+    """Current defaults (JSON form) of the ``AgriboundConfig`` fields *names*."""
     import dataclasses
 
     from agribound.config import AgriboundConfig
 
     defaults = {}
     for f in dataclasses.fields(AgriboundConfig):
-        if f.name in HASH_CONDITIONAL_FIELDS:
+        if f.name in names:
             default = f.default if f.default is not dataclasses.MISSING else f.default_factory()
             defaults[f.name] = to_jsonable(default)
     return defaults
+
+
+@functools.cache
+def _conditional_field_defaults() -> dict[str, Any]:
+    """Defaults of the :data:`HASH_CONDITIONAL_FIELDS` (JSON form), from ``AgriboundConfig``."""
+    return _field_defaults(HASH_CONDITIONAL_FIELDS)
+
+
+@functools.cache
+def _changed_field_defaults() -> dict[str, Any]:
+    """Current defaults of the :data:`DEFAULTS_OF_1_0_1` fields (JSON form)."""
+    return _field_defaults(DEFAULTS_OF_1_0_1)
 
 
 def drop_inapplicable_fields(
@@ -184,7 +237,9 @@ def drop_inapplicable_fields(
         existed holds the default, so identities computed from the whole
         configuration dictionary (the tile-manifest signature and the agent's
         plan directory) stay those of agribound 1.0.1 for the configurations
-        1.0.1 could express, while an explicit value still changes them.
+        1.0.1 could express, while an explicit value still changes them. A
+        field of :data:`DEFAULTS_OF_1_0_1` that holds its current default is
+        given its 1.0.1 default, for the same reason.
 
     Returns
     -------
@@ -199,7 +254,13 @@ def drop_inapplicable_fields(
         if keep_non_default and to_jsonable(data[name]) != defaults[name]:
             continue
         drop.add(name)
-    return {k: v for k, v in data.items() if k not in drop}
+    out = {k: v for k, v in data.items() if k not in drop}
+    if keep_non_default:
+        current = _changed_field_defaults()
+        for name, old in DEFAULTS_OF_1_0_1.items():
+            if name in out and to_jsonable(out[name]) == current[name]:
+                out[name] = old
+    return out
 
 
 def canonical_config(config: Any) -> dict[str, Any]:
@@ -227,7 +288,9 @@ def config_hash(config: Any) -> str:
     polygons slightly (see :data:`HASH_EXCLUDED_FIELDS`). Fields added after
     1.0.1 are hashed only where they apply (:data:`HASH_CONDITIONAL_FIELDS`):
     ``lulc_tree_crops`` when it is *True*, ``landsat_pan_missions`` for
-    ``source="landsat-pan"``.
+    ``source="landsat-pan"``, the ``vhr_sar_*`` settings for ``umbra`` and
+    ``capella`` (never ``vhr_sar_max_download_gb`` or ``vhr_sar_cache_dir``),
+    and ``crop_sequence_years`` for ``cdl-sequence`` and ``aci-sequence``.
 
     Parameters
     ----------
@@ -353,7 +416,13 @@ def _fingerprinted_input(config: Any) -> str | None:
     return f"local raster {str(local_tif)!r}" if local_tif else None
 
 
-def reuse_mismatch(record: dict, config: Any, output: str | Path | None = None) -> str | None:
+def reuse_mismatch(
+    record: dict,
+    config: Any,
+    output: str | Path | None = None,
+    *,
+    unverified: list[str] | None = None,
+) -> str | None:
     """Return why the output that *record* describes cannot be reused for *config*.
 
     The output of a successful run is reused only when:
@@ -368,12 +437,42 @@ def reuse_mismatch(record: dict, config: Any, output: str | Path | None = None) 
       area is a file (a file whose geometry changed at the same path is not
       reused) or, without a study area, for the local raster (compared by
       resolved path, size and modification time). A ``bbox:``, WKT or GEE
-      asset study area is covered by the configuration hash already.
+      asset study area is covered by the configuration hash already;
+    - for ``source="tessera-embedding"``, the store stamp of the TESSERA
+      raster it was made from (``facts["composite"]["TESSERA_STORE_FINGERPRINT"]``,
+      copied from the raster's tags) equals the store's current stamp for the
+      box that was read (``TESSERA_READ_BBOX``;
+      :func:`agribound.composites.local.current_tessera_stamp`). A record
+      without a stamp (made before agribound recorded it, or when the store
+      could not be checked) does not match when the current stamp can be
+      computed. This check runs only when nothing else differs. When the
+      current stamp cannot be computed (no network, an HTTP error,
+      ``AGRIBOUND_TESSERA_STORE_CHECK=0``), the recorded stamp is compared,
+      without network, with the stamp in the tags of the cached TESSERA
+      raster (:func:`agribound.composites.local.cached_tessera_tags`: the
+      raster a run of *config* uses, else ``facts["raster_path"]``): a raster
+      read from the store again since the output was made (a different
+      fingerprint for the same box, or one where the record has none) does
+      not match;
+    - for ``source="hls"``, an output whose composite tags
+      (``facts["composite"]``) have no ``AGRIBOUND_HLS_RECIPE_VERSION`` (its
+      composite was selected before HLS recipe 2,
+      :data:`agribound.composites.gee.HLS_RECIPE_VERSION`) is not reused when
+      its study area may meet one of the MGRS tiles at 180 degrees whose
+      HLSS30 images Earth Engine selected everywhere except over their own
+      tile (:func:`agribound.composites.gee.near_hls_reversed_footprint_tiles`):
+      only there can the composite differ now. The study area is read
+      without Earth Engine (a GEE asset from its local copy). This check
+      runs only when nothing else differs.
 
     A record without ``aoi_fingerprint`` (agribound <= 1.0.0) is accepted,
     with a WARNING that the study-area file (or local raster) could not be
     verified; so is a record whose fingerprint cannot be compared because
-    the file cannot be read now.
+    the file cannot be read now. A TESSERA output is accepted, with a
+    WARNING, when the store's current state cannot be determined and the
+    cached raster does not show another one; so is an HLS output made before
+    HLS recipe 2 whose study area cannot be read without Earth Engine. These
+    WARNINGs are logged only when the output is reused.
 
     Parameters
     ----------
@@ -383,6 +482,11 @@ def reuse_mismatch(record: dict, config: Any, output: str | Path | None = None) 
         Configuration of the new run.
     output : str, Path or None
         The existing output, named in the warnings.
+    unverified : list or None
+        When given, a TESSERA output whose store state cannot be checked is
+        noted here (``"<output>: <why>"``) instead of in a WARNING, so that a
+        caller checking many outputs (:func:`agribound.hpc.tiles.tile_status`)
+        can report them once.
 
     Returns
     -------
@@ -406,6 +510,8 @@ def reuse_mismatch(record: dict, config: Any, output: str | Path | None = None) 
     made_by = f"agribound {version}" if version else "an unknown agribound version"
     target = "the existing output" + (f" {str(output)!r}" if output is not None else "")
     reasons: list[str] = []
+    # WARNINGs that say the output is reused: logged only if it is (no reason below).
+    warnings: list[tuple[str, tuple[Any, ...]]] = []
 
     current_versions = results_versions(config)
     recorded_versions = facts.get("results_versions")
@@ -427,16 +533,15 @@ def reuse_mismatch(record: dict, config: Any, output: str | Path | None = None) 
     checked = _fingerprinted_input(config)
     recorded_aoi = facts.get("aoi_fingerprint")
     if checked is not None and recorded_aoi is None:
-        if not reasons:
-            logger.warning(
+        warnings.append(
+            (
                 "The provenance record of %s (written by %s) has no study-area fingerprint, so "
                 "it cannot be verified that the output was made from the current %s; reusing "
                 "it. Pass overwrite=True (CLI: --overwrite) if the file has changed since that "
                 "run.",
-                target,
-                made_by,
-                checked,
+                (target, made_by, checked),
             )
+        )
     elif checked is not None:
         study_area = str(getattr(config, "study_area", "") or "").strip()
         try:
@@ -445,15 +550,13 @@ def reuse_mismatch(record: dict, config: Any, output: str | Path | None = None) 
             current_aoi = aoi_fingerprint(config)
         except Exception as exc:
             current_aoi = None
-            if not reasons:
-                logger.warning(
+            warnings.append(
+                (
                     "Could not read the %s to check that %s was made from it (%s: %s); "
                     "reusing the output without that check",
-                    checked,
-                    target,
-                    type(exc).__name__,
-                    exc,
+                    (checked, target, type(exc).__name__, exc),
                 )
+            )
         if current_aoi is not None and current_aoi != recorded_aoi:
             if study_area:
                 what = "for a different study area: the geometry in the"
@@ -465,7 +568,223 @@ def reuse_mismatch(record: dict, config: Any, output: str | Path | None = None) 
                 f"it was produced {what} {checked} differs from the one recorded for that run "
                 f"({how} {recorded_aoi} -> {current_aoi})"
             )
-    return " and ".join(reasons) or None
+    if not reasons and str(getattr(config, "source", "") or "") == "tessera-embedding":
+        reason = _tessera_store_mismatch(facts, config, target, warnings, unverified)
+        if reason:
+            reasons.append(reason)
+    if not reasons and str(getattr(config, "source", "") or "") == "hls":
+        reason = _hls_footprint_mismatch(facts, config, target, warnings)
+        if reason:
+            reasons.append(reason)
+    if reasons:
+        return " and ".join(reasons)
+    for message, args in warnings:
+        logger.warning(message, *args)
+    return None
+
+
+def _study_area_4326_offline(config: Any) -> Any:
+    """The study area of *config* in EPSG:4326 (one geometry), read without Earth Engine.
+
+    Files, ``bbox:`` strings and WKT are read with
+    :func:`agribound.io.vector.read_study_area`; a GEE asset only from its
+    local copy (:func:`agribound.io.vector.study_area_cache_file`), which
+    :func:`agribound.io.vector.read_config_study_area` writes when it reads the
+    asset.
+
+    Raises
+    ------
+    FileNotFoundError
+        For a GEE asset without a local copy (reading it needs Earth Engine).
+    ValueError
+        For a local copy that cannot be read, or a study area without geometry.
+    """
+    import geopandas as gpd
+    from shapely.geometry import shape
+
+    from agribound.io.vector import read_study_area, study_area_cache_file
+
+    copy = study_area_cache_file(config)
+    if copy is None:
+        gdf = read_study_area(config.study_area)
+    elif not copy.exists():
+        raise FileNotFoundError(
+            f"the GEE asset has no local copy ({copy}), and reading it needs Earth Engine"
+        )
+    else:
+        try:
+            features = json.loads(copy.read_text())["features"]
+            geometries = [shape(f["geometry"]) for f in features if f.get("geometry")]
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise ValueError(f"the local copy of the GEE asset ({copy}) cannot be read") from exc
+        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+    if gdf.crs is not None and not gdf.crs.equals("EPSG:4326"):
+        gdf = gdf.to_crs("EPSG:4326")
+    geometry = gdf.geometry.dropna()
+    geometry = geometry[~geometry.is_empty]
+    if geometry.empty:
+        raise ValueError("the study area has no geometry")
+    return geometry.union_all()
+
+
+def _hls_footprint_mismatch(
+    facts: dict, config: Any, target: str, warnings: list[tuple[str, tuple[Any, ...]]]
+) -> str | None:
+    """Why an HLS output made before HLS recipe 2 at 180 degrees cannot be reused, or *None*.
+
+    See :func:`reuse_mismatch`. Without a recorded
+    ``AGRIBOUND_HLS_RECIPE_VERSION``, the output's composite was selected
+    with the reversed HLSS30 footprints; it can differ from one selected now
+    only where :func:`agribound.composites.gee.near_hls_reversed_footprint_tiles`
+    holds for the study area. A study area that cannot be read without Earth
+    Engine adds a WARNING to *warnings* and returns *None*.
+    """
+    from agribound.composites.gee import near_hls_reversed_footprint_tiles
+
+    composite = facts.get("composite")
+    composite = composite if isinstance(composite, dict) else {}
+    if composite.get("AGRIBOUND_HLS_RECIPE_VERSION"):
+        return None
+    try:
+        geometry = _study_area_4326_offline(config)
+    except Exception as exc:
+        warnings.append(
+            (
+                "Could not read the study area without Earth Engine to check whether %s, made "
+                "from an HLS composite selected before HLS recipe 2, lies at the MGRS tiles at "
+                "180 degrees where that selection missed images (%s: %s); reusing it. Pass "
+                "overwrite=True (CLI: --overwrite) if the study area lies within 5 degrees of "
+                "180 degrees.",
+                (target, type(exc).__name__, exc),
+            )
+        )
+        return None
+    if not near_hls_reversed_footprint_tiles(geometry):
+        return None
+    return (
+        "it was made from an HLS composite selected before HLS recipe 2 (its record has no "
+        "AGRIBOUND_HLS_RECIPE_VERSION), and its study area lies at the MGRS tiles at 180 "
+        "degrees whose HLSS30 images Earth Engine selected everywhere except over their own "
+        "tile, so that composite can lack images of those tiles (see the HLS section of the "
+        "satellite-sources guide)"
+    )
+
+
+def _tessera_store_mismatch(
+    facts: dict,
+    config: Any,
+    target: str,
+    warnings: list[tuple[str, tuple[Any, ...]]],
+    unverified: list[str] | None = None,
+) -> str | None:
+    """Why a TESSERA output cannot be reused because of the store's state, or *None*.
+
+    Compares the store stamp recorded in ``facts["composite"]`` with the
+    store's current stamp (see :func:`reuse_mismatch`). When the current
+    stamp cannot be computed, compares it with the stamp of the cached
+    raster (:func:`_cached_raster_mismatch`); when that shows nothing, adds a
+    WARNING to *warnings* (or a note to *unverified*) and returns *None*.
+    """
+    from agribound.composites import tessera_stamp
+    from agribound.composites.local import (
+        TESSERA_READ_BBOX_TAG,
+        current_tessera_stamp,
+        parse_read_bbox,
+    )
+
+    composite = facts.get("composite")
+    composite = composite if isinstance(composite, dict) else {}
+    recorded = composite.get(tessera_stamp.TAG_FINGERPRINT) or None
+    try:
+        stamp = current_tessera_stamp(config, parse_read_bbox(composite.get(TESSERA_READ_BBOX_TAG)))
+    except Exception as exc:  # StoreCheckError (no network, ...) or an unreadable study area
+        why = f"{type(exc).__name__}: {exc}"
+        reason = _cached_raster_mismatch(facts, config, composite, recorded, why)
+        if reason:
+            return reason
+        if unverified is not None:
+            unverified.append(f"{target}: {why}")
+            return None
+        warnings.append(
+            (
+                "Could not check whether the TESSERA store has changed since %s was made (%s); "
+                "reusing it. If the store has been rewritten since (as the v1 store was on "
+                "2026-10-06/08), the output was made from data that the store no longer has: "
+                "pass overwrite=True (CLI: --overwrite) with network access to make it again.",
+                (target, why),
+            )
+        )
+        return None
+    if recorded is None:
+        return (
+            "its provenance record does not hold the state of the TESSERA store it was read from "
+            "(it was made before agribound recorded it, or when the store could not be checked), "
+            "so it may come from data that the store no longer has (the v1 store was converted "
+            f"again upstream on 2026-10-06/08); the store now: {stamp.describe()}"
+        )
+    if recorded != stamp.fingerprint:
+        before = composite.get(tessera_stamp.TAG_LAST_MODIFIED) or "unknown"
+        return (
+            "the TESSERA store has changed since it was made: the store's objects it was read "
+            f"from differ (fingerprint {recorded[:12]}, newest modified {before}; the store "
+            f"now: {stamp.describe()})"
+        )
+    return None
+
+
+def _cached_raster_mismatch(
+    facts: dict, config: Any, composite: dict, recorded: str | None, why: str
+) -> str | None:
+    """Why the cached TESSERA raster shows that an output is out of date, or *None*.
+
+    Used when the store cannot be checked: the raster a run of *config* uses
+    (or the one the output was made from) may have been read from the store
+    again since, by a run with network access (the HPC composite stage, or
+    ``agribound composite``). A stamp in its tags that differs from the
+    recorded one, for the same box read, or that the record lacks, shows that
+    the output was made from another state of the store. Nothing is
+    requested from the store.
+    """
+    from agribound.composites import tessera_stamp
+    from agribound.composites.local import (
+        TESSERA_READ_BBOX_TAG,
+        cached_tessera_tags,
+        parse_read_bbox,
+    )
+
+    found = cached_tessera_tags(config, facts.get("raster_path"))
+    if found is None:
+        return None
+    path, tags = found
+    current = tags.get(tessera_stamp.TAG_FINGERPRINT) or None
+    if current is None or current == recorded:
+        return None
+    recorded_box = parse_read_bbox(composite.get(TESSERA_READ_BBOX_TAG))
+    raster_box = parse_read_bbox(tags.get(TESSERA_READ_BBOX_TAG))
+    if (
+        recorded_box is not None
+        and raster_box is not None
+        and any(abs(a - b) > 1e-9 for a, b in zip(recorded_box, raster_box, strict=True))
+    ):
+        return None  # stamps of different reads: they cannot be compared
+    newest = tags.get(tessera_stamp.TAG_LAST_MODIFIED) or "unknown"
+    raster = f"the cached TESSERA raster {str(path)!r}"
+    if recorded is None:
+        state = (
+            f"its provenance record does not hold the state of the TESSERA store, while {raster} "
+            f"does (fingerprint {current[:12]}, newest modified {newest})"
+        )
+    else:
+        before = composite.get(tessera_stamp.TAG_LAST_MODIFIED) or "unknown"
+        state = (
+            f"it was made from another state of the TESSERA store than {raster} holds "
+            f"(fingerprint {recorded[:12]}, newest modified {before} in its provenance record; "
+            f"{current[:12]}, newest modified {newest} in the raster's tags)"
+        )
+    return (
+        f"{state}: the raster has been read from the store again since the output was made "
+        f"(the store itself could not be checked now: {why})"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -559,8 +878,14 @@ class _WarningCollector(logging.Handler):
 class RunRecorder:
     """Collect provenance for one pipeline run.
 
-    Use as a context manager; the block's wall time and outcome
+    Use as a context manager; the block's duration and outcome
     (``"success"`` or ``"failed"`` with the error) are recorded on exit.
+    The duration is recorded twice: ``wall_s`` with :func:`time.perf_counter`
+    (as each step's ``wall_s``), which does not advance while the computer
+    sleeps (macOS; Linux's monotonic clock also stops during suspend), and
+    ``elapsed_utc_s``, the seconds from ``started_utc`` to ``finished_utc``
+    by the system clock, which does (and also follows clock adjustments). A
+    difference between the two is mostly time the computer slept.
     While the block runs, every WARNING (or higher) logged by an
     ``agribound`` logger (``agribound.*``, in any thread of the process) is
     added to the record's ``warnings`` as well, e.g. an engine's note that
@@ -605,6 +930,10 @@ class RunRecorder:
         self.finished_utc: str | None = None
         self._t0: float | None = None
         self._wall_s: float | None = None
+        # The system clock at the start and the seconds it advanced until the end; unlike
+        # perf_counter (wall_s), it also advances while the computer sleeps.
+        self._t0_utc: _dt.datetime | None = None
+        self._elapsed_utc_s: float | None = None
         # Resource figures frozen when the run finishes (live values before that).
         self._peak_rss_mb: float | None = None
         self._torch_mem_mb: float | None = None
@@ -613,7 +942,8 @@ class RunRecorder:
     # Context manager -----------------------------------------------------
 
     def __enter__(self) -> RunRecorder:
-        self.started_utc = _utc_now()
+        self._t0_utc = _dt.datetime.now(_dt.UTC)
+        self.started_utc = _utc_text(self._t0_utc)
         self._t0 = time.perf_counter()
         self.status = "running"
         if self._warning_handler is None:
@@ -625,9 +955,12 @@ class RunRecorder:
         if self._warning_handler is not None:
             logging.getLogger("agribound").removeHandler(self._warning_handler)
             self._warning_handler = None
-        self.finished_utc = _utc_now()
+        finished = _dt.datetime.now(_dt.UTC)
+        self.finished_utc = _utc_text(finished)
         if self._t0 is not None:
             self._wall_s = round(time.perf_counter() - self._t0, 3)
+        if self._t0_utc is not None:
+            self._elapsed_utc_s = round((finished - self._t0_utc).total_seconds(), 3)
         self._peak_rss_mb = _peak_rss_mb()
         self._torch_mem_mb = _torch_max_memory_mb()
         if exc is None:
@@ -704,6 +1037,9 @@ class RunRecorder:
         wall_s = self._wall_s
         if wall_s is None and self._t0 is not None:
             wall_s = round(time.perf_counter() - self._t0, 3)
+        elapsed_utc_s = self._elapsed_utc_s
+        if elapsed_utc_s is None and self._t0_utc is not None:
+            elapsed_utc_s = round((_dt.datetime.now(_dt.UTC) - self._t0_utc).total_seconds(), 3)
         finished = self.finished_utc is not None
         if self._versions is None:
             self._versions = collect_versions()
@@ -726,6 +1062,7 @@ class RunRecorder:
             "started_utc": self.started_utc,
             "finished_utc": self.finished_utc,
             "wall_s": wall_s,
+            "elapsed_utc_s": elapsed_utc_s,
             "peak_rss_mb": self._peak_rss_mb if finished else _peak_rss_mb(),
             "torch_max_memory_mb": self._torch_mem_mb if finished else _torch_max_memory_mb(),
             "steps": list(self.steps),
@@ -741,6 +1078,7 @@ class RunRecorder:
 
 
 __all__ = [
+    "DEFAULTS_OF_1_0_1",
     "HASH_CONDITIONAL_FIELDS",
     "HASH_EXCLUDED_FIELDS",
     "MAX_RECORDED_WARNINGS",

@@ -1168,3 +1168,214 @@ def test_centroids_match_geopandas_reprojection():
     layer_centroids = gpd.GeoSeries(ref.geometry.to_crs("EPSG:6933").centroid).to_crs(4326)
     for lon, lat, epsg in zip(layer_centroids.x, layer_centroids.y, frame["utm_epsg"], strict=True):
         assert utm_epsg(utm_zone_for_lon(lon), lat < 0) == epsg
+
+
+def test_the_metrics_record_whether_proj_could_use_its_network_grids():
+    """Scores against a NAD83 reference depend on PROJ's network grids (1.1 review P6:
+    example 20's Landsat 2018 output had 79 matches with them and 78 without), so the
+    metrics say which way the reprojections ran."""
+    import pyproj.network
+
+    polys = [sq(0, 0, 200)]
+    before = pyproj.network.is_network_enabled()
+    try:
+        for state in (True, False):
+            pyproj.network.set_network_enabled(state)
+            assert ev.proj_network_enabled() is state
+            assert evaluate(gdf(polys), gdf(polys))["proj_network"] is state
+    finally:
+        pyproj.network.set_network_enabled(before)
+
+
+# ---------------------------------------------------------------------------
+# ignore: predictions on ground excluded from the score
+# ---------------------------------------------------------------------------
+
+
+def _same(a, b) -> bool:
+    """Equality of nested results (keys in the same order), with NaN equal to NaN."""
+    if isinstance(a, dict):
+        return isinstance(b, dict) and list(a) == list(b) and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, list | tuple):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b, strict=True))
+    if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
+        return True
+    return a == b
+
+
+class TestIgnore:
+    @pytest.fixture
+    def layers(self):
+        # Two scored reference fields and one field left out of the score (say, not
+        # irrigated in the year of the imagery).
+        ref = gdf([sq(0, 0, 200), sq(300, 0, 200)], system=["pivot", "flood"])
+        ignored = gdf([sq(600, 0, 200)])
+        pred = gdf(
+            [
+                sq(0, 0, 200),  # matches field 0
+                sq(310, 10, 190),  # matches field 1 (IoU 0.9025)
+                sq(610, 10, 100),  # inside the ignored field: removed
+                sq(760, 0, 100, 200),  # 40 % on it, point (810, 100) outside: scored, FP
+                sq(1000, 0, 100),  # on ground in neither layer: scored, FP
+            ]
+        )
+        return pred, ref, ignored
+
+    @staticmethod
+    def l_shape():
+        # A scored field and a prediction covering it (IoU 2/3) with a strip reaching into
+        # an ignored field, where its representative point (650, 100) lies.
+        ref = gdf([sq(300, 0, 200)])
+        ignored = gdf([sq(600, 0, 200)])
+        pred = gdf([sq(300, 0, 200).union(sq(500, 80, 500, 40))])
+        pred.index = [7]
+        return pred, ref, ignored
+
+    def test_predictions_in_an_ignored_field_are_not_scored(self, layers):
+        pred, ref, ignored = layers
+        m = evaluate(pred, ref, ignore=ignored)
+        assert m["count_predicted_ignored"] == 1 and type(m["count_predicted_ignored"]) is int
+        assert (m["count_predicted"], m["count_tp"], m["count_fp"], m["count_fn"]) == (4, 2, 2, 0)
+        # The prediction partly on the ignored field and the one on unmapped ground stay.
+        assert m["count_fp_unassigned"] == 2 and m["count_predicted_dropped"] == 0
+        assert (m["precision"], m["recall"]) == pytest.approx((0.5, 1.0))
+        # Without ignore, the prediction in the ignored field is a false positive too.
+        base = evaluate(pred, ref)
+        assert "count_predicted_ignored" not in base
+        assert (base["count_predicted"], base["count_fp"], base["count_fp_unassigned"]) == (5, 3, 3)
+        assert base["precision"] == pytest.approx(0.4)
+
+    @pytest.mark.parametrize("matching", ["one_to_one", "many_to_one"])
+    def test_same_as_evaluating_without_the_removed_predictions(self, layers, matching):
+        pred, ref, ignored = layers
+        options = {
+            "matching": matching,
+            "strata": "system",
+            "size_bins": [0, 3, 5],
+            "bootstrap": 20,
+            "boundary_tolerance_m": 5.0,
+        }
+        m = evaluate(pred, ref, ignore=ignored, **options)
+        on_ignored = pred.representative_point().intersects(ignored.union_all())
+        assert on_ignored.tolist() == [False, False, True, False, False]
+        expected = evaluate(pred[~on_ignored], ref, **options)
+        assert m.pop("count_predicted_ignored") == 1  # the only key added
+        assert _same(m, expected)
+
+    def test_off_by_default(self, layers):
+        pred, ref, _ = layers
+        options = {"strata": "system", "size_bins": "auto", "bootstrap": 10}
+        base = evaluate(pred, ref, boundary_tolerance_m=5.0, **options)
+        assert _same(evaluate(pred, ref, boundary_tolerance_m=5.0, ignore=None, **options), base)
+        frame = evaluate_frame(pred, ref, boundary_tolerance_m=5.0)
+        same_frame = evaluate_frame(pred, ref, boundary_tolerance_m=5.0, ignore=None)
+        pd.testing.assert_frame_equal(same_frame, frame)
+        assert same_frame.attrs == frame.attrs and "count_predicted_ignored" not in frame.attrs
+
+    @pytest.mark.parametrize("empty", [gdf([]), gpd.GeoSeries([None])])
+    def test_an_empty_ignore_layer_removes_nothing(self, layers, empty):
+        pred, ref, _ = layers
+        m = evaluate(pred, ref, ignore=empty)
+        assert m.pop("count_predicted_ignored") == 0
+        assert _same(m, evaluate(pred, ref))
+
+    def test_a_point_on_an_ignored_boundary_is_ignored(self):
+        ref = gdf([sq(0, 0, 200)])
+        # Two ignored fields share the edge x = 700; a third ends at x = 1000.
+        ignored = gdf([sq(600, 0, 100, 200), sq(700, 0, 100, 200), sq(900, 0, 100, 200)])
+        pred = gdf(
+            [
+                sq(650, 50, 100),  # point (700, 100): on the shared edge
+                sq(950, 0, 100, 200),  # point (1000, 100): on an outer edge
+                sq(1100, 0, 100),  # point (1150, 50): outside
+            ]
+        )
+        points = pred.representative_point()
+        assert (points.x - X0).tolist() == [700.0, 1000.0, 1150.0]
+        m = evaluate(pred, ref, ignore=ignored)
+        assert (m["count_predicted_ignored"], m["count_predicted"]) == (2, 1)
+
+    def test_a_prediction_counts_by_its_representative_point_alone(self):
+        pred, ref, ignored = self.l_shape()
+        point = pred.representative_point().iloc[0]
+        assert (point.x - X0, point.y - Y0) == pytest.approx((650.0, 100.0))
+        assert evaluate(pred, ref)["count_tp"] == 1  # it matches the scored field ...
+        m = evaluate(pred, ref, ignore=ignored)  # ... but lies in the ignored one
+        assert (m["count_predicted_ignored"], m["count_tp"], m["count_fp"], m["count_fn"]) == (
+            1,
+            0,
+            0,
+            1,
+        )
+
+    def test_the_point_is_that_of_the_repaired_prediction(self):
+        from shapely.geometry import MultiPolygon
+
+        # An invalid prediction: a box in the scored field and a strip across it into the
+        # ignored field, in one multipolygon. The point of the unrepaired multipolygon lies in
+        # the strip, in the ignored field; that of the repaired one (their union), in the
+        # scored field, so it is scored.
+        ref, ignored = gdf([sq(0, 0, 200)]), gdf([sq(200, 0, 200)])
+        pred = gdf([MultiPolygon([sq(0, 0, 150, 90), sq(100, 40, 250, 10)])])
+        assert not pred.is_valid.any()
+        assert pred.representative_point().intersects(ignored.union_all()).tolist() == [True]
+        m = evaluate(pred, ref, ignore=ignored)
+        assert (m["count_predicted"], m["count_predicted_ignored"]) == (1, 0)
+        assert m["count_predicted_repaired"] == 1
+
+    def test_dropped_and_repaired_counts_describe_the_layer_passed(self):
+        # A bow-tie in the ignored field is repaired, then ignored: counted in
+        # count_predicted_repaired, as without ignore; a null row is dropped before the test.
+        ref, ignored = gdf([sq(0, 0, 200)]), gdf([sq(300, 0, 200)])
+        bowtie = Polygon(
+            [(X0 + 320, Y0 + 20), (X0 + 480, Y0 + 180), (X0 + 480, Y0 + 20), (X0 + 320, Y0 + 180)]
+        )
+        pred = gpd.GeoDataFrame(geometry=[bowtie, sq(0, 0, 200), None], crs=CRS)
+        m = evaluate(pred, ref, ignore=ignored)
+        assert (m["count_predicted"], m["count_predicted_ignored"], m["count_tp"]) == (1, 1, 1)
+        assert (m["count_predicted_repaired"], m["count_predicted_dropped"]) == (1, 1)
+        base = evaluate(pred, ref)
+        assert (base["count_predicted_repaired"], base["count_predicted_dropped"]) == (1, 1)
+        assert len(pred) == m["count_predicted"] + m["count_predicted_ignored"] + 1
+
+    def test_frame_without_the_removed_predictions(self, layers):
+        pred, ref, ignored = layers
+        pred.index = [10, 11, 12, 13, 14]
+        frame = evaluate_frame(pred, ref, ignore=ignored)
+        assert frame["pred_index"].tolist() == [10, 11]
+        assert frame.attrs["count_predicted_ignored"] == 1
+        pred, ref, ignored = self.l_shape()
+        assert evaluate_frame(pred, ref)["pred_index"].tolist() == [7]
+        row = evaluate_frame(pred, ref, ignore=ignored).iloc[0]
+        assert not row["matched"] and row["n_overlapping_pred"] == 0
+        assert row["max_overlap_pred_index"] is None
+
+    def test_layers_in_other_crs(self, layers):
+        pred, ref, ignored = layers
+        m = evaluate(pred, ref, ignore=ignored)
+        # The points are tested in the CRS of ignore; here they lie at least 10 m from its
+        # edges, so the result does not depend on where the test is made.
+        assert _same(evaluate(pred, ref, ignore=ignored.to_crs(4326)), m)
+        geographic = evaluate(pred.to_crs(4326), ref, ignore=ignored)
+        assert (geographic["count_predicted_ignored"], geographic["count_tp"]) == (1, 2)
+        assert geographic["count_predicted"] == 4
+
+    def test_every_prediction_ignored(self, layers):
+        pred, ref, _ = layers
+        m = evaluate(pred, ref, ignore=gdf([sq(-100, -100, 1500, 400)]))
+        assert (m["count_predicted_ignored"], m["count_predicted"], m["count_fn"]) == (5, 0, 2)
+        assert (m["precision"], m["recall"], m["f1"]) == (0.0, 0.0, 0.0)
+
+    def test_bad_ignore(self, layers, monkeypatch):
+        pred, ref, _ = layers
+        with pytest.raises(ValueError, match="ignore has no CRS"):
+            evaluate(pred, ref, ignore=gpd.GeoSeries([sq(600, 0)]))
+        with pytest.raises(ValueError, match="ignore has no CRS"):
+            evaluate_frame(pred, ref, ignore=gpd.GeoSeries([sq(600, 0)]))
+
+        def fail(*args, **kwargs):
+            raise AssertionError("evaluated before ignore was checked")
+
+        monkeypatch.setattr(ev, "_run", fail)
+        with pytest.raises(TypeError, match="ignore must be a GeoDataFrame or GeoSeries"):
+            evaluate(pred, ref, ignore=[sq(600, 0)])

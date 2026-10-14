@@ -155,6 +155,98 @@ class TestUSGSNAIPPlusBuilderBehaviour:
             assert (data[:, max(0, r - 3) : r + 3, max(0, c - 3) : c + 3] > 0).any()
 
 
+def _rgbn_tiles(tmp_path, n_tiles, nodata=0, **profile):
+    """64 x 64 px uint8 R, G, B, N tiles side by side in EPSG:3857.
+
+    R, G, B are 100-200 everywhere; NIR is 0 in columns 5-9 of the first tile.
+    Without a ``photometric`` or ``ALPHA`` option GDAL tags the tiles R, G, B, alpha.
+    Returns the tile paths, the source mosaic (bands, rows, columns) and the grid.
+    """
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from agribound.composites.gee import ExportGrid
+
+    rng = np.random.default_rng(0)
+    paths, arrays = [], []
+    for t in range(n_tiles):
+        data = rng.integers(100, 201, size=(4, 64, 64), dtype=np.uint8)
+        if t == 0:
+            data[3, :, 5:10] = 0
+        path = tmp_path / f"tile_{t:03d}.tif"
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            count=4,
+            width=64,
+            height=64,
+            dtype="uint8",
+            crs="EPSG:3857",
+            transform=from_origin(-11_000_000 + 64 * t, 4_200_000, 1, 1),
+            nodata=nodata,
+            **profile,
+        ) as dst:
+            dst.write(data)
+        paths.append(str(path))
+        arrays.append(data)
+    grid = ExportGrid("EPSG:3857", from_origin(-11_000_000, 4_200_000, 1, 1), 64 * n_tiles, 64)
+    return paths, np.concatenate(arrays, axis=2), grid
+
+
+def test_write_final_keeps_pixels_whose_nir_is_zero(tmp_path):
+    """Band 4 is NIR, but the merged mosaic was tagged RGBA (GDAL's default for 4 uint8 bands).
+
+    GDAL's warper then used NIR as alpha and blanked every band where it was 0. The tiles
+    themselves carry no alpha tag here.
+    """
+    import rasterio
+    from rasterio.enums import ColorInterp
+
+    from agribound.composites.usgs import USGSNAIPPlusCompositeBuilder
+
+    tiles, source, grid = _rgbn_tiles(tmp_path, 2, photometric="MINISBLACK")
+    out = tmp_path / "final.tif"
+    assert USGSNAIPPlusCompositeBuilder._write_final(tiles, out, grid) == 4
+    with rasterio.open(out) as src:
+        data, interp = src.read(), src.colorinterp
+    # Same grid: R, G, B come through unchanged, including where NIR is 0.
+    blanked = int(((data[:3] == 0).all(axis=0) & (source[:3] > 0).all(axis=0)).sum())
+    assert blanked == 0, f"{blanked} pixels with valid R, G, B were blanked"
+    assert (data[:3] == source[:3]).all()
+    assert ColorInterp.alpha not in interp
+
+
+@pytest.mark.parametrize("n_tiles", [1, 2])
+@pytest.mark.parametrize("nodata", [None, 0])
+def test_write_final_ignores_an_alpha_tag_on_the_tiles(tmp_path, n_tiles, nodata):
+    """Tiles tagged R, G, B, alpha (GDAL's default; the service's tiles carry no alpha tag).
+
+    A single tile is warped directly and merge reads each tile's own mask, so band 4 of
+    such a tile blanked every band where NIR is 0 (with one tile, or several without
+    nodata). The tiles' alpha tag is cleared first.
+    """
+    import rasterio
+    from rasterio.enums import ColorInterp
+
+    from agribound.composites.usgs import USGSNAIPPlusCompositeBuilder
+
+    tiles, source, grid = _rgbn_tiles(tmp_path, n_tiles, nodata=nodata)
+    with rasterio.open(tiles[0]) as src:
+        assert src.colorinterp[3] == ColorInterp.alpha
+    out = tmp_path / "final.tif"
+    assert USGSNAIPPlusCompositeBuilder._write_final(tiles, out, grid) == 4
+    with rasterio.open(out) as src:
+        data = src.read()
+    blanked = int(((data[:3] == 0).all(axis=0) & (source[:3] > 0).all(axis=0)).sum())
+    assert blanked == 0, f"{blanked} pixels with valid R, G, B were blanked"
+    assert (data[:3] == source[:3]).all()
+    for tile in tiles:
+        with rasterio.open(tile) as src:
+            assert ColorInterp.alpha not in src.colorinterp
+
+
 def _usgs_candidate(oid, geometry):
     from agribound.clients.usgs_naip_plus import USGSRasterCandidate
 

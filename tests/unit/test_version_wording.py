@@ -1,4 +1,4 @@
-"""Docstrings, help texts and docs name the release lines as 0.1.x and 1.0.
+"""Docstrings, help texts and docs name the release lines as 0.1.x and 1.x.
 
 The release before 1.0.0 is the 0.1.x line (0.1.0-0.1.3). Calling it 1.x ("the
 agribound 1.x vote rule", "1.x had no tolerance") or v1 ("the v1 rule") was
@@ -8,7 +8,7 @@ drafts numbered this release 2.0.0): "agribound 2.0.0", "agribound v2",
 "agribound==2.0.0", "Changed in (version) 2.0", "In 2.0, ...", "since 2.0",
 "the 2.0 release", "the v2.0 release notes", "the 2.x line", and a bare "v2" or
 "v2.0" such as "not measured for v2", "In v2, ..." or "(v2 layout)". The
-current release line is written "1.0" (this release "1.0.1", the first "1.0.0").
+current release is "1.1.0" (the 1.x line: "1.0.0", "1.0.1", "1.1.0").
 
 Other projects' versions are legitimate. A bare "v2" or "v2.0" passes when a
 product name stands just before it (TESSERA, Delineate Anything, DA, FTW, HLS,
@@ -282,13 +282,13 @@ def _v2_release_offenders(paths, root: Path = ROOT) -> list[str]:
 def test_no_agribound_1x_or_v1_release_wording():
     offenders = _offenders(_package_files(), _previous_line_wrong)
     assert not offenders, (
-        "use '0.1.x' for the previous release line ('1.0' for this one):\n" + "\n".join(offenders)
+        "use '0.1.x' for the line before 1.0.0 ('1.x' for this one):\n" + "\n".join(offenders)
     )
 
 
 def test_no_agribound_2_release_wording_in_package():
     offenders = _v2_release_offenders(_package_files())
-    assert not offenders, "this release is 1.0 / 1.0.1:\n" + "\n".join(offenders)
+    assert not offenders, "this release is 1.1.0 (the 1.x line):\n" + "\n".join(offenders)
 
 
 def test_no_agribound_2_release_wording_in_docs():
@@ -296,7 +296,7 @@ def test_no_agribound_2_release_wording_in_docs():
     if not files:
         pytest.skip("the source checkout (docs/, examples/) is not available")
     offenders = _v2_release_offenders(files)
-    assert not offenders, "this release is 1.0 / 1.0.1:\n" + "\n".join(offenders)
+    assert not offenders, "this release is 1.1.0 (the 1.x line):\n" + "\n".join(offenders)
 
 
 @pytest.mark.parametrize(

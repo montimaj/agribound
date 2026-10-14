@@ -81,7 +81,12 @@ jobs:
       - name: Install engine dependencies
         # `gee` brings earthengine-api, geedim and google-auth, so the Earth Engine
         # and authentication unit tests (all mocked, no credentials) run here too.
-        run: python -m pip install ".[gee,delineate-anything,ftw,geoai,tessera,agent,dev]"
+        # `sam-auto` brings sam2 1.1.0 and OpenCV without segment-geospatial (whose
+        # patool dependency is GPL-3), so the sam2 tests of engine sam-auto run here.
+        run: python -m pip install ".[gee,delineate-anything,ftw,geoai,tessera,agent,crop-sequence,sam-auto,dev]"
+      - name: Check that engine sam-auto imports without segment-geospatial
+        run: |
+          python -c "import importlib.util, sys; import cv2, sam2.build_sam, agribound.engines.sam_auto; sys.exit(importlib.util.find_spec('samgeo') is not None)"
       - name: Show resolved versions
         run: python -m pip list
       - name: Run unit and integration tests

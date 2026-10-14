@@ -4,7 +4,8 @@ Render the gallery image that compares the 0.1.x Pampas README image with curren
 
 Usage::
 
-    python tools/make_gallery_pampas_0.1x.py  # writes assets/gallery_1.0/Pampas_0.1x_comparison_*
+    python tools/make_gallery_pampas_0.1x.py  # writes assets/gallery_1.1/Pampas_0.1x_comparison_*
+    python tools/make_gallery_pampas_0.1x.py --old-layer PATH  # the 0.1.x layer elsewhere
 
 The agribound 0.1.x README showed example 15 as a screenshot
 (``assets/gallery_0.1x/Pampas_example.png``): a wide, rotated view with thick
@@ -23,7 +24,8 @@ can be compared as they were first seen:
 Panels 2-4 are drawn on the October 2024 Sentinel-2 composite of the current run,
 resampled (bilinear) into the screenshot's frame and stretched between the 1st
 and 99.5th percentiles pooled over the three bands, as in
-``tools/make_gallery.py``. All outlines are red, as in the screenshot.
+``tools/make_gallery.py``; the notes give its window and image count from its
+tags. All outlines are red, as in the screenshot.
 
 Frame: :data:`FRAME` maps EPSG:32720 coordinates to screenshot pixels. It was
 fitted on 2026-09-29 by matching the 0.1.x crop-filter outlines to the
@@ -32,15 +34,20 @@ pixel, truncated at 15, 8 and 4 px in turn): 12.55 m per pixel, rotated
 32.8°, so the screenshot covers about 23.4 x 18.3 km. With it, the 0.1.x layer
 of panel 2 covers the screenshot's red lines to within 2 px (F1 0.999).
 
-Inputs are the 0.1.x outputs in ``outputs/pampas_semi_supervised`` (not in the
-repository) and the run root ``outputs/examples_1.0`` (``--run-root``). Titles and
-notes name the installed agribound version (:data:`make_gallery.__version__`).
+Inputs are the 0.1.x layer of the screenshot (``--old-layer``, by default
+``outputs/pampas_semi_supervised/fields_sam2_tessera_improved_2024.gpkg``, an
+output of 0.1.x that is not in the repository) and the run root of the current
+layers (``--run-root``). As in ``tools/make_gallery.py``, the defaults are the
+1.1 run root and gallery (:data:`make_gallery.RUN_ROOT`, ``outputs/examples_1.1``,
+and :data:`make_gallery.OUT_DIR`, ``assets/gallery_1.1``); ``--run-root
+outputs/examples_1.0 --out-dir assets/gallery_1.0`` renders into the 1.0 gallery
+again. Titles and notes name the installed agribound version
+(:data:`make_gallery.__version__`).
 """
 
 from __future__ import annotations
 
 import argparse
-import glob
 import sys
 from pathlib import Path
 
@@ -52,6 +59,7 @@ import make_gallery as mg  # noqa: E402  (style constants, note wrapping, previe
 
 SCREENSHOT = REPO / "assets" / "gallery_0.1x" / "Pampas_example.png"
 OLD_OUTPUTS = REPO / "outputs" / "pampas_semi_supervised"
+OLD_LAYER = OLD_OUTPUTS / "fields_sam2_tessera_improved_2024.gpkg"  # default of --old-layer
 NEW_OUTPUTS = "outputs/pampas_semi_supervised"  # relative to --run-root
 CRS = "EPSG:32720"
 #: (a, b, tx, ty): screenshot column = a*x - b*y + tx, row = -b*x - a*y + ty (x, y in EPSG:32720).
@@ -124,24 +132,55 @@ def composite_background(tif: Path, width: int, height: int):
     return Image.fromarray((np.moveaxis(rgb, 0, -1) * 255).astype(np.uint8))
 
 
+def composite_note(tif: Path) -> str:
+    """The composite as the notes name it, from its tags: "Sentinel-2 L2A 10 m median
+    composite of 2024-10-01 to 2024-11-01 (end exclusive), 8 images"."""
+    comp = mg._composite_facts({}, tif)
+    label = mg.SOURCE_LABELS["sentinel2"]
+    if comp.get("resolution_m"):
+        label += f" {float(comp['resolution_m']):g} m"
+    method = f" {comp['composite_method']}" if comp.get("composite_method") else ""
+    window = ""
+    if comp.get("date_start") and comp.get("date_end_exclusive"):
+        window = f" of {comp['date_start']} to {comp['date_end_exclusive']} (end exclusive)"
+    n_img = f", {mg._count(comp['n_images'], 'image')}" if comp.get("n_images") else ""
+    return f"{label}{method} composite{window}{n_img}"
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--run-root", default=str(REPO / "outputs" / "examples_1.0"))
-    ap.add_argument("--out-dir", default=str(REPO / "assets" / "gallery_1.0"))
+    ap.add_argument(
+        "--run-root",
+        default=str(mg.RUN_ROOT),
+        help="run root of the current layers (default: make_gallery's, outputs/examples_1.1)",
+    )
+    ap.add_argument(
+        "--out-dir",
+        default=str(mg.OUT_DIR),
+        help="gallery folder (default: make_gallery's, assets/gallery_1.1)",
+    )
+    ap.add_argument(
+        "--old-layer",
+        default=str(OLD_LAYER),
+        help="the 0.1.x layer of the screenshot (default: "
+        f"{OLD_LAYER.relative_to(REPO)}, not in the repository)",
+    )
     args = ap.parse_args(argv)
 
     import matplotlib.pyplot as plt
     from PIL import Image
 
-    root, out_dir = Path(args.run_root), Path(args.out_dir)
+    root, out_dir, old_layer = Path(args.run_root), Path(args.out_dir), Path(args.old_layer)
+    if not old_layer.exists():
+        ap.error(f"{old_layer}: no such file (the 0.1.x layer; pass --old-layer)")
     new = root / NEW_OUTPUTS
     shot = Image.open(SCREENSHOT).convert("RGB")
     w, h = shot.size
-    tif = Path(glob.glob(str(new / ".agribound_cache" / "sentinel2_composite_*.tif"))[0])
+    tif = mg._one(f"{NEW_OUTPUTS}/.agribound_cache/sentinel2_composite_*.tif", root)
     bg = composite_background(tif, w, h)
     panels = [("0.1.x README image (as published)", shot)]
     for label, path in [
-        ("0.1.x, the layer in that image", OLD_OUTPUTS / "fields_sam2_tessera_improved_2024.gpkg"),
+        ("0.1.x, the layer in that image", old_layer),
         (f"{V}, the gallery layer", new / "fields_tessera_crop_sam2-s2-split_2024.gpkg"),
         (
             f"{V}, made as the 0.1.x layer",
@@ -159,8 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         "with SAM 2 on Sentinel-2, parts over 50 ha unrefined (the gallery layer). Bottom right: "
         f"{V}, SAM 2 on three TESSERA dimensions with the same rule (made as the 0.1.x layer).",
         "Panels 2-4: the same frame (about 23.4 x 18.3 km, rotated 32.8°, 12.55 m per pixel; "
-        "outlines 5 px wide, as in the screenshot) on the Sentinel-2 L2A 10 m median composite of "
-        f"2024-10-01 to 2024-11-01 (end exclusive), 8 images, from the {V} run. "
+        f"outlines 5 px wide, as in the screenshot) on the {composite_note(tif)}, from the {V} "
+        "run. "
         "0.1.x polygons cover the whole bounding box of the study area and reach up to about "
         f"650 m beyond it; {V} keeps those whose representative point lies inside the "
         f"study-area pentagon (whole, not clipped). White (top left): outside the {V} "
