@@ -259,7 +259,7 @@ class AgentSession:
 
         self.workdir.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(to_jsonable(self.to_dict()), f, indent=2)
             f.write("\n")
         os.replace(tmp, self.path)
